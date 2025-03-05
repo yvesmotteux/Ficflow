@@ -1,4 +1,5 @@
 use rusqlite::{Connection, Result};
+use std::error::Error;
 use ficflow::infrastructure::migration::run_migrations;
 use ficflow::domain::fic::{Fanfiction, Rating, ReadingStatus, UserRating};
 
@@ -9,7 +10,7 @@ mod tests {
 
     use super::*;
 
-    fn setup_test_db() -> Result<Connection, Box<dyn std::error::Error>> {
+    fn setup_test_db() -> Result<Connection, Box<dyn Error>> {
         let mut conn = Connection::open_in_memory()?;
         // Run migrations manually for the in-memory DB
         run_migrations(&mut conn)?;
@@ -17,7 +18,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_fanfiction() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_add_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
         let conn = setup_test_db().expect("Failed to establish database connection");
         
@@ -65,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_fanfiction() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_remove_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
         let conn = setup_test_db().expect("Failed to establish database connection");
 

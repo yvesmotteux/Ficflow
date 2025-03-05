@@ -1,15 +1,16 @@
 use rusqlite::{Connection, params, Result};
 use serde_json;
+use std::error::Error;
 use crate::domain::fic::Fanfiction;
 use crate::infrastructure::migration::run_migrations;
 
-pub fn establish_connection() -> Result<Connection, Box<dyn std::error::Error>> {
+pub fn establish_connection() -> Result<Connection, Box<dyn Error>> {
     let mut conn = Connection::open("fanfictions.db")?;
     run_migrations(&mut conn)?;
     Ok(conn)
 }
 
-pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn std::error::Error>> {
+pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
     let authors = serde_json::to_string(&fic.authors)?;
     let categories = serde_json::to_string(&fic.categories)?;
     let characters = serde_json::to_string(&fic.characters)?;
