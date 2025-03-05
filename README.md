@@ -13,10 +13,10 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
     - [ ] Allow users to edit the custom fields (rating, status,...)
 - [ ] Implement a function that checks for fic updates
 - [ ] Allow users to create shelves and organise more flexibly
-- [ ] Create a feature-complete GUI version compatible with all OS
+- [ ] Create a feature-complete GUI version compatible with all OS (target for v1)
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one
 - [ ] Add a search system based on tags, with an option to filter out fics already catalogued
-- [ ] Create a mobile phone app
+- [ ] Create a mobile phone app (target for v2)
 
 ## Contributing
 
