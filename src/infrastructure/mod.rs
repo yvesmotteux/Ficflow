@@ -1,3 +1,3 @@
 pub mod db;
-pub mod ao3_api;
+pub mod ao3;
 pub mod migration;

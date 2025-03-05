@@ -1,10 +1,10 @@
 use rusqlite::{Connection, Result};
 use ficflow::infrastructure::migration::run_migrations;
-use chrono::NaiveDateTime;
 use ficflow::domain::fic::{Fanfiction, Rating, ReadingStatus, UserRating};
 
 #[cfg(test)]
 mod tests {
+    use chrono::{DateTime, Utc};
     use ficflow::infrastructure::db::{delete_fanfiction, insert_fanfiction};
 
     use super::*;
@@ -41,14 +41,14 @@ mod tests {
             tags: None,
             warnings: vec![],
             words: 5000,
-            date_published: NaiveDateTime::parse_from_str("2025-01-01T12:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
-            date_updated: NaiveDateTime::parse_from_str("2025-02-01T12:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            date_published: "2025-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+            date_updated: "2025-02-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
             last_chapter_read: None,
             reading_status: ReadingStatus::InProgress,
             read_count: 1,
             user_rating: Some(UserRating::Five),
             personal_note: Some("Great story!".to_string()),
-            last_checked_date: NaiveDateTime::parse_from_str("2025-02-01T12:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            last_checked_date: "2025-02-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
         };
 
         // When
@@ -89,14 +89,14 @@ mod tests {
             tags: None,
             warnings: vec![],
             words: 5000,
-            date_published: NaiveDateTime::parse_from_str("2025-01-01T12:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
-            date_updated: NaiveDateTime::parse_from_str("2025-02-01T12:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            date_published: "2025-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+            date_updated: "2025-02-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
             last_chapter_read: None,
             reading_status: ReadingStatus::InProgress,
             read_count: 1,
             user_rating: Some(UserRating::Five),
             personal_note: Some("Great story!".to_string()),
-            last_checked_date: NaiveDateTime::parse_from_str("2025-02-01T12:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            last_checked_date: "2025-02-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
         };
 
         insert_fanfiction(&conn, &new_fic).expect("Failed to insert fanfiction");
