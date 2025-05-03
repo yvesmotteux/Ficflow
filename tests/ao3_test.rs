@@ -77,10 +77,10 @@ mod tests {
     #[test]
     fn test_it_can_fetch_a_fanfiction_from_the_real_website() {        
         // Given
-        let expected_title = "Daughter of Man, Sister of Dragon".to_string();
+        let expected_title = "Brasier Année Zéro".to_string();
 
         // When
-        let fetched_fanfic = fetch_fanfiction(15759681, "https://archiveofourown.org").expect("Failed to fetch fanfiction");
+        let fetched_fanfic = fetch_fanfiction(63776797, "https://archiveofourown.org").expect("Failed to fetch fanfiction");
 
         // Then
         assert_eq!(expected_title, fetched_fanfic.title);
