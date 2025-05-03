@@ -1,11 +1,18 @@
 use rusqlite::{Connection, params, Result};
 use serde_json;
 use std::error::Error;
+use std::fs;
 use crate::domain::fic::Fanfiction;
 use crate::domain::db::DatabaseOps;
 use crate::infrastructure::migration::run_migrations;
+use dirs_next::data_local_dir;
 
 pub fn establish_connection() -> Result<Connection, Box<dyn Error>> {
+    let mut db_path = data_local_dir().ok_or("Failed to determine user directory")?;
+    db_path.push("ficflow");
+    fs::create_dir_all(&db_path)?;
+    db_path.push("fanfictions.db");
+    
     let mut conn = Connection::open("fanfictions.db")?;
     run_migrations(&mut conn)?;
     Ok(conn)
