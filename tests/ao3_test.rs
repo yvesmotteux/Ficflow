@@ -1,18 +1,18 @@
 use std::fs;
 use httpmock::MockServer;
 use httpmock::prelude::*;
-use ficflow::infrastructure::ao3::fetch_fic::fetch_fanfiction;
 
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use ficflow::domain::fic::{assert_fanfiction_eq, ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus};
+    use ficflow::{domain::fic::{assert_fanfiction_eq, ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus}, infrastructure::ao3::fetch_fic::Ao3Fetcher};
 
     use super::*;
 
     #[test]
     fn test_fetch_fanfiction_from_mock() {
         let mock_server = MockServer::start();
+        let fetcher = Ao3Fetcher;
         
         // Given
         let html_content = fs::read_to_string("tests/fixtures/ao3_fic_example1.html")
@@ -67,7 +67,7 @@ mod tests {
         };
 
         // When
-        let fetched_fanfic = fetch_fanfiction(53960491, &mock_server.base_url()).expect("Failed to fetch fanfiction");
+        let fetched_fanfic = fetcher.fetch_fanfiction(53960491, &mock_server.base_url()).expect("Failed to fetch fanfiction");
 
         // Then
         assert_fanfiction_eq(&expected_fanfic, &fetched_fanfic);
@@ -77,10 +77,11 @@ mod tests {
     #[test]
     fn test_it_can_fetch_a_fanfiction_from_the_real_website() {        
         // Given
+        let fetcher = Ao3Fetcher;
         let expected_title = "Brasier Année Zéro".to_string();
 
         // When
-        let fetched_fanfic = fetch_fanfiction(63776797, "https://archiveofourown.org").expect("Failed to fetch fanfiction");
+        let fetched_fanfic = fetcher.fetch_fanfiction(63776797, "https://archiveofourown.org").expect("Failed to fetch fanfiction");
 
         // Then
         assert_eq!(expected_title, fetched_fanfic.title);

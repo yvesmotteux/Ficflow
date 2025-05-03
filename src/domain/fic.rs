@@ -2,6 +2,10 @@ use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 use strum_macros::Display;
 
+pub trait FanfictionFetcher {
+    fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, Box<dyn std::error::Error>>;
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Fanfiction {
     pub id: u64,                           // AO3 ID
