@@ -22,3 +22,6 @@ httpmock = "0.7.0"
 assert_cmd = "2.0.17"
 predicates = "3.1.3"
 dirs-next = "2.0.0"
+term-table = "1.3.2"
+# Update term-table to the latest version that supports the builder pattern
+# term-table = "1.3.2"

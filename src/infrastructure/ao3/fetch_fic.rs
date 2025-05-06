@@ -9,21 +9,21 @@ pub struct Ao3Fetcher;
 impl FanfictionFetcher for Ao3Fetcher {
     fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, Box<dyn Error>> {
         let url = format!("{}/works/{}", base_url, fic_id);
-        let client = Client::new();
+        
+        // Create a client with a longer timeout
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(60))  // Set a 60-second timeout
+            .build()?;
+            
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36".parse().unwrap());
     
         let response = client.get(&url).headers(headers).send()?.text()?;
     
         let document = Html::parse_document(&response);
-    
-        // Title
-        let title_selector = Selector::parse("h2.title.heading")?;
-        let title = document
-            .select(&title_selector)
-            .next()
-            .map(|element| element.text().collect::<String>().trim().to_string())
-            .ok_or("Title not found")?;
+        
+        // Improved title extraction with multiple fallback selectors
+        let title = self.extract_title(&document)?;
     
         // Authors
         let author_selector = Selector::parse("h3.byline.heading")?;
@@ -32,13 +32,8 @@ impl FanfictionFetcher for Ao3Fetcher {
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
     
-        // Summary
-        let summary_selector = Selector::parse("div.summary.module blockquote.userstuff")?;
-        let summary = document
-            .select(&summary_selector)
-            .next()
-            .map(|element| element.text().collect::<String>().trim().to_string())
-            .ok_or("Summary not found")?;
+        // Summary - use the improved extractor
+        let summary = self.extract_summary(&document)?;
     
         // Categories
         let categories_selector = Selector::parse("dd.category.tags")?;
@@ -164,7 +159,6 @@ impl FanfictionFetcher for Ao3Fetcher {
             .next()
             .and_then(|element| {
                 let date_str = element.text().collect::<String>().trim().to_string();
-                println!("Date string: {}", date_str);
                 NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
                 .ok()
                 .and_then(|naive_date| {
@@ -228,6 +222,110 @@ impl FanfictionFetcher for Ao3Fetcher {
         };
     
         Ok(fanfiction)
+    }
+}
+
+impl Ao3Fetcher {
+    fn extract_title(&self, document: &Html) -> Result<String, Box<dyn Error>> {
+        // Try primary selector: h2.title.heading (standard AO3 title format)
+        let title_selector = Selector::parse("h2.title.heading").unwrap_or_else(|_| Selector::parse("h2").unwrap());
+        if let Some(element) = document.select(&title_selector).next() {
+            let title = element.text().collect::<String>().trim().to_string();
+            if !title.is_empty() {
+                return Ok(self.clean_title(title));
+            }
+        }
+
+        // Try secondary selector: head > title (use page title as fallback)
+        let head_title_selector = Selector::parse("head > title").unwrap_or_else(|_| Selector::parse("title").unwrap());
+        if let Some(element) = document.select(&head_title_selector).next() {
+            let full_title = element.text().collect::<String>().trim().to_string();
+            
+            // AO3 page titles typically follow the format: 
+            // "Title - Author - Fandom [Archive of Our Own]"
+            if let Some(dash_pos) = full_title.find(" - ") {
+                return Ok(self.clean_title(full_title[..dash_pos].trim().to_string()));
+            }
+            
+            // If we can't parse it properly, just return the cleaned full title
+            if !full_title.is_empty() {
+                return Ok(self.clean_title(full_title));
+            }
+        }
+
+        // Try tertiary selector: .preface .title (alternative title location)
+        let preface_title_selector = Selector::parse(".preface .title").unwrap_or_else(|_| Selector::parse(".title").unwrap());
+        if let Some(element) = document.select(&preface_title_selector).next() {
+            let title = element.text().collect::<String>().trim().to_string();
+            if !title.is_empty() {
+                return Ok(self.clean_title(title));
+            }
+        }
+
+        // If all selectors fail, return a generic title rather than failing
+        Ok("Unknown Title".to_string())
+    }
+    
+    // New method to clean up titles that might contain error messages or unintended text
+    fn clean_title(&self, title: String) -> String {
+        // Remove common prefixes that indicate errors
+        let title = title.trim();
+        
+        // Check for known error patterns
+        if title.starts_with("archiveofourown.org") || 
+           title.contains("SSL handshake failed") ||
+           title.contains("404") ||
+           title.contains("Not Found") ||
+           title.contains("Error") {
+            return "Unknown Title (Error Loading)".to_string();
+        }
+        
+        // Remove HTML artifacts
+        let title = title.replace("&nbsp;", " ")
+                         .replace("&amp;", "&")
+                         .replace("&lt;", "<")
+                         .replace("&gt;", ">")
+                         .replace("&#39;", "'")
+                         .replace("&quot;", "\"");
+        
+        // Remove AO3 suffix if present (e.g., "| Archive of Our Own")
+        if let Some(index) = title.find("|") {
+            let potential_suffix = title[index..].to_lowercase();
+            if potential_suffix.contains("archive") || potential_suffix.contains("our own") {
+                return title[..index].trim().to_string();
+            }
+        }
+        
+        title.to_string()
+    }
+    
+    fn extract_summary(&self, document: &Html) -> Result<String, Box<dyn Error>> {
+        // Try primary selector: standard AO3 summary format
+        let summary_selector = Selector::parse("div.summary.module blockquote.userstuff").unwrap_or_else(|_| {
+            Selector::parse("div.summary blockquote").unwrap()
+        });
+        
+        if let Some(element) = document.select(&summary_selector).next() {
+            let summary = element.text().collect::<String>().trim().to_string();
+            if !summary.is_empty() {
+                return Ok(summary);
+            }
+        }
+        
+        // Try alternative selector: sometimes the summary is in a different location
+        let alt_summary_selector = Selector::parse(".preface .summary").unwrap_or_else(|_| {
+            Selector::parse(".summary").unwrap()
+        });
+        
+        if let Some(element) = document.select(&alt_summary_selector).next() {
+            let summary = element.text().collect::<String>().trim().to_string();
+            if !summary.is_empty() {
+                return Ok(summary);
+            }
+        }
+        
+        // If no summary is found, return a default one rather than failing
+        Ok("No summary available".to_string())
     }
 }
 

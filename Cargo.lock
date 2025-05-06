@@ -749,6 +749,7 @@ dependencies = [
  "serde_json",
  "strum",
  "strum_macros",
+ "term-table",
 ]
 
 [[package]]
@@ -2348,6 +2349,17 @@ dependencies = [
  "dirs-next",
  "rustversion",
  "winapi",
+]
+
+[[package]]
+name = "term-table"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "210f90191b719267bc8b6307659faf54a77400d06b8033ece26692696fc002be"
+dependencies = [
+ "lazy_static",
+ "regex",
+ "unicode-width",
 ]
 
 [[package]]
