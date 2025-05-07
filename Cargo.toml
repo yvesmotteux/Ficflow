@@ -23,5 +23,6 @@ assert_cmd = "2.0.17"
 predicates = "3.1.3"
 dirs-next = "2.0.0"
 term-table = "1.3.2"
+once_cell = "1.19.0"
 # Update term-table to the latest version that supports the builder pattern
 # term-table = "1.3.2"

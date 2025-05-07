@@ -7,13 +7,14 @@ pub fn add_fanfiction(
     fetcher: &dyn FanfictionFetcher,
     db_ops: &dyn DatabaseOps,
     fic_id: u64,
+    base_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {    
     // Try up to 3 times with increasing timeouts
     let max_retries = 3;
     let mut last_error = None;
     
     for attempt in 1..=max_retries {
-        match fetcher.fetch_fanfiction(fic_id, "https://archiveofourown.org") {
+        match fetcher.fetch_fanfiction(fic_id, base_url) {
             Ok(fic) => {
                 // Check if the title indicates an error or unsuccessful fetch
                 if fic.title == "Unknown Title (Error Loading)" || 

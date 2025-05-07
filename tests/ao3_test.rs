@@ -1,6 +1,7 @@
 use std::fs;
 use httpmock::MockServer;
 use httpmock::prelude::*;
+use ficflow::domain::config;
 
 #[cfg(test)]
 mod tests {
@@ -72,5 +73,33 @@ mod tests {
         // Then
         assert_fanfiction_eq(&expected_fanfic, &fetched_fanfic);
         mock.assert();
+    }
+
+    #[test]
+    fn test_config_base_url() {
+        // Given
+        let original_url = config::get_ao3_base_url();
+        let mock_server = MockServer::start();
+        let fetcher = Ao3Fetcher;
+        
+        // Set up the mock response
+        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_example1.html")
+            .expect("Failed to read mock HTML file");
+            
+        let mock = mock_server.mock(|when, then| {
+            when.method(GET).path("/works/53960491");
+            then.status(200).body(html_content);
+        });
+        
+        // When
+        config::set_ao3_base_url(&mock_server.base_url());
+        let result = fetcher.fetch_fanfiction(53960491, &config::get_ao3_base_url());
+        
+        // Then
+        assert!(result.is_ok());
+        mock.assert();
+        
+        // Cleanup
+        config::set_ao3_base_url(&original_url);
     }
 }

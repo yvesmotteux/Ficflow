@@ -2,7 +2,7 @@ use clap::{Command, Arg};
 use crate::{
     application::{add_fic::add_fanfiction, delete_fic::delete_fic, list_fics::list_fics, 
                   wipe_db::wipe_database, get_fic::{get_fanfiction, display_fanfiction_details}}, 
-    domain::{db::DatabaseOps, fic::FanfictionFetcher},
+    domain::{db::DatabaseOps, fic::FanfictionFetcher, config},
 };
 use crate::infrastructure::db;
 
@@ -30,7 +30,10 @@ pub fn run_cli(fetcher: &dyn FanfictionFetcher, database: &dyn DatabaseOps) {
     if let Some(matches) = matches.subcommand_matches("add") {
         let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
         println!("Adding fanfiction with ID: {}", fic_id);
-        if let Err(e) = add_fanfiction(fetcher, database, fic_id.parse::<u64>().unwrap()) {
+        
+        let base_url = config::get_ao3_base_url();
+        
+        if let Err(e) = add_fanfiction(fetcher, database, fic_id.parse::<u64>().unwrap(), &base_url) {
             eprintln!("Error adding fanfiction: {}", e);
         }
     } else if let Some(matches) = matches.subcommand_matches("delete") {
