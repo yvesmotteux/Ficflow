@@ -2,6 +2,8 @@ use rusqlite::{Connection, params, Result, Row};
 use serde_json;
 use std::error::Error;
 use std::fs;
+use std::env;
+use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use crate::domain::fic::{Fanfiction, Rating, ReadingStatus, UserRating};
 use crate::domain::db::DatabaseOps;
@@ -9,10 +11,17 @@ use crate::infrastructure::migration::run_migrations;
 use dirs_next::data_local_dir;
 
 pub fn establish_connection() -> Result<Connection, Box<dyn Error>> {
-    let mut db_path = data_local_dir().ok_or("Failed to determine user directory")?;
-    db_path.push("ficflow");
-    fs::create_dir_all(&db_path)?;
-    db_path.push("fanfictions.db");
+    // Check for environment variable override first
+    let db_path = if let Ok(path) = env::var("FICFLOW_DB_PATH") {
+        PathBuf::from(path)
+    } else {
+        // Default path in user's data directory
+        let mut path = data_local_dir().ok_or("Failed to determine user directory")?;
+        path.push("ficflow");
+        fs::create_dir_all(&path)?;
+        path.push("fanfictions.db");
+        path
+    };
     
     let mut conn = Connection::open(&db_path)?;
     run_migrations(&mut conn)?;
