@@ -1,28 +1,25 @@
-use std::fs;
-use httpmock::MockServer;
-use httpmock::prelude::*;
-use ficflow::domain::config;
+#[path = "common/mod.rs"]
+mod common;
+use common::{fixtures, assertions};
 
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use ficflow::{domain::fic::{assert_fanfiction_eq, ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus}, infrastructure::ao3::fetch_fic::Ao3Fetcher};
-
+    use ficflow::{
+        domain::{
+            config,
+            fic::{ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus}
+        }, 
+        infrastructure::ao3::fetch_fic::Ao3Fetcher
+    };
     use super::*;
 
     #[test]
     fn test_fetch_fanfiction_from_mock() {
-        let mock_server = MockServer::start();
+        // Given
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         let fetcher = Ao3Fetcher;
         
-        // Given
-        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_example1.html")
-            .expect("Failed to read mock HTML file");
-
-        let mock = mock_server.mock(|when, then| {
-            when.method(GET).path("/works/53960491");
-            then.status(200).body(html_content);
-        });
         let expected_fanfic = Fanfiction {
             id: 53960491,
             title: "Featherlight".to_string(),
@@ -68,36 +65,26 @@ mod tests {
         };
 
         // When
-        let fetched_fanfic = fetcher.fetch_fanfiction(53960491, &mock_server.base_url()).expect("Failed to fetch fanfiction");
+        let fetched_fanfic = fixtures::when_fetching_fanfiction(&fetcher, fic_id, &mock_server.base_url())
+            .expect("Failed to fetch fanfiction");
 
         // Then
-        assert_fanfiction_eq(&expected_fanfic, &fetched_fanfic);
-        mock.assert();
+        assertions::then_fanfiction_was_fetched(&expected_fanfic, &fetched_fanfic, None);
     }
 
     #[test]
     fn test_config_base_url() {
         // Given
         let original_url = config::get_ao3_base_url();
-        let mock_server = MockServer::start();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         let fetcher = Ao3Fetcher;
-        
-        // Set up the mock response
-        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_example1.html")
-            .expect("Failed to read mock HTML file");
-            
-        let mock = mock_server.mock(|when, then| {
-            when.method(GET).path("/works/53960491");
-            then.status(200).body(html_content);
-        });
         
         // When
         config::set_ao3_base_url(&mock_server.base_url());
-        let result = fetcher.fetch_fanfiction(53960491, &config::get_ao3_base_url());
+        let result = fixtures::when_fetching_fanfiction(&fetcher, fic_id, &config::get_ao3_base_url());
         
         // Then
         assert!(result.is_ok());
-        mock.assert();
         
         // Cleanup
         config::set_ao3_base_url(&original_url);

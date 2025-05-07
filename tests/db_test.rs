@@ -1,71 +1,45 @@
-use rusqlite::{Connection, Result};
 use std::error::Error;
-use ficflow::infrastructure::migration::run_migrations;
-use ficflow::domain::fic::{Fanfiction, Rating, ReadingStatus};
+use rusqlite::{Connection, OpenFlags};
+use tempfile::TempDir;
+
+#[path = "common/mod.rs"]
+mod common;
+use common::{fixtures, assertions};
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, Utc};
-    use ficflow::infrastructure::db::{delete_fanfiction, insert_fanfiction, get_all_fanfictions};
-    use ficflow::domain::fic::assert_fanfiction_eq;
+    use ficflow::infrastructure::{
+        db::{delete_fanfiction, get_all_fanfictions, get_fanfiction_by_id},
+        migration::run_migrations
+    };
 
     use super::*;
 
-    fn setup_test_db() -> Result<Connection, Box<dyn Error>> {
-        let mut conn = Connection::open_in_memory()?;
-        // Run migrations manually for the in-memory DB
-        run_migrations(&mut conn)?;
-        Ok(conn)
-    }
-
-    fn create_test_fanfiction(id: u64, title: &str) -> Fanfiction {
-        Fanfiction {
-            id,
-            title: title.to_string(),
-            authors: vec!["Author A".to_string()],
-            categories: None,
-            chapters_total: None,
-            chapters_published: 1,
-            characters: None,
-            complete: true,
-            fandoms: vec!["Fandom X".to_string()],
-            hits: 100,
-            kudos: 50,
-            language: "English".to_string(),
-            rating: Rating::General,
-            relationships: None,
-            restricted: false,
-            summary: "A test fanfiction.".to_string(),
-            tags: None,
-            warnings: vec![],
-            words: 1000,
-            date_published: "2025-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-            date_updated: "2025-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-            last_chapter_read: None,
-            reading_status: ReadingStatus::InProgress,
-            read_count: 1,
-            user_rating: None,
-            personal_note: None,
-            last_checked_date: "2025-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-        }
+    fn setup_test_db() -> (Connection, TempDir) {
+        // Given
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let db_path = temp_dir.path().join("test.db");
+        
+        // Explicitly set the OpenFlags to CREATE | READ_WRITE to ensure write permissions
+        let mut conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)
+            .expect("Failed to open database with write permissions");
+        
+        run_migrations(&mut conn).expect("Failed to run migrations");
+        
+        (conn, temp_dir)
     }
 
     #[test]
     fn test_add_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
-        let conn = setup_test_db().expect("Failed to establish database connection");
-        
-        let new_fic = create_test_fanfiction(1, "Test Fanfiction");
+        let (conn, _temp_dir) = setup_test_db();
+        let new_fic = fixtures::given_sample_fanfiction(1, "Test Fanfiction");
 
         // When
-        let result = insert_fanfiction(&conn, &new_fic);
-        assert!(result.is_ok());
+        fixtures::when_fanfiction_added_to_db(&conn, &new_fic)?;
 
         // Then
-        let result = get_all_fanfictions(&conn)?;
-        assert_eq!(result.len(), 1);
-        let fetched_fic = &result[0];
-        assert_fanfiction_eq(&new_fic, fetched_fic);
+        assertions::then_fanfiction_was_added(&conn, &new_fic)?;
 
         Ok(())
     }
@@ -73,58 +47,41 @@ mod tests {
     #[test]
     fn test_remove_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
-        let conn = setup_test_db().expect("Failed to establish database connection");
-
-        let new_fic = create_test_fanfiction(2, "Test Fanfiction to Remove");
-
-        insert_fanfiction(&conn, &new_fic).expect("Failed to insert fanfiction");
+        let (conn, _temp_dir) = setup_test_db();
+        let new_fic = fixtures::given_sample_fanfiction(2, "Test Fanfiction to Remove");
+        fixtures::when_fanfiction_added_to_db(&conn, &new_fic)?;
 
         // When
-        let result = delete_fanfiction(&conn, new_fic.id);
-        assert!(result.is_ok());
+        delete_fanfiction(&conn, new_fic.id)?;
 
         // Then
-        let result = get_all_fanfictions(&conn)?;
-        assert_eq!(result.len(), 0);
+        assertions::then_fanfiction_was_deleted(&conn, new_fic.id)?;
+        
         Ok(())
     }
 
     #[test]
     fn test_get_all_fanfictions() -> Result<(), Box<dyn Error>> {
         // Given
-        let conn = setup_test_db().expect("Failed to establish database connection");
+        let (conn, _temp_dir) = setup_test_db();
 
-        let fic1 = create_test_fanfiction(101, "Fanfiction One");
-        let fic2 = create_test_fanfiction(102, "Fanfiction Two");
-        let fic3 = create_test_fanfiction(103, "Fanfiction Three");
-        insert_fanfiction(&conn, &fic1)?;
-        insert_fanfiction(&conn, &fic2)?;
-        insert_fanfiction(&conn, &fic3)?;
+        let fic1 = fixtures::given_sample_fanfiction(101, "Fanfiction One");
+        let fic2 = fixtures::given_sample_fanfiction(102, "Fanfiction Two");
+        let fic3 = fixtures::given_sample_fanfiction(103, "Fanfiction Three");
         
         // When
-        let result = get_all_fanfictions(&conn)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &fic1)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &fic2)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &fic3)?;
         
         // Then
+        let result = get_all_fanfictions(&conn)?;
         assert_eq!(result.len(), 3);
         
-        // Use a HashMap to access fanfictions by ID
-        let mut id_to_fanfiction = std::collections::HashMap::new();
-        for fic in result {
-            id_to_fanfiction.insert(fic.id, fic);
-        }
-        
-        // Use assert_fanfiction_eq to compare each fanfiction with its expected version
-        assert!(id_to_fanfiction.contains_key(&101));
-        let fic1_result = id_to_fanfiction.get(&101).unwrap();
-        assert_fanfiction_eq(&fic1, fic1_result);
-        
-        assert!(id_to_fanfiction.contains_key(&102));
-        let fic2_result = id_to_fanfiction.get(&102).unwrap();
-        assert_fanfiction_eq(&fic2, fic2_result);
-        
-        assert!(id_to_fanfiction.contains_key(&103));
-        let fic3_result = id_to_fanfiction.get(&103).unwrap();
-        assert_fanfiction_eq(&fic3, fic3_result);
+        // Verify each fanfiction was properly added
+        assertions::then_fanfiction_was_added(&conn, &fic1)?;
+        assertions::then_fanfiction_was_added(&conn, &fic2)?;
+        assertions::then_fanfiction_was_added(&conn, &fic3)?;
         
         Ok(())
     }
@@ -132,15 +89,16 @@ mod tests {
     #[test]
     fn test_wipe_database() -> Result<(), Box<dyn Error>> {
         // Given
-        let conn = setup_test_db().expect("Failed to establish database connection");
+        let (conn, _temp_dir) = setup_test_db();
         
-        let fic1 = create_test_fanfiction(201, "Wipe Test Fanfiction One");
-        let fic2 = create_test_fanfiction(202, "Wipe Test Fanfiction Two");
-        let fic3 = create_test_fanfiction(203, "Wipe Test Fanfiction Three");
-        insert_fanfiction(&conn, &fic1)?;
-        insert_fanfiction(&conn, &fic2)?;
-        insert_fanfiction(&conn, &fic3)?;
-        
+        let fic1 = fixtures::given_sample_fanfiction(201, "Wipe Test Fanfiction One");
+        let fic2 = fixtures::given_sample_fanfiction(202, "Wipe Test Fanfiction Two");
+        let fic3 = fixtures::given_sample_fanfiction(203, "Wipe Test Fanfiction Three");
+
+        fixtures::when_fanfiction_added_to_db(&conn, &fic1)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &fic2)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &fic3)?;
+
         let before_wipe = get_all_fanfictions(&conn)?;
         assert_eq!(before_wipe.len(), 3);
         
@@ -149,13 +107,7 @@ mod tests {
         assert!(wipe_result.is_ok());
         
         // Then
-        let after_wipe = get_all_fanfictions(&conn)?;
-        assert_eq!(after_wipe.len(), 0);
-        
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM fanfiction")?;
-        let mut rows = stmt.query([])?;
-        let count: i64 = rows.next()?.unwrap().get(0)?;
-        assert_eq!(count, 0, "Database should have 0 rows after wiping");
+        assertions::then_database_was_wiped(&conn)?;
         
         Ok(())
     }
@@ -163,16 +115,17 @@ mod tests {
     #[test]
     fn test_get_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
-        let conn = setup_test_db().expect("Failed to establish database connection");
-        let test_fic = create_test_fanfiction(301, "Get Test Fanfiction");
-        insert_fanfiction(&conn, &test_fic)?;
+        let (conn, _temp_dir) = setup_test_db();
+        let test_fic = fixtures::given_sample_fanfiction(301, "Get Test Fanfiction");
         
         // When
-        let result = ficflow::infrastructure::db::get_fanfiction_by_id(&conn, 301)
-            .expect("Failed to retrieve fanfiction by ID");
+        fixtures::when_fanfiction_added_to_db(&conn, &test_fic)?;
         
         // Then
-        assert_fanfiction_eq(&test_fic, &result);
+        let result = get_fanfiction_by_id(&conn, 301)
+            .expect("Failed to retrieve fanfiction by ID");
+        
+        assertions::then_fanfiction_was_fetched(&test_fic, &result, None);
         Ok(())
     }
 }

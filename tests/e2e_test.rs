@@ -1,22 +1,18 @@
-use std::fs;
 use std::process::Command;
-use httpmock::{MockServer, Method::GET};
-use rusqlite::Connection;
 use std::error::Error;
-use tempfile::TempDir;
 use std::env;
 use std::path::PathBuf;
 
-use ficflow::{
-    domain::config,
-    infrastructure::{
-        db::get_all_fanfictions,
-        migration::run_migrations
-    }
-};
+use ficflow::domain::config;
+
+#[path = "common/mod.rs"]
+mod common;
+use common::{fixtures, assertions};
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::Connection;
+    use tempfile::TempDir;
     use super::*;
     
     // Helper struct to keep the tempdir alive during the test
@@ -29,35 +25,13 @@ mod tests {
     // Helper function to set up a test database
     fn setup_test_db() -> TestDatabase {
         // Create a temporary directory for the database
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let db_path = temp_dir.path().join("test.db");
-        
-        // Create the database connection
-        let mut conn = Connection::open(&db_path).expect("Failed to open database");
-        run_migrations(&mut conn).expect("Failed to run migrations");
+        let (conn, db_path, temp_dir) = fixtures::given_test_database();
         
         TestDatabase {
             conn,
             db_path,
             _temp_dir: temp_dir,
         }
-    }
-    
-    // Helper function to set up a mock AO3 server
-    fn setup_mock_ao3_server() -> (MockServer, u64) {
-        let mock_server = MockServer::start();
-        let fic_id = 53960491;
-        
-        // Given
-        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_example1.html")
-            .expect("Failed to read mock HTML file");
-            
-        let _mock = mock_server.mock(|when, then| {
-            when.method(GET).path(format!("/works/{}", fic_id));
-            then.status(200).body(html_content);
-        });
-        
-        (mock_server, fic_id)
     }
     
     // Helper function to run CLI command
@@ -102,7 +76,7 @@ mod tests {
     fn test_add_list_remove_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
         let test_db = setup_test_db();
-        let (mock_server, fic_id) = setup_mock_ao3_server();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         
         // Save original base URL
         let original_url = config::get_ao3_base_url();
@@ -116,7 +90,7 @@ mod tests {
         );
         
         // Then - Check if add was successful
-        assert_eq!(add_status, 0, "Command failed with stderr: {}", add_stderr);
+        assertions::then_command_succeeded(add_status, &add_stderr, None, None);
         
         // When - List fanfictions via CLI
         let (list_stdout, list_stderr, list_status) = run_cli_command(
@@ -127,11 +101,8 @@ mod tests {
         );
         
         // Then - Check if list shows our fanfiction
-        assert_eq!(list_status, 0, "Command failed with stderr: {}", list_stderr);
-        assert!(list_stdout.contains("Featherlight"), 
-                "Expected to find fanfiction 'Featherlight' in list, got: {}", list_stdout);
-        assert!(list_stdout.contains(&fic_id.to_string()), 
-                "Expected to find ID {} in list, got: {}", fic_id, list_stdout);
+        let expected_strings = &["Featherlight", &fic_id.to_string()];
+        assertions::then_command_succeeded(list_status, &list_stderr, Some(expected_strings), Some(&list_stdout));
         
         // When - Delete fanfiction via CLI
         let (_delete_stdout, delete_stderr, delete_status) = run_cli_command(
@@ -142,11 +113,10 @@ mod tests {
         );
         
         // Then - Check if delete was successful
-        assert_eq!(delete_status, 0, "Command failed with stderr: {}", delete_stderr);
+        assertions::then_command_succeeded(delete_status, &delete_stderr, None, None);
         
-        // Verify database is empty using direct access
-        let remaining_fics = get_all_fanfictions(&test_db.conn)?;
-        assert_eq!(remaining_fics.len(), 0, "Expected no fanfictions in the database after deletion");
+        // Then - Verify database is empty using direct access
+        assertions::then_fanfiction_was_deleted(&test_db.conn, fic_id)?;
         
         // Cleanup
         config::set_ao3_base_url(&original_url);
@@ -158,7 +128,7 @@ mod tests {
     fn test_add_get_wipe_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
         let test_db = setup_test_db();
-        let (mock_server, fic_id) = setup_mock_ao3_server();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         
         // Save original base URL
         let original_url = config::get_ao3_base_url();
@@ -172,7 +142,7 @@ mod tests {
         );
         
         // Then - Check if add was successful
-        assert_eq!(add_status, 0, "Command failed with stderr: {}", add_stderr);
+        assertions::then_command_succeeded(add_status, &add_stderr, None, None);
         
         // When - Get the fanfiction details via CLI
         let (get_stdout, get_stderr, get_status) = run_cli_command(
@@ -183,13 +153,8 @@ mod tests {
         );
         
         // Then - Check if get was successful and verify details
-        assert_eq!(get_status, 0, "Command failed with stderr: {}", get_stderr);
-        assert!(get_stdout.contains("Featherlight"), 
-                "Expected to find title 'Featherlight', got: {}", get_stdout);
-        assert!(get_stdout.contains("Gummy_bean"), 
-                "Expected to find author 'Gummy_bean', got: {}", get_stdout);
-        assert!(get_stdout.contains("Hazbin Hotel"), 
-                "Expected to find fandom 'Hazbin Hotel', got: {}", get_stdout);
+        let expected_strings = &["Featherlight", "Gummy_bean", "Hazbin Hotel"];
+        assertions::then_command_succeeded(get_status, &get_stderr, Some(expected_strings), Some(&get_stdout));
         
         // When - Wipe database via CLI
         let (_wipe_stdout, wipe_stderr, wipe_status) = run_cli_command(
@@ -200,11 +165,10 @@ mod tests {
         );
         
         // Then - Check if wipe was successful
-        assert_eq!(wipe_status, 0, "Command failed with stderr: {}", wipe_stderr);
+        assertions::then_command_succeeded(wipe_status, &wipe_stderr, None, None);
         
-        // Verify database is empty using direct access
-        let remaining_fics = get_all_fanfictions(&test_db.conn)?;
-        assert_eq!(remaining_fics.len(), 0, "Expected no fanfictions in the database after wipe");
+        // Then - Verify database is empty using direct access
+        assertions::then_database_was_wiped(&test_db.conn)?;
         
         // Cleanup
         config::set_ao3_base_url(&original_url);
