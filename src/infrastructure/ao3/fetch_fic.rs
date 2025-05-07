@@ -344,11 +344,15 @@ fn map_category(category: &str) -> Option<Categories> {
 fn map_rating(rating: &str) -> Rating {
     match rating {
         "Not Rated" => Rating::NotRated,
-        "General Audience" => Rating::General,
+        "General Audiences" => Rating::General,
+        "General Audience" => Rating::General, // Keep for backward compatibility
         "Teen And Up Audiences" => Rating::TeenAndUp,
         "Mature" => Rating::Mature,
         "Explicit" => Rating::Explicit,
-        _ => Rating::NotRated, // Default to NotRated if it's not a recognized rating
+        _ => {
+            eprintln!("Unrecognized rating: '{}' - defaulting to NotRated", rating);
+            Rating::NotRated
+        }
     }
 }
 

@@ -1,9 +1,9 @@
-use rusqlite::{Connection, params, Result};
+use rusqlite::{Connection, params, Result, Row};
 use serde_json;
 use std::error::Error;
 use std::fs;
 use chrono::{DateTime, Utc};
-use crate::domain::fic::{Fanfiction, Rating, ReadingStatus, UserRating, ArchiveWarnings, Categories};
+use crate::domain::fic::{Fanfiction, Rating, ReadingStatus, UserRating};
 use crate::domain::db::DatabaseOps;
 use crate::infrastructure::migration::run_migrations;
 use dirs_next::data_local_dir;
@@ -33,9 +33,148 @@ impl<'a> DatabaseOps for Database<'a> {
     }
 
     fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, Box<dyn Error>> {
-        // Call the actual implementation instead of returning an empty vector
         get_all_fanfictions(self.conn)
     }
+    
+    fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
+        get_fanfiction_by_id(self.conn, fic_id)
+    }
+}
+
+fn parse_json_array<T: serde::de::DeserializeOwned>(json_str: &str, fic_id: u64, field_name: &str) -> Result<T, rusqlite::Error> {
+    serde_json::from_str(json_str)
+        .map_err(|e| rusqlite::Error::InvalidParameterName(
+            format!("Invalid {} JSON for fic {}: {}", field_name, fic_id, e)
+        ))
+}
+
+fn parse_date_time(date_str: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(date_str)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now())
+}
+
+fn parse_rating(rating_str: &str) -> Rating {
+    match rating_str {
+        "NotRated" => Rating::NotRated,
+        "General" => Rating::General,
+        "TeenAndUp" => Rating::TeenAndUp,
+        "Mature" => Rating::Mature,
+        "Explicit" => Rating::Explicit,
+        _ => Rating::NotRated,
+    }
+}
+
+fn parse_reading_status(status_str: &str) -> ReadingStatus {
+    match status_str {
+        "InProgress" => ReadingStatus::InProgress,
+        "Read" => ReadingStatus::Read,
+        "PlanToRead" => ReadingStatus::PlanToRead,
+        "Paused" => ReadingStatus::Paused,
+        "Abandoned" => ReadingStatus::Abandoned,
+        _ => ReadingStatus::PlanToRead,
+    }
+}
+
+fn parse_user_rating(rating_opt: Option<i32>) -> Option<UserRating> {
+    rating_opt.map(|r| match r {
+        1 => UserRating::One,
+        2 => UserRating::Two,
+        3 => UserRating::Three,
+        4 => UserRating::Four,
+        5 => UserRating::Five,
+        _ => UserRating::Three,
+    })
+}
+
+fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
+    // Get basic scalar values
+    let id: u64 = row.get(0)?;
+    let title: String = row.get(1)?;
+    let chapters_total: Option<u32> = row.get(4)?;
+    let chapters_published: u32 = row.get(5)?;
+    let complete: bool = row.get(7)?;
+    let hits: u32 = row.get(9)?;
+    let kudos: u32 = row.get(10)?;
+    let language: String = row.get(11)?;
+    let restricted: bool = row.get(14)?;
+    let summary: String = row.get(15)?;
+    let words: u32 = row.get(18)?;
+    let last_chapter_read: Option<u32> = row.get(21)?;
+    let read_count: u32 = row.get(23)?;
+    let personal_note: Option<String> = row.get(25)?;
+    
+    // Parse JSON arrays
+    let authors_json: String = row.get(2)?;
+    let authors = parse_json_array(&authors_json, id, "authors")?;
+    
+    let categories_json: String = row.get(3)?;
+    let categories = parse_json_array(&categories_json, id, "categories")?;
+    
+    let characters_json: String = row.get(6)?;
+    let characters = parse_json_array(&characters_json, id, "characters")?;
+    
+    let fandoms_json: String = row.get(8)?;
+    let fandoms = parse_json_array(&fandoms_json, id, "fandoms")?;
+    
+    let relationships_json: String = row.get(13)?;
+    let relationships = parse_json_array(&relationships_json, id, "relationships")?;
+    
+    let tags_json: String = row.get(16)?;
+    let tags = parse_json_array(&tags_json, id, "tags")?;
+    
+    let warnings_json: String = row.get(17)?;
+    let warnings = parse_json_array(&warnings_json, id, "warnings")?;
+    
+    // Parse enums
+    let rating_str: String = row.get(12)?;
+    let rating = parse_rating(&rating_str);
+    
+    let reading_status_str: String = row.get(22)?;
+    let reading_status = parse_reading_status(&reading_status_str);
+    
+    let user_rating_opt: Option<i32> = row.get(24)?;
+    let user_rating = parse_user_rating(user_rating_opt);
+    
+    // Parse DateTime values
+    let date_published_str: String = row.get(19)?;
+    let date_published = parse_date_time(&date_published_str);
+    
+    let date_updated_str: String = row.get(20)?;
+    let date_updated = parse_date_time(&date_updated_str);
+    
+    let last_checked_date_str: String = row.get(26)?;
+    let last_checked_date = parse_date_time(&last_checked_date_str);
+    
+    Ok(Fanfiction {
+        id,
+        title,
+        authors,
+        categories,
+        chapters_total,
+        chapters_published,
+        characters,
+        complete,
+        fandoms,
+        hits,
+        kudos,
+        language,
+        rating,
+        relationships,
+        restricted,
+        summary,
+        tags,
+        warnings,
+        words,
+        date_published,
+        date_updated,
+        last_chapter_read,
+        reading_status,
+        read_count,
+        user_rating,
+        personal_note,
+        last_checked_date,
+    })
 }
 
 pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
@@ -109,138 +248,7 @@ pub fn get_all_fanfictions(conn: &Connection) -> Result<Vec<Fanfiction>, Box<dyn
         ORDER BY title"
     )?;
 
-    let fanfiction_iter = stmt.query_map([], |row| {
-        let id: u64 = row.get(0)?;
-        let title: String = row.get(1)?;
-        
-        // Parse JSON arrays
-        let authors_json: String = row.get(2)?;
-        let authors: Vec<String> = serde_json::from_str(&authors_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid authors JSON for fic {}: {}", id, e)))?;
-        
-        let categories_json: String = row.get(3)?;
-        let categories: Option<Vec<Categories>> = serde_json::from_str(&categories_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid categories JSON for fic {}: {}", id, e)))?;
-        
-        let chapters_total: Option<u32> = row.get(4)?;
-        let chapters_published: u32 = row.get(5)?;
-        
-        let characters_json: String = row.get(6)?;
-        let characters: Option<Vec<String>> = serde_json::from_str(&characters_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid characters JSON for fic {}: {}", id, e)))?;
-        
-        let complete: bool = row.get(7)?;
-        
-        let fandoms_json: String = row.get(8)?;
-        let fandoms: Vec<String> = serde_json::from_str(&fandoms_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid fandoms JSON for fic {}: {}", id, e)))?;
-        
-        let hits: u32 = row.get(9)?;
-        let kudos: u32 = row.get(10)?;
-        let language: String = row.get(11)?;
-        
-        // Parse Rating enum
-        let rating_str: String = row.get(12)?;
-        let rating = match rating_str.as_str() {
-            "NotRated" => Rating::NotRated,
-            "General" => Rating::General,
-            "TeenAndUp" => Rating::TeenAndUp,
-            "Mature" => Rating::Mature,
-            "Explicit" => Rating::Explicit,
-            _ => Rating::NotRated, // Default value
-        };
-        
-        let relationships_json: String = row.get(13)?;
-        let relationships: Option<Vec<String>> = serde_json::from_str(&relationships_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid relationships JSON for fic {}: {}", id, e)))?;
-        
-        let restricted: bool = row.get(14)?;
-        let summary: String = row.get(15)?;
-        
-        let tags_json: String = row.get(16)?;
-        let tags: Option<Vec<String>> = serde_json::from_str(&tags_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid tags JSON for fic {}: {}", id, e)))?;
-        
-        let warnings_json: String = row.get(17)?;
-        let warnings: Vec<ArchiveWarnings> = serde_json::from_str(&warnings_json)
-            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid warnings JSON for fic {}: {}", id, e)))?;
-        
-        let words: u32 = row.get(18)?;
-        
-        // Parse DateTime values
-        let date_published_str: String = row.get(19)?;
-        let date_published = DateTime::parse_from_rfc3339(&date_published_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-        
-        let date_updated_str: String = row.get(20)?;
-        let date_updated = DateTime::parse_from_rfc3339(&date_updated_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-        
-        let last_chapter_read: Option<u32> = row.get(21)?;
-        
-        // Parse ReadingStatus enum
-        let reading_status_str: String = row.get(22)?;
-        let reading_status = match reading_status_str.as_str() {
-            "InProgress" => ReadingStatus::InProgress,
-            "Read" => ReadingStatus::Read,
-            "PlanToRead" => ReadingStatus::PlanToRead,
-            "Paused" => ReadingStatus::Paused,
-            "Abandoned" => ReadingStatus::Abandoned,
-            _ => ReadingStatus::PlanToRead, // Default value
-        };
-        
-        let read_count: u32 = row.get(23)?;
-        
-        // Parse UserRating enum
-        let user_rating_opt: Option<i32> = row.get(24)?;
-        let user_rating = user_rating_opt.map(|r| match r {
-            1 => UserRating::One,
-            2 => UserRating::Two,
-            3 => UserRating::Three,
-            4 => UserRating::Four,
-            5 => UserRating::Five,
-            _ => UserRating::Three, // Default value
-        });
-        
-        let personal_note: Option<String> = row.get(25)?;
-        
-        let last_checked_date_str: String = row.get(26)?;
-        let last_checked_date = DateTime::parse_from_rfc3339(&last_checked_date_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-        
-        Ok(Fanfiction {
-            id,
-            title,
-            authors,
-            categories,
-            chapters_total,
-            chapters_published,
-            characters,
-            complete,
-            fandoms,
-            hits,
-            kudos,
-            language,
-            rating,
-            relationships,
-            restricted,
-            summary,
-            tags,
-            warnings,
-            words,
-            date_published,
-            date_updated,
-            last_chapter_read,
-            reading_status,
-            read_count,
-            user_rating,
-            personal_note,
-            last_checked_date,
-        })
-    })?;
+    let fanfiction_iter = stmt.query_map([], |row| row_to_fanfiction(row))?;
 
     let mut fanfictions = Vec::new();
     for result in fanfiction_iter {
@@ -251,6 +259,26 @@ pub fn get_all_fanfictions(conn: &Connection) -> Result<Vec<Fanfiction>, Box<dyn
     }
 
     Ok(fanfictions)
+}
+
+pub fn get_fanfiction_by_id(conn: &Connection, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
+    let mut stmt = conn.prepare(
+        "SELECT 
+            id, title, authors, categories, chapters_total, chapters_published, characters, 
+            complete, fandoms, hits, kudos, language, rating, relationships, restricted, 
+            summary, tags, warnings, words, date_published, date_updated, last_chapter_read, 
+            reading_status, read_count, user_rating, personal_note, last_checked_date
+        FROM fanfiction
+        WHERE id = ?"
+    )?;
+
+    let mut fanfiction_iter = stmt.query_map(params![fic_id], |row| row_to_fanfiction(row))?;
+
+    if let Some(fanfiction) = fanfiction_iter.next() {
+        return Ok(fanfiction?);
+    }
+    
+    Err(format!("Fanfiction with ID {} not found", fic_id).into())
 }
 
 pub fn wipe_database(conn: &Connection) -> Result<()> {

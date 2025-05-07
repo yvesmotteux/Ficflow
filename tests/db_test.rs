@@ -93,13 +93,10 @@ mod tests {
     fn test_get_all_fanfictions() -> Result<(), Box<dyn Error>> {
         // Given
         let conn = setup_test_db().expect("Failed to establish database connection");
-        
-        // Create three test fanfictions with different titles
+
         let fic1 = create_test_fanfiction(101, "Fanfiction One");
         let fic2 = create_test_fanfiction(102, "Fanfiction Two");
         let fic3 = create_test_fanfiction(103, "Fanfiction Three");
-        
-        // Insert the test fanfictions
         insert_fanfiction(&conn, &fic1)?;
         insert_fanfiction(&conn, &fic2)?;
         insert_fanfiction(&conn, &fic3)?;
@@ -137,35 +134,45 @@ mod tests {
         // Given
         let conn = setup_test_db().expect("Failed to establish database connection");
         
-        // Create multiple test fanfictions
         let fic1 = create_test_fanfiction(201, "Wipe Test Fanfiction One");
         let fic2 = create_test_fanfiction(202, "Wipe Test Fanfiction Two");
         let fic3 = create_test_fanfiction(203, "Wipe Test Fanfiction Three");
-        
-        // Insert the test fanfictions
         insert_fanfiction(&conn, &fic1)?;
         insert_fanfiction(&conn, &fic2)?;
         insert_fanfiction(&conn, &fic3)?;
         
-        // Verify fanfictions were inserted correctly
         let before_wipe = get_all_fanfictions(&conn)?;
         assert_eq!(before_wipe.len(), 3);
         
-        // When - wipe the database
+        // When
         let wipe_result = ficflow::infrastructure::db::wipe_database(&conn);
         assert!(wipe_result.is_ok());
         
-        // Then - verify database is empty
+        // Then
         let after_wipe = get_all_fanfictions(&conn)?;
         assert_eq!(after_wipe.len(), 0);
         
-        // Additional verification with a raw query to ensure no rows exist
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM fanfiction")?;
         let mut rows = stmt.query([])?;
         let count: i64 = rows.next()?.unwrap().get(0)?;
-        
         assert_eq!(count, 0, "Database should have 0 rows after wiping");
         
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_fanfiction() -> Result<(), Box<dyn Error>> {
+        // Given
+        let conn = setup_test_db().expect("Failed to establish database connection");
+        let test_fic = create_test_fanfiction(301, "Get Test Fanfiction");
+        insert_fanfiction(&conn, &test_fic)?;
+        
+        // When
+        let result = ficflow::infrastructure::db::get_fanfiction_by_id(&conn, 301)
+            .expect("Failed to retrieve fanfiction by ID");
+        
+        // Then
+        assert_fanfiction_eq(&test_fic, &result);
         Ok(())
     }
 }
