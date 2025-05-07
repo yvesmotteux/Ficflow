@@ -47,6 +47,11 @@ pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<
     let tags = serde_json::to_string(&fic.tags)?;
     let warnings = serde_json::to_string(&fic.warnings)?;
 
+    // Format dates in RFC3339 format for consistent storage and retrieval
+    let date_published_str = fic.date_published.to_rfc3339();
+    let date_updated_str = fic.date_updated.to_rfc3339();
+    let last_checked_date_str = fic.last_checked_date.to_rfc3339();
+
     conn.execute(
         "INSERT INTO fanfiction (
             id, title, authors, categories, chapters_total, chapters_published, characters, 
@@ -75,14 +80,14 @@ pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<
             tags,
             warnings,
             fic.words,
-            fic.date_published.to_string(),
-            fic.date_updated.to_string(),
+            date_published_str,
+            date_updated_str,
             fic.last_chapter_read,
             fic.reading_status.to_string(),
             fic.read_count,
             fic.user_rating.as_ref().map(|r| *r as i32),
             fic.personal_note,
-            fic.last_checked_date.to_string(),
+            last_checked_date_str,
         ],
     )?;
     Ok(())

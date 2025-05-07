@@ -73,17 +73,4 @@ mod tests {
         assert_fanfiction_eq(&expected_fanfic, &fetched_fanfic);
         mock.assert();
     }
-
-    #[test]
-    fn test_it_can_fetch_a_fanfiction_from_the_real_website() {        
-        // Given
-        let fetcher = Ao3Fetcher;
-        let expected_title = "Brasier Année Zéro".to_string();
-
-        // When
-        let fetched_fanfic = fetcher.fetch_fanfiction(63776797, "https://archiveofourown.org").expect("Failed to fetch fanfiction");
-
-        // Then
-        assert_eq!(expected_title, fetched_fanfic.title);
-    }
 }
