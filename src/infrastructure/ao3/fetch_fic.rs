@@ -19,10 +19,10 @@ impl FanfictionFetcher for Ao3Fetcher {
         headers.insert(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36".parse().unwrap());
     
         let response = client.get(&url).headers(headers).send()?.text()?;
-    
+
         let document = Html::parse_document(&response);
         
-        // Improved title extraction with multiple fallback selectors
+        // Title
         let title = self.extract_title(&document)?;
     
         // Authors
@@ -32,7 +32,7 @@ impl FanfictionFetcher for Ao3Fetcher {
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
     
-        // Summary - use the improved extractor
+        // Summary
         let summary = self.extract_summary(&document)?;
     
         // Categories
