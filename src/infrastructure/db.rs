@@ -252,3 +252,8 @@ pub fn get_all_fanfictions(conn: &Connection) -> Result<Vec<Fanfiction>, Box<dyn
 
     Ok(fanfictions)
 }
+
+pub fn wipe_database(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM fanfiction", [])?;
+    Ok(())
+}

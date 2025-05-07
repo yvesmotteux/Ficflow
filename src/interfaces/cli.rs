@@ -1,11 +1,11 @@
 use clap::{Command, Arg};
 use crate::{
-    application::{add_fic::add_fanfiction, delete_fic::delete_fic, list_fics::list_fics}, 
+    application::{add_fic::add_fanfiction, delete_fic::delete_fic, list_fics::list_fics, wipe_db::wipe_database}, 
     domain::{db::DatabaseOps, fic::FanfictionFetcher},
 };
+use crate::infrastructure::db;
 
 pub fn run_cli(fetcher: &dyn FanfictionFetcher, database: &dyn DatabaseOps) {
-
     let matches = Command::new("FicFlow")
         .subcommand(
             Command::new("add")
@@ -18,6 +18,7 @@ pub fn run_cli(fetcher: &dyn FanfictionFetcher, database: &dyn DatabaseOps) {
                 .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction")),
         )
         .subcommand(Command::new("list").about("List all stored fanfictions"))
+        .subcommand(Command::new("wipe").about("Wipe the database (removes all fanfictions)"))
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("add") {
@@ -36,6 +37,20 @@ pub fn run_cli(fetcher: &dyn FanfictionFetcher, database: &dyn DatabaseOps) {
         println!("Listing all fanfictions");
         if let Err(e) = list_fics(database) {
             eprintln!("Error listing fanfictions: {}", e);
+        }
+    } else if matches.subcommand_matches("wipe").is_some() {
+        println!("Preparing to wipe database...");
+        
+        // For the wipe command, establish a direct connection to the database
+        match db::establish_connection() {
+            Ok(mut conn) => {
+                if let Err(e) = wipe_database(database, &mut conn) {
+                    eprintln!("Error wiping database: {}", e);
+                }
+            },
+            Err(e) => {
+                eprintln!("Error connecting to database: {}", e);
+            }
         }
     }
 }

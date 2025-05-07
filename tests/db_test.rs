@@ -62,11 +62,11 @@ mod tests {
         assert!(result.is_ok());
 
         // Then
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM fanfiction WHERE id = ?")?;
-        let mut rows = stmt.query([new_fic.id])?;
-        let count: i64 = rows.next()?.unwrap().get(0)?;
+        let result = get_all_fanfictions(&conn)?;
+        assert_eq!(result.len(), 1);
+        let fetched_fic = &result[0];
+        assert_fanfiction_eq(&new_fic, fetched_fic);
 
-        assert_eq!(count, 1);
         Ok(())
     }
 
@@ -84,11 +84,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Then
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM fanfiction WHERE id = ?")?;
-        let mut rows = stmt.query([new_fic.id])?;
-        let count: i64 = rows.next()?.unwrap().get(0)?;
-
-        assert_eq!(count, 0);
+        let result = get_all_fanfictions(&conn)?;
+        assert_eq!(result.len(), 0);
         Ok(())
     }
 
@@ -131,6 +128,43 @@ mod tests {
         assert!(id_to_fanfiction.contains_key(&103));
         let fic3_result = id_to_fanfiction.get(&103).unwrap();
         assert_fanfiction_eq(&fic3, fic3_result);
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_wipe_database() -> Result<(), Box<dyn Error>> {
+        // Given
+        let conn = setup_test_db().expect("Failed to establish database connection");
+        
+        // Create multiple test fanfictions
+        let fic1 = create_test_fanfiction(201, "Wipe Test Fanfiction One");
+        let fic2 = create_test_fanfiction(202, "Wipe Test Fanfiction Two");
+        let fic3 = create_test_fanfiction(203, "Wipe Test Fanfiction Three");
+        
+        // Insert the test fanfictions
+        insert_fanfiction(&conn, &fic1)?;
+        insert_fanfiction(&conn, &fic2)?;
+        insert_fanfiction(&conn, &fic3)?;
+        
+        // Verify fanfictions were inserted correctly
+        let before_wipe = get_all_fanfictions(&conn)?;
+        assert_eq!(before_wipe.len(), 3);
+        
+        // When - wipe the database
+        let wipe_result = ficflow::infrastructure::db::wipe_database(&conn);
+        assert!(wipe_result.is_ok());
+        
+        // Then - verify database is empty
+        let after_wipe = get_all_fanfictions(&conn)?;
+        assert_eq!(after_wipe.len(), 0);
+        
+        // Additional verification with a raw query to ensure no rows exist
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM fanfiction")?;
+        let mut rows = stmt.query([])?;
+        let count: i64 = rows.next()?.unwrap().get(0)?;
+        
+        assert_eq!(count, 0, "Database should have 0 rows after wiping");
         
         Ok(())
     }
