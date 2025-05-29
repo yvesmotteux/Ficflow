@@ -7,6 +7,7 @@ pub enum CliCommand {
     Get { fic_id: u64 },
     List,
     Wipe,
+    UpdateChapter { fic_id: u64, chapter: u32 },
 }
 
 pub fn parse_cli_commands() -> CliCommand {
@@ -26,6 +27,12 @@ pub fn parse_cli_commands() -> CliCommand {
                 .about("Get detailed information about a specific fanfiction")
                 .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction")),
         )
+        .subcommand(
+            Command::new("chapter")
+                .about("Update the last chapter read for a fanfiction")
+                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("chapter").required(true).index(2).help("The chapter number you've read up to")),
+        )
         .subcommand(Command::new("list").about("List all stored fanfictions"))
         .subcommand(Command::new("wipe").about("Wipe the database (removes all fanfictions)"))
         .get_matches();
@@ -39,6 +46,13 @@ pub fn parse_cli_commands() -> CliCommand {
     } else if let Some(matches) = matches.subcommand_matches("get") {
         let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
         CliCommand::Get { fic_id: fic_id.parse::<u64>().unwrap() }
+    } else if let Some(matches) = matches.subcommand_matches("chapter") {
+        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
+        let chapter = matches.get_one::<String>("chapter").expect("chapter number is required");
+        CliCommand::UpdateChapter { 
+            fic_id: fic_id.parse::<u64>().unwrap(),
+            chapter: chapter.parse::<u32>().unwrap()
+        }
     } else if matches.subcommand_matches("list").is_some() {
         CliCommand::List
     } else if matches.subcommand_matches("wipe").is_some() {

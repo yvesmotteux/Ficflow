@@ -4,6 +4,7 @@ use crate::{
         delete_fic::delete_fic,
         get_fic::get_fanfiction,
         list_fics::list_fics,
+        update_chapters::update_last_chapter_read,
         wipe_db::wipe_database,
     },
     domain::{
@@ -78,6 +79,23 @@ impl<'a> CliCommandExecutor<'a> {
             eprintln!("Error wiping database: {}", e);
         }
     }
+    
+    fn execute_update_chapter(&self, fic_id: u64, chapter: u32) {
+        println!("Updating last read chapter for fanfiction ID: {} to chapter {}", fic_id, chapter);
+        match update_last_chapter_read(self.database, fic_id, chapter) {
+            Ok(_) => {
+                println!("Successfully updated last read chapter.");
+                // Display the updated fanfiction details
+                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
+                    let details = details_view::render_fanfiction_details(&fic);
+                    println!("\n{}", details);
+                }
+            },
+            Err(e) => {
+                eprintln!("Error updating last read chapter: {}", e);
+            }
+        }
+    }
 }
 
 impl<'a> CommandExecutor for CliCommandExecutor<'a> {
@@ -86,6 +104,7 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             CliCommand::Add { fic_id } => self.execute_add(fic_id),
             CliCommand::Delete { fic_id } => self.execute_delete(fic_id),
             CliCommand::Get { fic_id } => self.execute_get(fic_id),
+            CliCommand::UpdateChapter { fic_id, chapter } => self.execute_update_chapter(fic_id, chapter),
             CliCommand::List => self.execute_list(),
             CliCommand::Wipe => self.execute_wipe(),
         }

@@ -3,7 +3,7 @@ use crate::domain::fanfiction::Fanfiction;
 use crate::domain::fanfiction::DatabaseOps;
 use crate::infrastructure::persistence::database::sqlite_connection::Database;
 use crate::infrastructure::persistence::repository::operations::{
-    insert_fanfiction, delete_fanfiction,
+    insert_fanfiction, update_fanfiction, delete_fanfiction,
     get_all_fanfictions, get_fanfiction_by_id,
     wipe_database
 };
@@ -21,6 +21,10 @@ impl<'a> FanfictionRepository<'a> {
 impl<'a> DatabaseOps for FanfictionRepository<'a> {
     fn insert_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
         insert_fanfiction(self.database.conn, fic)
+    }
+    
+    fn update_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
+        update_fanfiction(self.database.conn, fic)
     }
 
     fn delete_fanfiction(&self, fic_id: u64) -> Result<(), Box<dyn Error>> {
