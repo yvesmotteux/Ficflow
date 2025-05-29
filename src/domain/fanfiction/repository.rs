@@ -1,4 +1,4 @@
-use super::fic::Fanfiction;
+use super::entity::Fanfiction;
 
 pub trait DatabaseOps {
     fn insert_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn std::error::Error>>;

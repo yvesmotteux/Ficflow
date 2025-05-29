@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use reqwest::{blocking::Client, header::{HeaderMap, USER_AGENT}};
 use scraper::{Html, Selector};
 use std::error::Error;
-use crate::domain::fic::{ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus};
+use crate::domain::fanfiction::{ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus};
 
 pub struct Ao3Fetcher;
 

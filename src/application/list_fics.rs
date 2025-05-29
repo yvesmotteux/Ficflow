@@ -1,5 +1,5 @@
-use crate::domain::db::DatabaseOps;
-use crate::domain::fic::Fanfiction;
+use crate::domain::fanfiction::DatabaseOps;
+use crate::domain::fanfiction::Fanfiction;
 use std::error::Error;
 
 pub fn list_fics(db_ops: &dyn DatabaseOps) -> Result<Vec<Fanfiction>, Box<dyn Error>> {

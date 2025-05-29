@@ -1,4 +1,4 @@
-use crate::domain::fic::Fanfiction;
+use crate::domain::fanfiction::Fanfiction;
 
 pub fn render_fanfiction_details(fic: &Fanfiction) -> String {
     let mut output = String::new();

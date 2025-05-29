@@ -8,7 +8,7 @@ use tempfile::TempDir;
 use chrono::Utc;
 
 use ficflow::{
-    domain::fic::{Fanfiction, FanfictionFetcher},
+    domain::fanfiction::{Fanfiction, FanfictionFetcher},
     infrastructure::db::operations::{get_all_fanfictions, delete_fanfiction, insert_fanfiction},
 };
 
@@ -144,7 +144,7 @@ pub mod fixtures {
     use std::fs;
     use httpmock::Method::GET;
     use ficflow::{
-        domain::fic::{Rating, ReadingStatus, Categories, ArchiveWarnings},
+        domain::fanfiction::{Rating, ReadingStatus, Categories, ArchiveWarnings},
         infrastructure::db::migration::run_migrations
     };
     

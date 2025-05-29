@@ -1,4 +1,4 @@
-use crate::domain::{db::DatabaseOps, fic::FanfictionFetcher};
+use crate::domain::fanfiction::{DatabaseOps, FanfictionFetcher};
 
 pub trait UserInterface {
     fn run(&self);

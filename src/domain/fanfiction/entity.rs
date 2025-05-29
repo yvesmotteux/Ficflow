@@ -1,6 +1,8 @@
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
-use strum_macros::Display;
+
+use super::rating::{Rating, ArchiveWarnings, Categories, UserRating};
+use super::status::ReadingStatus;
 
 pub trait FanfictionFetcher {
     fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, Box<dyn std::error::Error>>;
@@ -35,51 +37,4 @@ pub struct Fanfiction {
     pub user_rating: Option<UserRating>,     // Custom field
     pub personal_note: Option<String>,       // Custom field
     pub last_checked_date: DateTime::<Utc>,  // Custom field (last update check)
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Display, PartialEq)]
-pub enum UserRating {
-    One = 1,
-    Two = 2,
-    Three = 3,
-    Four = 4,
-    Five = 5,
-}
-
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
-pub enum ReadingStatus {
-    InProgress,
-    Read,
-    PlanToRead,
-    Paused,
-    Abandoned,
-}
-
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
-pub enum Rating {
-    NotRated,
-    General,
-    TeenAndUp,
-    Mature,
-    Explicit,
-}
-
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
-pub enum ArchiveWarnings {
-    ChooseNotToUse,
-    GraphicDepictionsOfViolence,
-    MajorCharacterDeath,
-    NoArchiveWarningsApply,
-    RapeNonCon,
-    Underage,
-}
-
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
-pub enum Categories {
-    FF,
-    FM,
-    MM,
-    Gen,
-    Other,
-    Multi,
 }

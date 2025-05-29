@@ -3,7 +3,7 @@ use std::error::Error;
 use std::env;
 use std::path::PathBuf;
 
-use ficflow::domain::config;
+use ficflow::domain::url_config;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -79,7 +79,7 @@ mod tests {
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         
         // Save original base URL
-        let original_url = config::get_ao3_base_url();
+        let original_url = url_config::get_ao3_base_url();
         
         // When - Add fanfiction via CLI
         let (_add_stdout, add_stderr, add_status) = run_cli_command(
@@ -119,7 +119,7 @@ mod tests {
         assertions::then_fanfiction_was_deleted(&test_db.conn, fic_id)?;
         
         // Cleanup
-        config::set_ao3_base_url(&original_url);
+        url_config::set_ao3_base_url(&original_url);
         
         Ok(())
     }
@@ -131,7 +131,7 @@ mod tests {
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         
         // Save original base URL
-        let original_url = config::get_ao3_base_url();
+        let original_url = url_config::get_ao3_base_url();
         
         // When - Add fanfiction via CLI
         let (_add_stdout, add_stderr, add_status) = run_cli_command(
@@ -171,7 +171,7 @@ mod tests {
         assertions::then_database_was_wiped(&test_db.conn)?;
         
         // Cleanup
-        config::set_ao3_base_url(&original_url);
+        url_config::set_ao3_base_url(&original_url);
         
         Ok(())
     }

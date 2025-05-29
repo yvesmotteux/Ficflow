@@ -1,5 +1,5 @@
-use crate::domain::fic::FanfictionFetcher;
-use crate::domain::db::DatabaseOps;
+use crate::domain::fanfiction::FanfictionFetcher;
+use crate::domain::fanfiction::DatabaseOps;
 use std::time::Duration;
 use std::thread;
 

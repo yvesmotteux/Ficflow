@@ -1,3 +1,2 @@
-pub mod fic;
-pub mod db;
-pub mod config;
+pub mod fanfiction;
+pub mod url_config;

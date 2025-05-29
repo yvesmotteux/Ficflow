@@ -1,6 +1,6 @@
 use rusqlite::{Connection, params, Result};
 use std::error::Error;
-use crate::domain::fic::Fanfiction;
+use crate::domain::fanfiction::Fanfiction;
 use crate::infrastructure::db::mapping::row_to_fanfiction;
 
 pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {

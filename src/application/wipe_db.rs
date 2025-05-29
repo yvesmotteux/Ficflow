@@ -1,4 +1,4 @@
-use crate::domain::db::DatabaseOps;
+use crate::domain::fanfiction::DatabaseOps;
 use std::error::Error;
 use std::io::{self, Write};
 use std::env;

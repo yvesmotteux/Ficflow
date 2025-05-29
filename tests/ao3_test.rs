@@ -7,8 +7,8 @@ mod tests {
     use chrono::Utc;
     use ficflow::{
         domain::{
-            config,
-            fic::{ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus}
+            url_config,
+            fanfiction::{ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus}
         }, 
         infrastructure::ao3::fetch_fic::Ao3Fetcher
     };
@@ -75,18 +75,18 @@ mod tests {
     #[test]
     fn test_config_base_url() {
         // Given
-        let original_url = config::get_ao3_base_url();
+        let original_url = url_config::get_ao3_base_url();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
         let fetcher = Ao3Fetcher;
         
         // When
-        config::set_ao3_base_url(&mock_server.base_url());
-        let result = fixtures::when_fetching_fanfiction(&fetcher, fic_id, &config::get_ao3_base_url());
+        url_config::set_ao3_base_url(&mock_server.base_url());
+        let result = fixtures::when_fetching_fanfiction(&fetcher, fic_id, &url_config::get_ao3_base_url());
         
         // Then
         assert!(result.is_ok());
         
         // Cleanup
-        config::set_ao3_base_url(&original_url);
+        url_config::set_ao3_base_url(&original_url);
     }
 }

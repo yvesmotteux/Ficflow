@@ -2,7 +2,7 @@ pub mod command;
 pub mod executor;
 pub mod views;
 
-use crate::domain::{db::DatabaseOps, fic::FanfictionFetcher};
+use crate::domain::fanfiction::{DatabaseOps, FanfictionFetcher};
 use executor::CommandExecutor;
 
 pub fn run_cli(fetcher: &dyn FanfictionFetcher, database: &dyn DatabaseOps) {

@@ -7,9 +7,9 @@ use crate::{
         wipe_db::wipe_database,
     },
     domain::{
-        db::DatabaseOps,
-        fic::FanfictionFetcher,
-        config
+        fanfiction::DatabaseOps,
+        fanfiction::FanfictionFetcher,
+        url_config
     }
 };
 use super::command::CliCommand;
@@ -32,7 +32,7 @@ impl<'a> CliCommandExecutor<'a> {
     fn execute_add(&self, fic_id: u64) {
         println!("Adding fanfiction with ID: {}", fic_id);
         
-        let base_url = config::get_ao3_base_url();
+        let base_url = url_config::get_ao3_base_url();
         
         if let Err(e) = add_fanfiction(self.fetcher, self.database, fic_id, &base_url) {
             eprintln!("Error adding fanfiction: {}", e);

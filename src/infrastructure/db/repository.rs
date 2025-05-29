@@ -1,6 +1,6 @@
 use std::error::Error;
-use crate::domain::fic::Fanfiction;
-use crate::domain::db::DatabaseOps;
+use crate::domain::fanfiction::Fanfiction;
+use crate::domain::fanfiction::DatabaseOps;
 use crate::infrastructure::db::operations::{
     insert_fanfiction, delete_fanfiction, 
     get_all_fanfictions, get_fanfiction_by_id,

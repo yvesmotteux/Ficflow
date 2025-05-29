@@ -1,6 +1,6 @@
 use rusqlite::Row;
 use chrono::{DateTime, Utc};
-use crate::domain::fic::{Fanfiction, Rating, ReadingStatus, UserRating};
+use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
 
 pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
     let id: u64 = row.get(0)?;
