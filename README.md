@@ -1,4 +1,4 @@
-# Ficflow
+# Ficflowa
 
 Ficflow is a software designed to help you track your fanfiction reading list and organize them the way you want.
 
