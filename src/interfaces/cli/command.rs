@@ -8,6 +8,8 @@ pub enum CliCommand {
     List,
     Wipe,
     UpdateChapter { fic_id: u64, chapter: u32 },
+    UpdateStatus { fic_id: u64, status: String },
+    UpdateReadCount { fic_id: u64, read_count: u32 },
 }
 
 pub fn parse_cli_commands() -> CliCommand {
@@ -33,6 +35,18 @@ pub fn parse_cli_commands() -> CliCommand {
                 .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
                 .arg(Arg::new("chapter").required(true).index(2).help("The chapter number you've read up to")),
         )
+        .subcommand(
+            Command::new("status")
+                .about("Update the reading status of a fanfiction")
+                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("status").required(true).index(2).help("The new reading status (inprogress, read, plantoread, paused, abandoned)")),
+        )
+        .subcommand(
+            Command::new("reads")
+                .about("Update the read count of a fanfiction")
+                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("count").required(true).index(2).help("The new read count")),
+        )
         .subcommand(Command::new("list").about("List all stored fanfictions"))
         .subcommand(Command::new("wipe").about("Wipe the database (removes all fanfictions)"))
         .get_matches();
@@ -52,6 +66,20 @@ pub fn parse_cli_commands() -> CliCommand {
         CliCommand::UpdateChapter { 
             fic_id: fic_id.parse::<u64>().unwrap(),
             chapter: chapter.parse::<u32>().unwrap()
+        }
+    } else if let Some(matches) = matches.subcommand_matches("status") {
+        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
+        let status = matches.get_one::<String>("status").expect("status is required");
+        CliCommand::UpdateStatus { 
+            fic_id: fic_id.parse::<u64>().unwrap(),
+            status: status.to_string()
+        }
+    } else if let Some(matches) = matches.subcommand_matches("reads") {
+        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
+        let count = matches.get_one::<String>("count").expect("read count is required");
+        CliCommand::UpdateReadCount { 
+            fic_id: fic_id.parse::<u64>().unwrap(),
+            read_count: count.parse::<u32>().unwrap()
         }
     } else if matches.subcommand_matches("list").is_some() {
         CliCommand::List

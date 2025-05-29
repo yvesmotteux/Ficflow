@@ -5,6 +5,8 @@ use crate::{
         get_fic::get_fanfiction,
         list_fics::list_fics,
         update_chapters::update_last_chapter_read,
+        update_read_count::update_read_count,
+        update_status::update_reading_status,
         wipe_db::wipe_database,
     },
     domain::{
@@ -84,15 +86,55 @@ impl<'a> CliCommandExecutor<'a> {
         println!("Updating last read chapter for fanfiction ID: {} to chapter {}", fic_id, chapter);
         match update_last_chapter_read(self.database, fic_id, chapter) {
             Ok(_) => {
-                println!("Successfully updated last read chapter.");
-                // Display the updated fanfiction details
+                // Display a brief summary of the updated fanfiction
                 if let Ok(fic) = get_fanfiction(self.database, fic_id) {
-                    let details = details_view::render_fanfiction_details(&fic);
-                    println!("\n{}", details);
+                    println!("Successfully updated \"{}\" (ID: {}) to chapter {}.", 
+                             fic.title, fic_id, chapter);
+                    println!("Reading Status: {}", fic.reading_status);
+                    println!("Read Count: {}", fic.read_count);
+                } else {
+                    println!("Successfully updated last read chapter.");
                 }
             },
             Err(e) => {
                 eprintln!("Error updating last read chapter: {}", e);
+            }
+        }
+    }
+
+    fn execute_update_status(&self, fic_id: u64, status: &str) {
+        println!("Updating reading status for fanfiction ID: {} to '{}'", fic_id, status);
+        match update_reading_status(self.database, fic_id, status) {
+            Ok(_) => {
+                // Display a brief summary of the updated fanfiction
+                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
+                    println!("Successfully updated \"{}\" (ID: {}) to status: {}.", 
+                             fic.title, fic_id, fic.reading_status);
+                } else {
+                    println!("Successfully updated reading status.");
+                }
+            },
+            Err(e) => {
+                eprintln!("Error updating reading status: {}", e);
+            }
+        }
+    }
+
+    fn execute_update_read_count(&self, fic_id: u64, read_count: u32) {
+        println!("Updating read count for fanfiction ID: {} to {}", fic_id, read_count);
+        match update_read_count(self.database, fic_id, read_count) {
+            Ok(_) => {
+                // Display a brief summary of the updated fanfiction
+                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
+                    println!("Successfully updated \"{}\" (ID: {}) to read count: {}.", 
+                             fic.title, fic_id, fic.read_count);
+                    println!("Reading Status: {}", fic.reading_status);
+                } else {
+                    println!("Successfully updated read count.");
+                }
+            },
+            Err(e) => {
+                eprintln!("Error updating read count: {}", e);
             }
         }
     }
@@ -105,6 +147,8 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             CliCommand::Delete { fic_id } => self.execute_delete(fic_id),
             CliCommand::Get { fic_id } => self.execute_get(fic_id),
             CliCommand::UpdateChapter { fic_id, chapter } => self.execute_update_chapter(fic_id, chapter),
+            CliCommand::UpdateStatus { fic_id, status } => self.execute_update_status(fic_id, &status),
+            CliCommand::UpdateReadCount { fic_id, read_count } => self.execute_update_read_count(fic_id, read_count),
             CliCommand::List => self.execute_list(),
             CliCommand::Wipe => self.execute_wipe(),
         }
