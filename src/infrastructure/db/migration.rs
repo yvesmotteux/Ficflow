@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result};
+use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 use std::error::Error;
 

@@ -8,15 +8,12 @@ use common::{fixtures, assertions};
 
 #[cfg(test)]
 mod tests {
-    use ficflow::infrastructure::{
-        db::{delete_fanfiction, get_all_fanfictions, get_fanfiction_by_id},
-        migration::run_migrations
-    };
+    use ficflow::infrastructure::db::operations::{delete_fanfiction, get_all_fanfictions, get_fanfiction_by_id, wipe_database};
+    use ficflow::infrastructure::db::migration::run_migrations;
 
     use super::*;
 
     fn setup_test_db() -> (Connection, TempDir) {
-        // Given
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let db_path = temp_dir.path().join("test.db");
         
@@ -103,7 +100,7 @@ mod tests {
         assert_eq!(before_wipe.len(), 3);
         
         // When
-        let wipe_result = ficflow::infrastructure::db::wipe_database(&conn);
+        let wipe_result = wipe_database(&conn);
         assert!(wipe_result.is_ok());
         
         // Then
