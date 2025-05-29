@@ -1,4 +1,5 @@
 use clap::{Command, Arg};
+use crate::interfaces::utils::url_parser;
 
 #[derive(Debug)]
 pub enum CliCommand {
@@ -19,7 +20,7 @@ pub fn parse_cli_commands() -> CliCommand {
         .subcommand(
             Command::new("add")
                 .about("Add a fanfiction to the database")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction")),
+                .arg(Arg::new("fic-id").required(true).index(1).help("The ID or URL of the fanfiction (e.g. 12345678, https://archiveofourown.org/works/12345678)")),
         )
         .subcommand(
             Command::new("delete")
@@ -66,8 +67,16 @@ pub fn parse_cli_commands() -> CliCommand {
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("add") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        CliCommand::Add { fic_id: fic_id.parse::<u64>().unwrap() }
+        let fic_id_input = matches.get_one::<String>("fic-id").expect("fic-id or url is required");
+        
+        // Extract AO3 ID from input (could be a direct ID or a URL in various formats)
+        match url_parser::extract_ao3_id(fic_id_input) {
+            Ok(id) => CliCommand::Add { fic_id: id },
+            Err(e) => {
+                eprintln!("Error: {}. Please provide a valid AO3 ID or URL.", e);
+                std::process::exit(1);
+            }
+        }
     } else if let Some(matches) = matches.subcommand_matches("delete") {
         let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
         CliCommand::Delete { fic_id: fic_id.parse::<u64>().unwrap() }

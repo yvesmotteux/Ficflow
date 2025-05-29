@@ -1,3 +1,4 @@
+pub mod url_parser;
 pub mod formatter {
     pub fn format_word_count(words: u32) -> String {
         let mut result = String::new();
