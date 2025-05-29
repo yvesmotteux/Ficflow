@@ -1,7 +1,7 @@
 use rusqlite::{Connection, params, Result};
 use std::error::Error;
 use crate::domain::fanfiction::Fanfiction;
-use crate::infrastructure::db::mapping::row_to_fanfiction;
+use crate::infrastructure::persistence::repository::mapping::row_to_fanfiction;
 
 pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
     let authors = serde_json::to_string(&fic.authors)?;
@@ -18,7 +18,7 @@ pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<
     let last_checked_date_str = fic.last_checked_date.to_rfc3339();
 
     conn.execute(
-        "INSERT INTO fanfiction (
+        "INSERT OR REPLACE INTO fanfiction (
             id, title, authors, categories, chapters_total, chapters_published, characters, 
             complete, fandoms, hits, kudos, language, rating, relationships, restricted, 
             summary, tags, warnings, words, date_published, date_updated, last_chapter_read, 
@@ -50,68 +50,45 @@ pub fn insert_fanfiction(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<
             fic.last_chapter_read,
             fic.reading_status.to_string(),
             fic.read_count,
-            fic.user_rating.as_ref().map(|r| *r as i32),
+            fic.user_rating.map(|r| r as u32),
             fic.personal_note,
-            last_checked_date_str,
+            last_checked_date_str
         ],
     )?;
-    
+
     Ok(())
 }
 
-pub fn delete_fanfiction(conn: &Connection, fic_id: u64) -> Result<()> {
+pub fn delete_fanfiction(conn: &Connection, fic_id: u64) -> Result<(), Box<dyn Error>> {
     conn.execute("DELETE FROM fanfiction WHERE id = ?1", params![fic_id])?;
-    
     Ok(())
 }
 
 pub fn get_all_fanfictions(conn: &Connection) -> Result<Vec<Fanfiction>, Box<dyn Error>> {
-    let mut stmt = conn.prepare(
-        "SELECT 
-            id, title, authors, categories, chapters_total, chapters_published, characters, 
-            complete, fandoms, hits, kudos, language, rating, relationships, restricted, 
-            summary, tags, warnings, words, date_published, date_updated, last_chapter_read, 
-            reading_status, read_count, user_rating, personal_note, last_checked_date
-        FROM fanfiction
-        ORDER BY title"
-    )?;
-
-    let fanfiction_iter = stmt.query_map([], |row| row_to_fanfiction(row))?;
-
-    let mut fanfictions = Vec::new();
-    for result in fanfiction_iter {
+    let mut stmt = conn.prepare("SELECT * FROM fanfiction ORDER BY title")?;
+    let mut fics = Vec::new();
+    let rows = stmt.query_map([], |row| row_to_fanfiction(row))?; // query_map already returns Result<T, E>
+    
+    for result in rows {
         match result {
-            Ok(fic) => fanfictions.push(fic),
-            Err(e) => eprintln!("Error loading fanfiction from database: {}", e),
+            Ok(fic) => fics.push(fic),
+            Err(e) => return Err(Box::new(e) as Box<dyn Error>), // Propagate the error
         }
     }
-
-    Ok(fanfictions)
+    
+    Ok(fics)
 }
 
 pub fn get_fanfiction_by_id(conn: &Connection, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
-    let mut stmt = conn.prepare(
-        "SELECT 
-            id, title, authors, categories, chapters_total, chapters_published, characters, 
-            complete, fandoms, hits, kudos, language, rating, relationships, restricted, 
-            summary, tags, warnings, words, date_published, date_updated, last_chapter_read, 
-            reading_status, read_count, user_rating, personal_note, last_checked_date
-        FROM fanfiction
-        WHERE id = ?"
-    )?;
-
-    let mut fanfiction_iter = stmt.query_map(params![fic_id], |row| row_to_fanfiction(row))?;
-
-    if let Some(fanfiction) = fanfiction_iter.next() {
-        return Ok(fanfiction?);
-    }
+    let mut stmt = conn.prepare("SELECT * FROM fanfiction WHERE id = ?1")?;
     
-    // error if not found
-    Err(format!("Fanfiction with ID {} not found", fic_id).into())
+    let fic = stmt.query_row(params![fic_id], |row| row_to_fanfiction(row))
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?; // map_err on the Result from query_row
+    
+    Ok(fic)
 }
 
-pub fn wipe_database(conn: &Connection) -> Result<()> {
+pub fn wipe_database(conn: &Connection) -> Result<(), Box<dyn Error>> {
     conn.execute("DELETE FROM fanfiction", [])?;
-    
     Ok(())
 }

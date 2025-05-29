@@ -49,14 +49,24 @@ pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
     let user_rating = parse_user_rating(user_rating_opt);
     
     let date_published_str: String = row.get(19)?;
-    let date_published = parse_date_time(&date_published_str);
-    
     let date_updated_str: String = row.get(20)?;
-    let date_updated = parse_date_time(&date_updated_str);
-    
     let last_checked_date_str: String = row.get(26)?;
-    let last_checked_date = parse_date_time(&last_checked_date_str);
     
+    let date_published = DateTime::parse_from_rfc3339(&date_published_str)
+        .map_err(|_| rusqlite::Error::InvalidColumnType(19, "date_published".into(), 
+                                                      rusqlite::types::Type::Text))?
+        .with_timezone(&Utc);
+        
+    let date_updated = DateTime::parse_from_rfc3339(&date_updated_str)
+        .map_err(|_| rusqlite::Error::InvalidColumnType(20, "date_updated".into(), 
+                                                      rusqlite::types::Type::Text))?
+        .with_timezone(&Utc);
+        
+    let last_checked_date = DateTime::parse_from_rfc3339(&last_checked_date_str)
+        .map_err(|_| rusqlite::Error::InvalidColumnType(26, "last_checked_date".into(), 
+                                                      rusqlite::types::Type::Text))?
+        .with_timezone(&Utc);
+
     Ok(Fanfiction {
         id,
         title,
@@ -88,22 +98,18 @@ pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
     })
 }
 
-pub fn parse_json_array<T: serde::de::DeserializeOwned>(json_str: &str, fic_id: u64, field_name: &str) -> Result<T, rusqlite::Error> {
-    serde_json::from_str(json_str)
-        .map_err(|e| rusqlite::Error::InvalidParameterName(
-            format!("Invalid {} JSON for fic {}: {}", field_name, fic_id, e)
-        ))
+fn parse_json_array<T: serde::de::DeserializeOwned>(json: &str, id: u64, field_name: &str) -> Result<T, rusqlite::Error> {
+    serde_json::from_str(json)
+        .map_err(|_| {
+            rusqlite::Error::InvalidParameterName(format!(
+                "Error parsing JSON for fic_id={}, field={}: {}",
+                id, field_name, json
+            ))
+        })
 }
 
-pub fn parse_date_time(date_str: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(date_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
-}
-
-pub fn parse_rating(rating_str: &str) -> Rating {
+fn parse_rating(rating_str: &str) -> Rating {
     match rating_str {
-        "NotRated" => Rating::NotRated,
         "General" => Rating::General,
         "TeenAndUp" => Rating::TeenAndUp,
         "Mature" => Rating::Mature,
@@ -112,7 +118,7 @@ pub fn parse_rating(rating_str: &str) -> Rating {
     }
 }
 
-pub fn parse_reading_status(status_str: &str) -> ReadingStatus {
+fn parse_reading_status(status_str: &str) -> ReadingStatus {
     match status_str {
         "InProgress" => ReadingStatus::InProgress,
         "Read" => ReadingStatus::Read,
@@ -123,13 +129,13 @@ pub fn parse_reading_status(status_str: &str) -> ReadingStatus {
     }
 }
 
-pub fn parse_user_rating(rating_opt: Option<i32>) -> Option<UserRating> {
-    rating_opt.map(|r| match r {
-        1 => UserRating::One,
-        2 => UserRating::Two,
-        3 => UserRating::Three,
-        4 => UserRating::Four,
-        5 => UserRating::Five,
-        _ => UserRating::Three,
+fn parse_user_rating(rating_opt: Option<i32>) -> Option<UserRating> {
+    rating_opt.and_then(|r| match r {
+        1 => Some(UserRating::One),
+        2 => Some(UserRating::Two),
+        3 => Some(UserRating::Three),
+        4 => Some(UserRating::Four),
+        5 => Some(UserRating::Five),
+        _ => None,
     })
 }

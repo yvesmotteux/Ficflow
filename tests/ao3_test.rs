@@ -10,7 +10,7 @@ mod tests {
             url_config,
             fanfiction::{ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus}
         }, 
-        infrastructure::ao3::fetch_fic::Ao3Fetcher
+        infrastructure::external::ao3::Ao3Fetcher
     };
     use super::*;
 
@@ -18,7 +18,7 @@ mod tests {
     fn test_fetch_fanfiction_from_mock() {
         // Given
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-        let fetcher = Ao3Fetcher;
+        let fetcher = Ao3Fetcher::new().unwrap();
         
         let expected_fanfic = Fanfiction {
             id: 53960491,
@@ -77,7 +77,7 @@ mod tests {
         // Given
         let original_url = url_config::get_ao3_base_url();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-        let fetcher = Ao3Fetcher;
+        let fetcher = Ao3Fetcher::new().unwrap();
         
         // When
         url_config::set_ao3_base_url(&mock_server.base_url());

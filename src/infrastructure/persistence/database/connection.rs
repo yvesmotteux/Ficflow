@@ -4,7 +4,7 @@ use std::fs;
 use std::env;
 use std::path::PathBuf;
 use dirs_next::data_local_dir;
-use crate::infrastructure::db::migration::run_migrations;
+use crate::infrastructure::persistence::database::migration::run_migrations;
 
 pub fn establish_connection() -> Result<Connection, Box<dyn Error>> {
     let db_path = if let Ok(path) = env::var("FICFLOW_DB_PATH") {
@@ -19,11 +19,6 @@ pub fn establish_connection() -> Result<Connection, Box<dyn Error>> {
     };
     
     let mut conn = Connection::open(&db_path)?;
-    
     run_migrations(&mut conn)?;
     Ok(conn)
-}
-
-pub struct Database<'a> {
-    pub conn: &'a rusqlite::Connection,
 }

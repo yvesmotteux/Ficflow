@@ -9,7 +9,7 @@ use chrono::Utc;
 
 use ficflow::{
     domain::fanfiction::{Fanfiction, FanfictionFetcher},
-    infrastructure::db::operations::{get_all_fanfictions, delete_fanfiction, insert_fanfiction},
+    infrastructure::persistence::repository::operations::{get_all_fanfictions, delete_fanfiction, insert_fanfiction},
 };
 
 pub mod assertions {
@@ -145,7 +145,7 @@ pub mod fixtures {
     use httpmock::Method::GET;
     use ficflow::{
         domain::fanfiction::{Rating, ReadingStatus, Categories, ArchiveWarnings},
-        infrastructure::db::migration::run_migrations
+        infrastructure::persistence::database::migration::run_migrations
     };
     
     /// Sets up a test database with migrations.

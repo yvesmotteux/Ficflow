@@ -10,7 +10,7 @@ use crate::{
         fanfiction::DatabaseOps,
         fanfiction::FanfictionFetcher,
         url_config
-    }
+    },
 };
 use super::command::CliCommand;
 use super::views::{details_view, list_view};
@@ -74,7 +74,6 @@ impl<'a> CliCommandExecutor<'a> {
     fn execute_wipe(&self) {
         println!("Preparing to wipe database...");
         
-        // Use the application layer with the domain-focused function
         if let Err(e) = wipe_database(self.database) {
             eprintln!("Error wiping database: {}", e);
         }

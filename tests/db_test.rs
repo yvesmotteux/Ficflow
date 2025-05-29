@@ -8,8 +8,8 @@ use common::{fixtures, assertions};
 
 #[cfg(test)]
 mod tests {
-    use ficflow::infrastructure::db::operations::{delete_fanfiction, get_all_fanfictions, get_fanfiction_by_id, wipe_database};
-    use ficflow::infrastructure::db::migration::run_migrations;
+    use ficflow::infrastructure::persistence::database::migration::run_migrations;
+    use ficflow::infrastructure::persistence::repository::operations::{delete_fanfiction, get_all_fanfictions, get_fanfiction_by_id, wipe_database};
 
     use super::*;
 
