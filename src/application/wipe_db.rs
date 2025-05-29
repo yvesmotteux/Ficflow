@@ -1,10 +1,9 @@
 use crate::domain::db::DatabaseOps;
-use rusqlite::Connection;
 use std::error::Error;
 use std::io::{self, Write};
 use std::env;
 
-pub fn wipe_database(db_ops: &dyn DatabaseOps, _conn: &mut Connection) -> Result<(), Box<dyn Error>> {
+pub fn wipe_database(db_ops: &dyn DatabaseOps) -> Result<(), Box<dyn Error>> {
     // Check if we're in non-interactive mode (for testing)
     if env::var("FICFLOW_NON_INTERACTIVE").is_ok() {
         // Skip confirmation in test mode
