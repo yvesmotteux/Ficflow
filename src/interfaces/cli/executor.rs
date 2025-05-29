@@ -5,6 +5,7 @@ use crate::{
         get_fic::get_fanfiction,
         list_fics::list_fics,
         update_chapters::update_last_chapter_read,
+        update_note::update_personal_note,
         update_rating::update_user_rating,
         update_read_count::update_read_count,
         update_status::update_reading_status,
@@ -161,6 +162,40 @@ impl<'a> CliCommandExecutor<'a> {
             }
         }
     }
+
+    fn execute_update_note(&self, fic_id: u64, note: Option<&str>) {
+        // If removing a note (note is None), show the current note before removal
+        if note.is_none() {
+            if let Ok(fic) = get_fanfiction(self.database, fic_id) {
+                if let Some(current_note) = &fic.personal_note {
+                    println!("Current personal note for \"{}\" (ID: {}): {}", fic.title, fic_id, current_note);
+                    println!("Removing personal note...");
+                }
+            }
+        }
+
+        match update_personal_note(self.database, fic_id, note) {
+            Ok(_) => {
+                // Display a brief summary of the updated fanfiction
+                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
+                    match &fic.personal_note {
+                        Some(note_text) => {
+                            println!("Successfully added note to \"{}\" (ID: {}).", fic.title, fic_id);
+                            println!("Note: {}", note_text);
+                        },
+                        None => {
+                            println!("Successfully removed note from \"{}\" (ID: {}).", fic.title, fic_id);
+                        }
+                    }
+                } else {
+                    println!("Successfully updated personal note.");
+                }
+            },
+            Err(e) => {
+                eprintln!("Error updating personal note: {}", e);
+            }
+        }
+    }
 }
 
 impl<'a> CommandExecutor for CliCommandExecutor<'a> {
@@ -173,6 +208,7 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             CliCommand::UpdateStatus { fic_id, status } => self.execute_update_status(fic_id, &status),
             CliCommand::UpdateReadCount { fic_id, read_count } => self.execute_update_read_count(fic_id, read_count),
             CliCommand::UpdateRating { fic_id, rating } => self.execute_update_rating(fic_id, &rating),
+            CliCommand::UpdateNote { fic_id, note } => self.execute_update_note(fic_id, note.as_deref()),
             CliCommand::List => self.execute_list(),
             CliCommand::Wipe => self.execute_wipe(),
         }

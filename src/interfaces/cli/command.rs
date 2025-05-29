@@ -11,6 +11,7 @@ pub enum CliCommand {
     UpdateStatus { fic_id: u64, status: String },
     UpdateReadCount { fic_id: u64, read_count: u32 },
     UpdateRating { fic_id: u64, rating: String },
+    UpdateNote { fic_id: u64, note: Option<String> },
 }
 
 pub fn parse_cli_commands() -> CliCommand {
@@ -54,6 +55,12 @@ pub fn parse_cli_commands() -> CliCommand {
                 .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
                 .arg(Arg::new("rating").required(true).index(2).help("The new rating (1-5, or 'one' through 'five', or 'none' to remove)")),
         )
+        .subcommand(
+            Command::new("note")
+                .about("Add or remove a personal note for a fanfiction")
+                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("note").required(false).index(2).help("The personal note text (omit to remove note)")),
+        )
         .subcommand(Command::new("list").about("List all stored fanfictions"))
         .subcommand(Command::new("wipe").about("Wipe the database (removes all fanfictions)"))
         .get_matches();
@@ -94,6 +101,13 @@ pub fn parse_cli_commands() -> CliCommand {
         CliCommand::UpdateRating { 
             fic_id: fic_id.parse::<u64>().unwrap(),
             rating: rating.to_string()
+        }
+    } else if let Some(matches) = matches.subcommand_matches("note") {
+        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
+        let note = matches.get_one::<String>("note").map(|s| s.to_string());
+        CliCommand::UpdateNote { 
+            fic_id: fic_id.parse::<u64>().unwrap(),
+            note
         }
     } else if matches.subcommand_matches("list").is_some() {
         CliCommand::List
