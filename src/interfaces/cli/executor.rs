@@ -5,6 +5,7 @@ use crate::{
         get_fic::get_fanfiction,
         list_fics::list_fics,
         update_chapters::update_last_chapter_read,
+        update_rating::update_user_rating,
         update_read_count::update_read_count,
         update_status::update_reading_status,
         wipe_db::wipe_database,
@@ -138,6 +139,28 @@ impl<'a> CliCommandExecutor<'a> {
             }
         }
     }
+
+    fn execute_update_rating(&self, fic_id: u64, rating: &str) {
+        println!("Updating user rating for fanfiction ID: {} to '{}'", fic_id, rating);
+        match update_user_rating(self.database, fic_id, rating) {
+            Ok(_) => {
+                // Display a brief summary of the updated fanfiction
+                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
+                    let rating_display = match &fic.user_rating {
+                        Some(rating) => format!("{}", rating),
+                        None => "None".to_string(),
+                    };
+                    println!("Successfully updated \"{}\" (ID: {}) to rating: {}.", 
+                             fic.title, fic_id, rating_display);
+                } else {
+                    println!("Successfully updated user rating.");
+                }
+            },
+            Err(e) => {
+                eprintln!("Error updating user rating: {}", e);
+            }
+        }
+    }
 }
 
 impl<'a> CommandExecutor for CliCommandExecutor<'a> {
@@ -149,6 +172,7 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             CliCommand::UpdateChapter { fic_id, chapter } => self.execute_update_chapter(fic_id, chapter),
             CliCommand::UpdateStatus { fic_id, status } => self.execute_update_status(fic_id, &status),
             CliCommand::UpdateReadCount { fic_id, read_count } => self.execute_update_read_count(fic_id, read_count),
+            CliCommand::UpdateRating { fic_id, rating } => self.execute_update_rating(fic_id, &rating),
             CliCommand::List => self.execute_list(),
             CliCommand::Wipe => self.execute_wipe(),
         }
