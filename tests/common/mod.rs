@@ -178,6 +178,38 @@ pub mod fixtures {
         (mock_server, fic_id)
     }
     
+    /// Sets up a mock AO3 server with an outdated fanfiction HTML.
+    pub fn given_mock_outdated_ao3_server() -> (MockServer, u64) {
+        let mock_server = MockServer::start();
+        let fic_id = 53681185;
+        
+        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_outdated.html")
+            .expect("Failed to read mock outdated HTML file");
+            
+        mock_server.mock(|when, then| {
+            when.method(GET).path(format!("/works/{}", fic_id));
+            then.status(200).body(html_content);
+        });
+        
+        (mock_server, fic_id)
+    }
+    
+    /// Sets up a mock AO3 server with an up-to-date fanfiction HTML.
+    pub fn given_mock_up_to_date_ao3_server() -> (MockServer, u64) {
+        let mock_server = MockServer::start();
+        let fic_id = 53681185;
+        
+        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_up_to_date.html")
+            .expect("Failed to read mock up-to-date HTML file");
+            
+        mock_server.mock(|when, then| {
+            when.method(GET).path(format!("/works/{}", fic_id));
+            then.status(200).body(html_content);
+        });
+        
+        (mock_server, fic_id)
+    }
+    
     /// Creates a sample fanfiction for testing.
     pub fn given_sample_fanfiction(id: u64, title: &str) -> Fanfiction {
         Fanfiction {
