@@ -12,7 +12,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
     - [x] Add a way to list your saved fanfics
     - [x] Allow users to edit the custom fields (rating, status, chapters, reads, notes)
     - [x] Support for direct AO3 URLs when adding fanfictions
-- [ ] Implement a function that checks for fic updates
+- [x] Implement a function that checks for fic updates
 - [ ] Allow users to create shelves and organise more flexibly
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
 - [ ] Create a feature-complete GUI version compatible with all OS (target for v1)

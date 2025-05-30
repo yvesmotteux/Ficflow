@@ -162,13 +162,12 @@ pub mod fixtures {
         (conn, db_path, temp_dir)
     }
     
-    /// Sets up a mock AO3 server with a sample fanfiction.
-    pub fn given_mock_ao3_server() -> (MockServer, u64) {
+    /// Creates a mock AO3 server with specified fixture HTML and fiction ID.
+    fn create_mock_ao3_server(fixture_path: &str, fic_id: u64, error_message: &str) -> (MockServer, u64) {
         let mock_server = MockServer::start();
-        let fic_id = 53960491;
         
-        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_example1.html")
-            .expect("Failed to read mock HTML file");
+        let html_content = fs::read_to_string(fixture_path)
+            .expect(error_message);
             
         mock_server.mock(|when, then| {
             when.method(GET).path(format!("/works/{}", fic_id));
@@ -176,38 +175,33 @@ pub mod fixtures {
         });
         
         (mock_server, fic_id)
+    }
+
+    /// Sets up a mock AO3 server with a sample fanfiction.
+    pub fn given_mock_ao3_server() -> (MockServer, u64) {
+        create_mock_ao3_server(
+            "tests/fixtures/ao3_fic_example1.html",
+            53960491,
+            "Failed to read mock HTML file"
+        )
     }
     
     /// Sets up a mock AO3 server with an outdated fanfiction HTML.
     pub fn given_mock_outdated_ao3_server() -> (MockServer, u64) {
-        let mock_server = MockServer::start();
-        let fic_id = 53681185;
-        
-        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_outdated.html")
-            .expect("Failed to read mock outdated HTML file");
-            
-        mock_server.mock(|when, then| {
-            when.method(GET).path(format!("/works/{}", fic_id));
-            then.status(200).body(html_content);
-        });
-        
-        (mock_server, fic_id)
+        create_mock_ao3_server(
+            "tests/fixtures/ao3_fic_outdated.html",
+            53681185,
+            "Failed to read mock outdated HTML file"
+        )
     }
     
     /// Sets up a mock AO3 server with an up-to-date fanfiction HTML.
     pub fn given_mock_up_to_date_ao3_server() -> (MockServer, u64) {
-        let mock_server = MockServer::start();
-        let fic_id = 53681185;
-        
-        let html_content = fs::read_to_string("tests/fixtures/ao3_fic_up_to_date.html")
-            .expect("Failed to read mock up-to-date HTML file");
-            
-        mock_server.mock(|when, then| {
-            when.method(GET).path(format!("/works/{}", fic_id));
-            then.status(200).body(html_content);
-        });
-        
-        (mock_server, fic_id)
+        create_mock_ao3_server(
+            "tests/fixtures/ao3_fic_up_to_date.html",
+            53681185,
+            "Failed to read mock up-to-date HTML file"
+        )
     }
     
     /// Creates a sample fanfiction for testing.
