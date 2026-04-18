@@ -1,4 +1,4 @@
-use crate::domain::fanfiction::{DatabaseOps, Fanfiction};
+use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
 use crate::domain::shelf::{Shelf, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{row_to_fanfiction, row_to_shelf};
@@ -15,7 +15,7 @@ impl<'a> SqliteRepository<'a> {
     }
 }
 
-impl<'a> DatabaseOps for SqliteRepository<'a> {
+impl<'a> FanfictionOps for SqliteRepository<'a> {
     fn save_fanfiction(&self, fic: &Fanfiction) -> Result<(), FicflowError> {
         let authors = serde_json::to_string(&fic.authors)?;
         let categories = serde_json::to_string(&fic.categories)?;

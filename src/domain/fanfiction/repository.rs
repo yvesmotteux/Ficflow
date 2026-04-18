@@ -1,7 +1,7 @@
 use super::entity::Fanfiction;
 use crate::error::FicflowError;
 
-pub trait DatabaseOps {
+pub trait FanfictionOps {
     fn save_fanfiction(&self, fic: &Fanfiction) -> Result<(), FicflowError>;
     fn delete_fanfiction(&self, fic_id: u64) -> Result<(), FicflowError>;
     fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, FicflowError>;

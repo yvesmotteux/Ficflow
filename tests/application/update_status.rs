@@ -6,7 +6,7 @@ use crate::common::fixtures;
 
 use ficflow::{
     application::update_status::update_reading_status,
-    domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus},
+    domain::fanfiction::{Fanfiction, FanfictionOps, ReadingStatus},
     infrastructure::persistence::database::migration::run_migrations,
     infrastructure::persistence::repository::SqliteRepository,
 };
@@ -40,13 +40,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::PlanToRead);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_reading_status(&db_ops, fic_id, "inprogress")?;
+        update_reading_status(&fanfiction_ops, fic_id, "inprogress")?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress);
 
@@ -61,13 +61,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::InProgress);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_reading_status(&db_ops, fic_id, "read")?;
+        update_reading_status(&fanfiction_ops, fic_id, "read")?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(updated_fic.reading_status, ReadingStatus::Read);
 
         Ok(())
@@ -81,23 +81,23 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::InProgress);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When - Test with different formats of the same status
-        update_reading_status(&db_ops, fic_id, "plan-to-read")?;
-        let fic1 = db_ops.get_fanfiction_by_id(fic_id)?;
+        update_reading_status(&fanfiction_ops, fic_id, "plan-to-read")?;
+        let fic1 = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic1.reading_status, ReadingStatus::PlanToRead);
 
-        update_reading_status(&db_ops, fic_id, "plantoread")?;
-        let fic2 = db_ops.get_fanfiction_by_id(fic_id)?;
+        update_reading_status(&fanfiction_ops, fic_id, "plantoread")?;
+        let fic2 = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic2.reading_status, ReadingStatus::PlanToRead);
 
-        update_reading_status(&db_ops, fic_id, "plan")?;
-        let fic3 = db_ops.get_fanfiction_by_id(fic_id)?;
+        update_reading_status(&fanfiction_ops, fic_id, "plan")?;
+        let fic3 = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic3.reading_status, ReadingStatus::PlanToRead);
 
-        update_reading_status(&db_ops, fic_id, "in-progress")?;
-        let fic4 = db_ops.get_fanfiction_by_id(fic_id)?;
+        update_reading_status(&fanfiction_ops, fic_id, "in-progress")?;
+        let fic4 = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic4.reading_status, ReadingStatus::InProgress);
 
         Ok(())
@@ -111,10 +111,10 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::InProgress);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When - Test with invalid status
-        let result = update_reading_status(&db_ops, fic_id, "invalid_status");
+        let result = update_reading_status(&fanfiction_ops, fic_id, "invalid_status");
 
         // Then
         assert!(result.is_err());
@@ -122,7 +122,7 @@ mod tests {
         assert!(error.to_string().contains("Invalid reading status"));
 
         // Verify status was not changed
-        let unchanged_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let unchanged_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(unchanged_fic.reading_status, ReadingStatus::InProgress);
 
         Ok(())

@@ -1,6 +1,6 @@
-use crate::domain::fanfiction::{DatabaseOps, Fanfiction};
+use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
 use crate::error::FicflowError;
 
-pub fn list_fics(db_ops: &dyn DatabaseOps) -> Result<Vec<Fanfiction>, FicflowError> {
-    db_ops.list_fanfictions()
+pub fn list_fics(fanfiction_ops: &dyn FanfictionOps) -> Result<Vec<Fanfiction>, FicflowError> {
+    fanfiction_ops.list_fanfictions()
 }

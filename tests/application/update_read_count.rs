@@ -6,7 +6,7 @@ use crate::common::fixtures;
 
 use ficflow::{
     application::update_read_count::update_read_count,
-    domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus},
+    domain::fanfiction::{Fanfiction, FanfictionOps, ReadingStatus},
     infrastructure::persistence::database::migration::run_migrations,
     infrastructure::persistence::repository::SqliteRepository,
 };
@@ -40,13 +40,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, 0);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_read_count(&db_ops, fic_id, 5)?;
+        update_read_count(&fanfiction_ops, fic_id, 5)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.read_count, 5);
         // Reading status should remain unchanged
@@ -63,13 +63,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, 10);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_read_count(&db_ops, fic_id, 3)?;
+        update_read_count(&fanfiction_ops, fic_id, 3)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.read_count, 3);
         // Other fields should be unchanged
@@ -87,13 +87,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, 7);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_read_count(&db_ops, fic_id, 0)?;
+        update_read_count(&fanfiction_ops, fic_id, 0)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.read_count, 0);
 
@@ -109,13 +109,13 @@ mod tests {
         fic.reading_status = ReadingStatus::Read; // Explicitly set to Read status
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_read_count(&db_ops, fic_id, 0)?;
+        update_read_count(&fanfiction_ops, fic_id, 0)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.read_count, 0);
         assert_eq!(updated_fic.reading_status, ReadingStatus::PlanToRead); // Status should be changed

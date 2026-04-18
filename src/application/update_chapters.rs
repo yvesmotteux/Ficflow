@@ -1,12 +1,12 @@
-use crate::domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus};
+use crate::domain::fanfiction::{Fanfiction, FanfictionOps, ReadingStatus};
 use crate::error::FicflowError;
 
 pub fn update_last_chapter_read(
-    db_ops: &dyn DatabaseOps,
+    fanfiction_ops: &dyn FanfictionOps,
     fic_id: u64,
     new_chapter_count: u32,
 ) -> Result<Fanfiction, FicflowError> {
-    let mut fic = db_ops.get_fanfiction_by_id(fic_id)?;
+    let mut fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
     let adjusted_chapter_count = if let Some(total_chapters) = fic.chapters_total {
         if new_chapter_count > total_chapters {
@@ -42,7 +42,7 @@ pub fn update_last_chapter_read(
         }
     }
 
-    db_ops.save_fanfiction(&fic)?;
+    fanfiction_ops.save_fanfiction(&fic)?;
 
     Ok(fic)
 }

@@ -13,6 +13,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 - [ ] Use a soft delete so that wipe or delete never truly deletes anything
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
 - [ ] Create a feature-complete GUI version compatible with all OS (target for v1)
+- [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
 - [ ] Import/Export database to create backups
 - [ ] Ability to login to access restricted fics
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one

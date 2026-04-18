@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use ficflow::{
-    domain::fanfiction::{DatabaseOps, Fanfiction, FanfictionFetcher},
+    domain::fanfiction::{Fanfiction, FanfictionFetcher, FanfictionOps},
     infrastructure::persistence::repository::SqliteRepository,
 };
 

@@ -6,7 +6,7 @@ use crate::common::fixtures;
 
 use ficflow::{
     application::update_rating::update_user_rating,
-    domain::fanfiction::{DatabaseOps, Fanfiction, UserRating},
+    domain::fanfiction::{Fanfiction, FanfictionOps, UserRating},
     infrastructure::persistence::database::migration::run_migrations,
     infrastructure::persistence::repository::SqliteRepository,
 };
@@ -40,13 +40,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, None);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_user_rating(&db_ops, fic_id, "4")?;
+        update_user_rating(&fanfiction_ops, fic_id, "4")?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.user_rating, Some(UserRating::Four));
 
@@ -61,13 +61,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, None);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_user_rating(&db_ops, fic_id, "five")?;
+        update_user_rating(&fanfiction_ops, fic_id, "five")?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.user_rating, Some(UserRating::Five));
 
@@ -82,13 +82,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, Some(UserRating::Two));
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_user_rating(&db_ops, fic_id, "three")?;
+        update_user_rating(&fanfiction_ops, fic_id, "three")?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.user_rating, Some(UserRating::Three));
 
@@ -103,13 +103,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, Some(UserRating::Five));
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_user_rating(&db_ops, fic_id, "none")?;
+        update_user_rating(&fanfiction_ops, fic_id, "none")?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.user_rating, None);
 
@@ -124,10 +124,10 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, None);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        let result = update_user_rating(&db_ops, fic_id, "ten");
+        let result = update_user_rating(&fanfiction_ops, fic_id, "ten");
 
         // Then
         assert!(result.is_err());
@@ -135,7 +135,7 @@ mod tests {
         assert!(error.to_string().contains("Invalid rating"));
 
         // Verify rating was not changed
-        let unchanged_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let unchanged_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(unchanged_fic.user_rating, None);
 
         Ok(())
