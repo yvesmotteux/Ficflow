@@ -1,6 +1,23 @@
 use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
+use crate::domain::shelf::Shelf;
 use chrono::{DateTime, Utc};
 use rusqlite::Row;
+
+pub fn row_to_shelf(row: &Row) -> Result<Shelf, rusqlite::Error> {
+    let id: u64 = row.get(0)?;
+    let name: String = row.get(1)?;
+    let created_at_str: String = row.get(2)?;
+    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+        .map_err(|_| {
+            rusqlite::Error::InvalidColumnType(2, "created_at".into(), rusqlite::types::Type::Text)
+        })?
+        .with_timezone(&Utc);
+    Ok(Shelf {
+        id,
+        name,
+        created_at,
+    })
+}
 
 pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
     let id: u64 = row.get(0)?;
