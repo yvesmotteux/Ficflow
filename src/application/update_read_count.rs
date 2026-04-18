@@ -1,11 +1,11 @@
-use crate::domain::fanfiction::{DatabaseOps, ReadingStatus};
+use crate::domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus};
 use crate::error::FicflowError;
 
 pub fn update_read_count(
     db_ops: &dyn DatabaseOps,
     fic_id: u64,
     new_read_count: u32,
-) -> Result<(), FicflowError> {
+) -> Result<Fanfiction, FicflowError> {
     let mut fic = db_ops.get_fanfiction_by_id(fic_id)?;
     fic.read_count = new_read_count;
 
@@ -15,5 +15,5 @@ pub fn update_read_count(
     }
 
     db_ops.save_fanfiction(&fic)?;
-    Ok(())
+    Ok(fic)
 }

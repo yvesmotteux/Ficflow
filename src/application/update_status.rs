@@ -1,11 +1,11 @@
-use crate::domain::fanfiction::{DatabaseOps, ReadingStatus};
+use crate::domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus};
 use crate::error::FicflowError;
 
 pub fn update_reading_status(
     db_ops: &dyn DatabaseOps,
     fic_id: u64,
     new_status: &str,
-) -> Result<(), FicflowError> {
+) -> Result<Fanfiction, FicflowError> {
     let mut fic = db_ops.get_fanfiction_by_id(fic_id)?;
 
     let reading_status = match new_status.to_lowercase().as_str() {
@@ -25,5 +25,5 @@ pub fn update_reading_status(
     fic.reading_status = reading_status;
     db_ops.save_fanfiction(&fic)?;
 
-    Ok(())
+    Ok(fic)
 }
