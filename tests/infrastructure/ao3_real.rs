@@ -21,8 +21,7 @@ mod tests {
     #[test]
     #[ignore]
     fn real_ao3_accepts_our_request() {
-        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO)
-            .expect("fetcher should build");
+        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).expect("fetcher should build");
 
         let fic = fetcher
             .fetch_fanfiction(STABLE_PUBLIC_FIC_ID, AO3_BASE_URL)
