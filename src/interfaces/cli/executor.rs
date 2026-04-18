@@ -98,84 +98,52 @@ impl<'a> CliCommandExecutor<'a> {
     fn execute_update_chapter(&self, fic_id: u64, chapter: u32) {
         println!("Updating last read chapter for fanfiction ID: {} to chapter {}", fic_id, chapter);
         match update_last_chapter_read(self.database, fic_id, chapter) {
-            Ok(_) => {
-                // Display a brief summary of the updated fanfiction
-                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
-                    println!("Successfully updated \"{}\" (ID: {}) to chapter {}.", 
-                             fic.title, fic_id, chapter);
-                    println!("Reading Status: {}", fic.reading_status);
-                    println!("Read Count: {}", fic.read_count);
-                } else {
-                    println!("Successfully updated last read chapter.");
-                }
-            },
-            Err(e) => {
-                report_error("updating last read chapter", &e);
+            Ok(fic) => {
+                println!("Successfully updated \"{}\" (ID: {}) to chapter {}.", fic.title, fic_id, chapter);
+                println!("Reading Status: {}", fic.reading_status);
+                println!("Read Count: {}", fic.read_count);
             }
+            Err(e) => report_error("updating last read chapter", &e),
         }
     }
 
     fn execute_update_status(&self, fic_id: u64, status: &str) {
         println!("Updating reading status for fanfiction ID: {} to '{}'", fic_id, status);
         match update_reading_status(self.database, fic_id, status) {
-            Ok(_) => {
-                // Display a brief summary of the updated fanfiction
-                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
-                    println!("Successfully updated \"{}\" (ID: {}) to status: {}.", 
-                             fic.title, fic_id, fic.reading_status);
-                } else {
-                    println!("Successfully updated reading status.");
-                }
-            },
-            Err(e) => {
-                report_error("updating reading status", &e);
+            Ok(fic) => {
+                println!("Successfully updated \"{}\" (ID: {}) to status: {}.", fic.title, fic_id, fic.reading_status);
             }
+            Err(e) => report_error("updating reading status", &e),
         }
     }
 
     fn execute_update_read_count(&self, fic_id: u64, read_count: u32) {
         println!("Updating read count for fanfiction ID: {} to {}", fic_id, read_count);
         match update_read_count(self.database, fic_id, read_count) {
-            Ok(_) => {
-                // Display a brief summary of the updated fanfiction
-                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
-                    println!("Successfully updated \"{}\" (ID: {}) to read count: {}.", 
-                             fic.title, fic_id, fic.read_count);
-                    println!("Reading Status: {}", fic.reading_status);
-                } else {
-                    println!("Successfully updated read count.");
-                }
-            },
-            Err(e) => {
-                report_error("updating read count", &e);
+            Ok(fic) => {
+                println!("Successfully updated \"{}\" (ID: {}) to read count: {}.", fic.title, fic_id, fic.read_count);
+                println!("Reading Status: {}", fic.reading_status);
             }
+            Err(e) => report_error("updating read count", &e),
         }
     }
 
     fn execute_update_rating(&self, fic_id: u64, rating: &str) {
         println!("Updating user rating for fanfiction ID: {} to '{}'", fic_id, rating);
         match update_user_rating(self.database, fic_id, rating) {
-            Ok(_) => {
-                // Display a brief summary of the updated fanfiction
-                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
-                    let rating_display = match &fic.user_rating {
-                        Some(rating) => format!("{}", rating),
-                        None => "None".to_string(),
-                    };
-                    println!("Successfully updated \"{}\" (ID: {}) to rating: {}.", 
-                             fic.title, fic_id, rating_display);
-                } else {
-                    println!("Successfully updated user rating.");
-                }
-            },
-            Err(e) => {
-                report_error("updating user rating", &e);
+            Ok(fic) => {
+                let rating_display = match &fic.user_rating {
+                    Some(r) => format!("{}", r),
+                    None => "None".to_string(),
+                };
+                println!("Successfully updated \"{}\" (ID: {}) to rating: {}.", fic.title, fic_id, rating_display);
             }
+            Err(e) => report_error("updating user rating", &e),
         }
     }
 
     fn execute_update_note(&self, fic_id: u64, note: Option<&str>) {
-        // If removing a note (note is None), show the current note before removal
+        // If removing a note, show the current one first so the user sees what's being dropped.
         if note.is_none() {
             if let Ok(fic) = get_fanfiction(self.database, fic_id) {
                 if let Some(current_note) = &fic.personal_note {
@@ -186,25 +154,16 @@ impl<'a> CliCommandExecutor<'a> {
         }
 
         match update_personal_note(self.database, fic_id, note) {
-            Ok(_) => {
-                // Display a brief summary of the updated fanfiction
-                if let Ok(fic) = get_fanfiction(self.database, fic_id) {
-                    match &fic.personal_note {
-                        Some(note_text) => {
-                            println!("Successfully added note to \"{}\" (ID: {}).", fic.title, fic_id);
-                            println!("Note: {}", note_text);
-                        },
-                        None => {
-                            println!("Successfully removed note from \"{}\" (ID: {}).", fic.title, fic_id);
-                        }
-                    }
-                } else {
-                    println!("Successfully updated personal note.");
+            Ok(fic) => match &fic.personal_note {
+                Some(note_text) => {
+                    println!("Successfully added note to \"{}\" (ID: {}).", fic.title, fic_id);
+                    println!("Note: {}", note_text);
+                }
+                None => {
+                    println!("Successfully removed note from \"{}\" (ID: {}).", fic.title, fic_id);
                 }
             },
-            Err(e) => {
-                report_error("updating personal note", &e);
-            }
+            Err(e) => report_error("updating personal note", &e),
         }
     }
 }
