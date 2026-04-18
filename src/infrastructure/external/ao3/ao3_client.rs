@@ -20,7 +20,12 @@ impl Ao3Client {
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36".parse().unwrap());
 
-        let response = self.client.get(&url).headers(headers).send()?.text()?;
+        let response = self.client
+            .get(&url)
+            .headers(headers)
+            .send()?
+            .error_for_status()?
+            .text()?;
 
         Ok(response)
     }
