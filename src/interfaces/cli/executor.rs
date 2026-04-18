@@ -13,9 +13,7 @@ use crate::{
         update_read_count::update_read_count, update_status::update_reading_status,
         wipe_db::wipe_database,
     },
-    domain::{
-        fanfiction::FanfictionFetcher, fanfiction::FanfictionOps, shelf::ShelfOps, url_config,
-    },
+    domain::{fanfiction::FanfictionFetcher, repository::Repository, url_config},
     error::FicflowError,
 };
 
@@ -25,20 +23,14 @@ pub trait CommandExecutor {
 
 pub struct CliCommandExecutor<'a> {
     fetcher: &'a dyn FanfictionFetcher,
-    fanfiction_ops: &'a dyn FanfictionOps,
-    shelf_ops: &'a dyn ShelfOps,
+    repository: &'a dyn Repository,
 }
 
 impl<'a> CliCommandExecutor<'a> {
-    pub fn new(
-        fetcher: &'a dyn FanfictionFetcher,
-        fanfiction_ops: &'a dyn FanfictionOps,
-        shelf_ops: &'a dyn ShelfOps,
-    ) -> Self {
+    pub fn new(fetcher: &'a dyn FanfictionFetcher, repository: &'a dyn Repository) -> Self {
         Self {
             fetcher,
-            fanfiction_ops,
-            shelf_ops,
+            repository,
         }
     }
 
@@ -47,7 +39,7 @@ impl<'a> CliCommandExecutor<'a> {
 
         let base_url = url_config::get_ao3_base_url();
 
-        match add_fanfiction(self.fetcher, self.fanfiction_ops, fic_id, &base_url) {
+        match add_fanfiction(self.fetcher, self.repository, fic_id, &base_url) {
             Ok(title) => println!("Successfully added: {}", title),
             Err(e) => report_error("adding fanfiction", &e),
         }
@@ -55,14 +47,14 @@ impl<'a> CliCommandExecutor<'a> {
 
     fn execute_delete(&self, fic_id: u64) {
         println!("Deleting fanfiction with ID: {}", fic_id);
-        if let Err(e) = delete_fic(self.fanfiction_ops, fic_id) {
+        if let Err(e) = delete_fic(self.repository, fic_id) {
             report_error("deleting fanfiction", &e);
         }
     }
 
     fn execute_get(&self, fic_id: u64) {
         println!("Getting fanfiction with ID: {}", fic_id);
-        match get_fanfiction(self.fanfiction_ops, fic_id) {
+        match get_fanfiction(self.repository, fic_id) {
             Ok(fic) => {
                 let details = details_view::render_fanfiction_details(&fic);
                 println!("\n{}", details);
@@ -75,7 +67,7 @@ impl<'a> CliCommandExecutor<'a> {
 
     fn execute_list(&self) {
         println!("Listing all fanfictions");
-        match list_fics(self.fanfiction_ops) {
+        match list_fics(self.repository) {
             Ok(fanfictions) => {
                 println!("{}", list_view::render_fanfiction_list(&fanfictions));
             }
@@ -93,7 +85,7 @@ impl<'a> CliCommandExecutor<'a> {
             return;
         }
 
-        match wipe_database(self.fanfiction_ops) {
+        match wipe_database(self.repository) {
             Ok(()) => println!("Database wiped successfully."),
             Err(e) => report_error("wiping database", &e),
         }
@@ -104,7 +96,7 @@ impl<'a> CliCommandExecutor<'a> {
             "Updating last read chapter for fanfiction ID: {} to chapter {}",
             fic_id, chapter
         );
-        match update_last_chapter_read(self.fanfiction_ops, fic_id, chapter) {
+        match update_last_chapter_read(self.repository, fic_id, chapter) {
             Ok(fic) => {
                 println!(
                     "Successfully updated \"{}\" (ID: {}) to chapter {}.",
@@ -122,7 +114,7 @@ impl<'a> CliCommandExecutor<'a> {
             "Updating reading status for fanfiction ID: {} to '{}'",
             fic_id, status
         );
-        match update_reading_status(self.fanfiction_ops, fic_id, status) {
+        match update_reading_status(self.repository, fic_id, status) {
             Ok(fic) => {
                 println!(
                     "Successfully updated \"{}\" (ID: {}) to status: {}.",
@@ -138,7 +130,7 @@ impl<'a> CliCommandExecutor<'a> {
             "Updating read count for fanfiction ID: {} to {}",
             fic_id, read_count
         );
-        match update_read_count(self.fanfiction_ops, fic_id, read_count) {
+        match update_read_count(self.repository, fic_id, read_count) {
             Ok(fic) => {
                 println!(
                     "Successfully updated \"{}\" (ID: {}) to read count: {}.",
@@ -155,7 +147,7 @@ impl<'a> CliCommandExecutor<'a> {
             "Updating user rating for fanfiction ID: {} to '{}'",
             fic_id, rating
         );
-        match update_user_rating(self.fanfiction_ops, fic_id, rating) {
+        match update_user_rating(self.repository, fic_id, rating) {
             Ok(fic) => {
                 let rating_display = match &fic.user_rating {
                     Some(r) => format!("{}", r),
@@ -171,7 +163,7 @@ impl<'a> CliCommandExecutor<'a> {
     }
 
     fn execute_shelf_create(&self, name: &str) {
-        match create_shelf(self.shelf_ops, name) {
+        match create_shelf(self.repository, name) {
             Ok(shelf) => {
                 println!(
                     "Created shelf \"{}\" (id: {}). Use this id to add, remove, or show fics.",
@@ -183,14 +175,14 @@ impl<'a> CliCommandExecutor<'a> {
     }
 
     fn execute_shelf_delete(&self, shelf_id: u64) {
-        match delete_shelf(self.shelf_ops, shelf_id) {
+        match delete_shelf(self.repository, shelf_id) {
             Ok(()) => println!("Deleted shelf {}.", shelf_id),
             Err(e) => report_error("deleting shelf", &e),
         }
     }
 
     fn execute_shelf_list(&self) {
-        match list_shelves(self.shelf_ops) {
+        match list_shelves(self.repository) {
             Ok(shelves) => {
                 println!("{}", shelf_list_view::render_shelf_list(&shelves));
             }
@@ -199,21 +191,21 @@ impl<'a> CliCommandExecutor<'a> {
     }
 
     fn execute_shelf_add(&self, fic_id: u64, shelf_id: u64) {
-        match add_to_shelf(self.shelf_ops, fic_id, shelf_id) {
+        match add_to_shelf(self.repository, fic_id, shelf_id) {
             Ok(()) => println!("Added fanfiction {} to shelf {}.", fic_id, shelf_id),
             Err(e) => report_error("adding fanfiction to shelf", &e),
         }
     }
 
     fn execute_shelf_remove(&self, fic_id: u64, shelf_id: u64) {
-        match remove_from_shelf(self.shelf_ops, fic_id, shelf_id) {
+        match remove_from_shelf(self.repository, fic_id, shelf_id) {
             Ok(()) => println!("Removed fanfiction {} from shelf {}.", fic_id, shelf_id),
             Err(e) => report_error("removing fanfiction from shelf", &e),
         }
     }
 
     fn execute_shelf_show(&self, shelf_id: u64) {
-        match list_shelf_fics(self.shelf_ops, shelf_id) {
+        match list_shelf_fics(self.repository, shelf_id) {
             Ok(fics) => {
                 println!("{}", list_view::render_fanfiction_list(&fics));
             }
@@ -224,7 +216,7 @@ impl<'a> CliCommandExecutor<'a> {
     fn execute_update_note(&self, fic_id: u64, note: Option<&str>) {
         // If removing a note, show the current one first so the user sees what's being dropped.
         if note.is_none() {
-            if let Ok(fic) = get_fanfiction(self.fanfiction_ops, fic_id) {
+            if let Ok(fic) = get_fanfiction(self.repository, fic_id) {
                 if let Some(current_note) = &fic.personal_note {
                     println!(
                         "Current personal note for \"{}\" (ID: {}): {}",
@@ -235,7 +227,7 @@ impl<'a> CliCommandExecutor<'a> {
             }
         }
 
-        match update_personal_note(self.fanfiction_ops, fic_id, note) {
+        match update_personal_note(self.repository, fic_id, note) {
             Ok(fic) => match &fic.personal_note {
                 Some(note_text) => {
                     println!(

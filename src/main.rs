@@ -16,7 +16,7 @@ fn main() {
     let ao3_fetcher = Ao3Fetcher::new().expect("Failed to create Ao3Fetcher");
     let fetcher = RetryingFetcher::new(ao3_fetcher, 3);
 
-    let factory = InterfaceFactory::new(&fetcher, &repository, &repository);
+    let factory = InterfaceFactory::new(&fetcher, &repository);
     let interface = factory.create_cli_interface();
 
     interface.run();

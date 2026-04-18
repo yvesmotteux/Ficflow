@@ -2,17 +2,13 @@ pub mod command;
 pub mod executor;
 pub mod views;
 
-use crate::domain::fanfiction::{FanfictionFetcher, FanfictionOps};
-use crate::domain::shelf::ShelfOps;
+use crate::domain::fanfiction::FanfictionFetcher;
+use crate::domain::repository::Repository;
 use executor::CommandExecutor;
 
-pub fn run_cli(
-    fetcher: &dyn FanfictionFetcher,
-    fanfiction_ops: &dyn FanfictionOps,
-    shelf_ops: &dyn ShelfOps,
-) {
+pub fn run_cli(fetcher: &dyn FanfictionFetcher, repository: &dyn Repository) {
     let command = command::parse_cli_commands();
-    let executor = executor::CliCommandExecutor::new(fetcher, fanfiction_ops, shelf_ops);
+    let executor = executor::CliCommandExecutor::new(fetcher, repository);
 
     executor.execute_command(command);
 }
