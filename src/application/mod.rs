@@ -1,8 +1,11 @@
 pub mod add_fic;
 pub mod check_updates;
+pub mod create_shelf;
 pub mod delete_fic;
+pub mod delete_shelf;
 pub mod get_fic;
 pub mod list_fics;
+pub mod list_shelves;
 pub mod update_chapters;
 pub mod update_note;
 pub mod update_rating;
