@@ -1,4 +1,6 @@
-use ficflow::infrastructure::{establish_connection, Ao3Fetcher, RetryingFetcher, SqliteRepository};
+use ficflow::infrastructure::{
+    establish_connection, Ao3Fetcher, RetryingFetcher, SqliteRepository,
+};
 use ficflow::interfaces::interface::InterfaceFactory;
 
 fn main() {

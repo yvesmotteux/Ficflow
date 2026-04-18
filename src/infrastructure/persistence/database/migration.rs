@@ -1,10 +1,10 @@
+use crate::error::FicflowError;
 use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
-use crate::error::FicflowError;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
-    let migrations = Migrations::new(vec![
-        M::up(r#"
+    let migrations = Migrations::new(vec![M::up(
+        r#"
             CREATE TABLE IF NOT EXISTS fanfiction (
                 id INTEGER PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -34,8 +34,8 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
                 personal_note TEXT,
                 last_checked_date TEXT NOT NULL
             )
-        "#),
-    ]);
+        "#,
+    )]);
 
     migrations.to_latest(conn)?;
 

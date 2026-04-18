@@ -1,7 +1,7 @@
-use rusqlite::{Connection, params};
 use crate::domain::fanfiction::{DatabaseOps, Fanfiction};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::row_to_fanfiction;
+use rusqlite::{params, Connection};
 
 pub struct SqliteRepository<'a> {
     conn: &'a Connection,
@@ -70,19 +70,24 @@ impl<'a> DatabaseOps for SqliteRepository<'a> {
     }
 
     fn delete_fanfiction(&self, fic_id: u64) -> Result<(), FicflowError> {
-        self.conn.execute("DELETE FROM fanfiction WHERE id = ?1", params![fic_id])?;
+        self.conn
+            .execute("DELETE FROM fanfiction WHERE id = ?1", params![fic_id])?;
         Ok(())
     }
 
     fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, FicflowError> {
-        let mut stmt = self.conn.prepare("SELECT * FROM fanfiction ORDER BY title")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM fanfiction ORDER BY title")?;
         let rows = stmt.query_map([], row_to_fanfiction)?;
         let fics = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(fics)
     }
 
     fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, FicflowError> {
-        let mut stmt = self.conn.prepare("SELECT * FROM fanfiction WHERE id = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM fanfiction WHERE id = ?1")?;
         stmt.query_row(params![fic_id], row_to_fanfiction)
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => FicflowError::NotFound { fic_id },

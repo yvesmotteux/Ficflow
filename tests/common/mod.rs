@@ -1,11 +1,11 @@
-#![allow(dead_code)]  // Suppress warnings about unused functions
+#![allow(dead_code)] // Suppress warnings about unused functions
 
-use std::error::Error;
-use std::path::PathBuf;
+use chrono::Utc;
 use httpmock::MockServer;
 use rusqlite::{Connection, OpenFlags};
+use std::error::Error;
+use std::path::PathBuf;
 use tempfile::TempDir;
-use chrono::Utc;
 
 use ficflow::{
     domain::fanfiction::{DatabaseOps, Fanfiction, FanfictionFetcher},
@@ -16,16 +16,18 @@ pub mod assertions {
     use super::*;
 
     /// Asserts that a fanfiction was successfully fetched and matches the expected fanfiction.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `expected` - The expected fanfiction
     /// * `actual` - The actual fetched fanfiction
     /// * `mock` - Optional mock server to verify that it was called
-    pub fn then_fanfiction_was_fetched(expected: &Fanfiction, actual: &Fanfiction, mock: Option<&httpmock::Mock>) {
+    pub fn then_fanfiction_was_fetched(
+        expected: &Fanfiction,
+        actual: &Fanfiction,
+        mock: Option<&httpmock::Mock>,
+    ) {
         {
-            let expected = expected;
-            let actual = actual;
             let mut errors = Vec::new();
 
             macro_rules! compare_field {
@@ -33,7 +35,9 @@ pub mod assertions {
                     if expected.$field != actual.$field {
                         errors.push(format!(
                             "Field `{}` differs:\n  Expected: {:?}\n  Actual:   {:?}",
-                            stringify!($field), expected.$field, actual.$field
+                            stringify!($field),
+                            expected.$field,
+                            actual.$field
                         ));
                     }
                 };
@@ -64,76 +68,104 @@ pub mod assertions {
             if !errors.is_empty() {
                 panic!("Fanfiction structs are not equal:\n{}", errors.join("\n"));
             }
-
         };
-        
+
         if let Some(mock_val) = mock {
             mock_val.assert();
         }
     }
 
     /// Asserts that a fanfiction was successfully added to the database.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `conn` - Database connection
     /// * `expected_fic` - The fanfiction that was expected to be added
-    pub fn then_fanfiction_was_added(conn: &Connection, expected_fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
+    pub fn then_fanfiction_was_added(
+        conn: &Connection,
+        expected_fic: &Fanfiction,
+    ) -> Result<(), Box<dyn Error>> {
         let fanfictions = SqliteRepository::new(conn).list_fanfictions()?;
-        assert!(!fanfictions.is_empty(), "Expected fanfictions in database but none were found");
-        
-        let found = fanfictions.iter().any(|fic| {
-            fic.id == expected_fic.id && fic.title == expected_fic.title
-        });
-        
-        assert!(found, "Expected fanfiction with id={} and title=\"{}\" not found in database", 
-               expected_fic.id, expected_fic.title);
-        
+        assert!(
+            !fanfictions.is_empty(),
+            "Expected fanfictions in database but none were found"
+        );
+
+        let found = fanfictions
+            .iter()
+            .any(|fic| fic.id == expected_fic.id && fic.title == expected_fic.title);
+
+        assert!(
+            found,
+            "Expected fanfiction with id={} and title=\"{}\" not found in database",
+            expected_fic.id, expected_fic.title
+        );
+
         Ok(())
     }
 
     /// Asserts that a fanfiction was successfully deleted from the database.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `conn` - Database connection
     /// * `fic_id` - The ID of the fanfiction that was expected to be deleted
-    pub fn then_fanfiction_was_deleted(conn: &Connection, fic_id: u64) -> Result<(), Box<dyn Error>> {
+    pub fn then_fanfiction_was_deleted(
+        conn: &Connection,
+        fic_id: u64,
+    ) -> Result<(), Box<dyn Error>> {
         let fanfictions = SqliteRepository::new(conn).list_fanfictions()?;
-        
+
         let found = fanfictions.iter().any(|fic| fic.id == fic_id);
-        assert!(!found, "Fanfiction with id={} still exists in database after deletion", fic_id);
-        
+        assert!(
+            !found,
+            "Fanfiction with id={} still exists in database after deletion",
+            fic_id
+        );
+
         Ok(())
     }
 
     /// Asserts that the database was successfully wiped.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `conn` - Database connection
     pub fn then_database_was_wiped(conn: &Connection) -> Result<(), Box<dyn Error>> {
         let fanfictions = SqliteRepository::new(conn).list_fanfictions()?;
-        assert_eq!(fanfictions.len(), 0, "Expected no fanfictions in database after wipe");
-        
+        assert_eq!(
+            fanfictions.len(),
+            0,
+            "Expected no fanfictions in database after wipe"
+        );
+
         Ok(())
     }
 
     /// Asserts that a CLI command execution was successful.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `status` - The exit status of the command
     /// * `stderr` - The stderr output of the command
     /// * `expected_strings` - Optional strings that should be in the stdout
     /// * `stdout` - The stdout output of the command to check against expected_strings
-    pub fn then_command_succeeded(status: i32, stderr: &str, expected_strings: Option<&[&str]>, stdout: Option<&str>) {
+    pub fn then_command_succeeded(
+        status: i32,
+        stderr: &str,
+        expected_strings: Option<&[&str]>,
+        stdout: Option<&str>,
+    ) {
         assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
-        
+
         if let (Some(strings), Some(output)) = (expected_strings, stdout) {
             for expected in strings {
-                assert!(output.contains(expected), 
-                    "Expected to find '{}' in command output, got: {}", expected, output);
+                assert!(
+                    output.contains(expected),
+                    "Expected to find '{}' in command output, got: {}",
+                    expected,
+                    output
+                );
             }
         }
     }
@@ -141,39 +173,45 @@ pub mod assertions {
 
 pub mod fixtures {
     use super::*;
-    use std::fs;
-    use httpmock::Method::GET;
     use ficflow::{
-        domain::fanfiction::{Rating, ReadingStatus, Categories, ArchiveWarnings},
-        infrastructure::persistence::database::migration::run_migrations
+        domain::fanfiction::{ArchiveWarnings, Categories, Rating, ReadingStatus},
+        infrastructure::persistence::database::migration::run_migrations,
     };
-    
+    use httpmock::Method::GET;
+    use std::fs;
+
     /// Sets up a test database with migrations.
     pub fn given_test_database() -> (Connection, PathBuf, TempDir) {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let db_path = temp_dir.path().join("test.db");
-        
+
         // Explicitly set the OpenFlags to CREATE | READ_WRITE to ensure write permissions
-        let mut conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)
-            .expect("Failed to open database with write permissions");
-        
+        let mut conn = Connection::open_with_flags(
+            &db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        )
+        .expect("Failed to open database with write permissions");
+
         run_migrations(&mut conn).expect("Failed to run migrations");
-        
+
         (conn, db_path, temp_dir)
     }
-    
+
     /// Creates a mock AO3 server with specified fixture HTML and fiction ID.
-    fn create_mock_ao3_server(fixture_path: &str, fic_id: u64, error_message: &str) -> (MockServer, u64) {
+    fn create_mock_ao3_server(
+        fixture_path: &str,
+        fic_id: u64,
+        error_message: &str,
+    ) -> (MockServer, u64) {
         let mock_server = MockServer::start();
-        
-        let html_content = fs::read_to_string(fixture_path)
-            .expect(error_message);
-            
+
+        let html_content = fs::read_to_string(fixture_path).expect(error_message);
+
         mock_server.mock(|when, then| {
             when.method(GET).path(format!("/works/{}", fic_id));
             then.status(200).body(html_content);
         });
-        
+
         (mock_server, fic_id)
     }
 
@@ -182,28 +220,28 @@ pub mod fixtures {
         create_mock_ao3_server(
             "tests/fixtures/ao3_fic_example1.html",
             53960491,
-            "Failed to read mock HTML file"
+            "Failed to read mock HTML file",
         )
     }
-    
+
     /// Sets up a mock AO3 server with an outdated fanfiction HTML.
     pub fn given_mock_outdated_ao3_server() -> (MockServer, u64) {
         create_mock_ao3_server(
             "tests/fixtures/ao3_fic_outdated.html",
             53681185,
-            "Failed to read mock outdated HTML file"
+            "Failed to read mock outdated HTML file",
         )
     }
-    
+
     /// Sets up a mock AO3 server with an up-to-date fanfiction HTML.
     pub fn given_mock_up_to_date_ao3_server() -> (MockServer, u64) {
         create_mock_ao3_server(
             "tests/fixtures/ao3_fic_up_to_date.html",
             53681185,
-            "Failed to read mock up-to-date HTML file"
+            "Failed to read mock up-to-date HTML file",
         )
     }
-    
+
     /// Creates a sample fanfiction for testing.
     pub fn given_sample_fanfiction(id: u64, title: &str) -> Fanfiction {
         Fanfiction {
@@ -236,15 +274,21 @@ pub mod fixtures {
             last_checked_date: Utc::now(),
         }
     }
-    
+
     /// Adds a fanfiction to the test database.
-    pub fn when_fanfiction_added_to_db(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
+    pub fn when_fanfiction_added_to_db(
+        conn: &Connection,
+        fic: &Fanfiction,
+    ) -> Result<(), Box<dyn Error>> {
         SqliteRepository::new(conn).save_fanfiction(fic)?;
         Ok(())
     }
 
     /// Deletes a fanfiction from the test database.
-    pub fn when_fanfiction_deleted_from_db(conn: &Connection, fic_id: u64) -> Result<(), Box<dyn Error>> {
+    pub fn when_fanfiction_deleted_from_db(
+        conn: &Connection,
+        fic_id: u64,
+    ) -> Result<(), Box<dyn Error>> {
         SqliteRepository::new(conn).delete_fanfiction(fic_id)?;
         Ok(())
     }

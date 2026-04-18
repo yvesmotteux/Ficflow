@@ -14,12 +14,20 @@ pub struct RetryingFetcher<F: FanfictionFetcher> {
 
 impl<F: FanfictionFetcher> RetryingFetcher<F> {
     pub fn new(inner: F, max_retries: u32) -> Self {
-        Self { inner, max_retries, backoff_base: Duration::from_secs(2) }
+        Self {
+            inner,
+            max_retries,
+            backoff_base: Duration::from_secs(2),
+        }
     }
 
     /// Constructor for tests — lets callers shrink the backoff so retries don't dominate test time.
     pub fn with_backoff(inner: F, max_retries: u32, backoff_base: Duration) -> Self {
-        Self { inner, max_retries, backoff_base }
+        Self {
+            inner,
+            max_retries,
+            backoff_base,
+        }
     }
 }
 
@@ -47,7 +55,10 @@ impl<F: FanfictionFetcher> FanfictionFetcher for RetryingFetcher<F> {
                     let wait = self.backoff_base * attempt;
                     log::info!(
                         "Fetch attempt {}/{} failed ({}). Retrying in {} seconds...",
-                        attempt, self.max_retries, e, wait.as_secs()
+                        attempt,
+                        self.max_retries,
+                        e,
+                        wait.as_secs()
                     );
                     last_err = Some(e);
                     thread::sleep(wait);
@@ -55,9 +66,6 @@ impl<F: FanfictionFetcher> FanfictionFetcher for RetryingFetcher<F> {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| {
-            FicflowError::Other("Fetch failed after retries".into())
-        }))
+        Err(last_err.unwrap_or_else(|| FicflowError::Other("Fetch failed after retries".into())))
     }
 }
-

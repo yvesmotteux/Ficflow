@@ -1,10 +1,10 @@
-use rusqlite::Connection;
-use std::fs;
-use std::env;
-use std::path::PathBuf;
-use dirs_next::data_local_dir;
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::database::migration::run_migrations;
+use dirs_next::data_local_dir;
+use rusqlite::Connection;
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 pub fn establish_connection() -> Result<Connection, FicflowError> {
     let db_path = if let Ok(path) = env::var("FICFLOW_DB_PATH") {

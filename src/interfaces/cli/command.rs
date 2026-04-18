@@ -1,5 +1,5 @@
-use clap::{Command, Arg, value_parser};
 use crate::interfaces::utils::url_parser;
+use clap::{value_parser, Arg, Command};
 
 #[derive(Debug)]
 pub enum CliCommand {
@@ -67,8 +67,10 @@ pub fn parse_cli_commands() -> CliCommand {
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("add") {
-        let fic_id_input = matches.get_one::<String>("fic-id").expect("fic-id or url is required");
-        
+        let fic_id_input = matches
+            .get_one::<String>("fic-id")
+            .expect("fic-id or url is required");
+
         // Extract AO3 ID from input (could be a direct ID or a URL in various formats)
         match url_parser::extract_ao3_id(fic_id_input) {
             Ok(id) => CliCommand::Add { fic_id: id },
@@ -78,29 +80,53 @@ pub fn parse_cli_commands() -> CliCommand {
             }
         }
     } else if let Some(matches) = matches.subcommand_matches("delete") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
         CliCommand::Delete { fic_id }
     } else if let Some(matches) = matches.subcommand_matches("get") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
         CliCommand::Get { fic_id }
     } else if let Some(matches) = matches.subcommand_matches("chapter") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
-        let chapter = *matches.get_one::<u32>("chapter").expect("chapter number is required");
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
+        let chapter = *matches
+            .get_one::<u32>("chapter")
+            .expect("chapter number is required");
         CliCommand::UpdateChapter { fic_id, chapter }
     } else if let Some(matches) = matches.subcommand_matches("status") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
-        let status = matches.get_one::<String>("status").expect("status is required").to_string();
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
+        let status = matches
+            .get_one::<String>("status")
+            .expect("status is required")
+            .to_string();
         CliCommand::UpdateStatus { fic_id, status }
     } else if let Some(matches) = matches.subcommand_matches("reads") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
-        let read_count = *matches.get_one::<u32>("count").expect("read count is required");
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
+        let read_count = *matches
+            .get_one::<u32>("count")
+            .expect("read count is required");
         CliCommand::UpdateReadCount { fic_id, read_count }
     } else if let Some(matches) = matches.subcommand_matches("rating") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
-        let rating = matches.get_one::<String>("rating").expect("rating is required").to_string();
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
+        let rating = matches
+            .get_one::<String>("rating")
+            .expect("rating is required")
+            .to_string();
         CliCommand::UpdateRating { fic_id, rating }
     } else if let Some(matches) = matches.subcommand_matches("note") {
-        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let fic_id = *matches
+            .get_one::<u64>("fic-id")
+            .expect("fic-id is required");
         let note = matches.get_one::<String>("note").map(|s| s.to_string());
         CliCommand::UpdateNote { fic_id, note }
     } else if matches.subcommand_matches("list").is_some() {

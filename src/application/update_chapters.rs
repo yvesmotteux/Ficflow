@@ -12,7 +12,8 @@ pub fn update_last_chapter_read(
         if new_chapter_count > total_chapters {
             log::warn!(
                 "Requested chapter {} exceeds total chapters {}. Setting to maximum.",
-                new_chapter_count, total_chapters
+                new_chapter_count,
+                total_chapters
             );
             total_chapters
         } else {

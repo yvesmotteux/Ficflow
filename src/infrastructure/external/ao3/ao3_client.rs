@@ -1,5 +1,8 @@
-use reqwest::{blocking::Client, header::{HeaderMap, USER_AGENT}};
 use crate::error::FicflowError;
+use reqwest::{
+    blocking::Client,
+    header::{HeaderMap, USER_AGENT},
+};
 
 pub struct Ao3Client {
     client: Client,
@@ -20,7 +23,8 @@ impl Ao3Client {
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36".parse().unwrap());
 
-        let response = self.client
+        let response = self
+            .client
             .get(&url)
             .headers(headers)
             .send()?

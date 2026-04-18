@@ -16,6 +16,11 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:

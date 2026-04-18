@@ -21,7 +21,10 @@ impl FanfictionFetcher for FlakyFetcher {
         let n = self.calls.get();
         self.calls.set(n + 1);
         if n < self.fail_first {
-            Err(FicflowError::Parse { field: "title".into(), reason: "flaky".into() })
+            Err(FicflowError::Parse {
+                field: "title".into(),
+                reason: "flaky".into(),
+            })
         } else {
             Ok(fixtures::given_sample_fanfiction(fic_id, "sample"))
         }
@@ -30,14 +33,20 @@ impl FanfictionFetcher for FlakyFetcher {
 
 #[test]
 fn retries_parse_errors_and_eventually_succeeds() {
-    let flaky = FlakyFetcher { calls: Cell::new(0), fail_first: 2 };
+    let flaky = FlakyFetcher {
+        calls: Cell::new(0),
+        fail_first: 2,
+    };
     let retrying = RetryingFetcher::with_backoff(flaky, 3, Duration::from_millis(1));
     assert!(retrying.fetch_fanfiction(42, "http://test").is_ok());
 }
 
 #[test]
 fn surfaces_error_after_exhausting_retries() {
-    let flaky = FlakyFetcher { calls: Cell::new(0), fail_first: 10 };
+    let flaky = FlakyFetcher {
+        calls: Cell::new(0),
+        fail_first: 10,
+    };
     let retrying = RetryingFetcher::with_backoff(flaky, 2, Duration::from_millis(1));
     assert!(matches!(
         retrying.fetch_fanfiction(42, "http://test"),

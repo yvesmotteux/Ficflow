@@ -67,10 +67,18 @@ impl Ao3Parser {
 
     fn strip_html_tags(&self, html: &str) -> String {
         let fragment = Html::parse_fragment(html);
-        fragment.root_element().text().collect::<String>().trim().to_string()
+        fragment
+            .root_element()
+            .text()
+            .collect::<String>()
+            .trim()
+            .to_string()
     }
 
-    pub fn extract_categories(&self, document: &Html) -> Result<Option<Vec<Categories>>, FicflowError> {
+    pub fn extract_categories(
+        &self,
+        document: &Html,
+    ) -> Result<Option<Vec<Categories>>, FicflowError> {
         let selector = parse_selector("dd.category.tags a.tag");
         let categories = document
             .select(&selector)
@@ -87,7 +95,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_chapters(&self, document: &Html) -> Result<(u32, Option<u32>, bool), FicflowError> {
+    pub fn extract_chapters(
+        &self,
+        document: &Html,
+    ) -> Result<(u32, Option<u32>, bool), FicflowError> {
         let selector = parse_selector("dd.chapters");
         let chapter_text = document
             .select(&selector)
@@ -95,12 +106,18 @@ impl Ao3Parser {
             .map(|element| element.text().collect::<String>())
             .unwrap_or_else(|| "0/0".to_string());
 
-        let mut chapters_iter = chapter_text.split('/').map(|s| s.parse::<u32>().unwrap_or(0));
+        let mut chapters_iter = chapter_text
+            .split('/')
+            .map(|s| s.parse::<u32>().unwrap_or(0));
 
         let chapters_published = chapters_iter.next().unwrap_or(0);
         let total_chapters = chapters_iter.next();
 
-        let total_chapters = if total_chapters == Some(0) { None } else { total_chapters };
+        let total_chapters = if total_chapters == Some(0) {
+            None
+        } else {
+            total_chapters
+        };
 
         let complete = match total_chapters {
             Some(total) => chapters_published > 0 && chapters_published == total,
@@ -208,7 +225,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_relationships(&self, document: &Html) -> Result<Option<Vec<String>>, FicflowError> {
+    pub fn extract_relationships(
+        &self,
+        document: &Html,
+    ) -> Result<Option<Vec<String>>, FicflowError> {
         let selector = parse_selector("dd.relationship.tags a.tag");
         let relationships = document
             .select(&selector)
@@ -250,7 +270,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_dates(&self, document: &Html) -> Result<(DateTime<Utc>, DateTime<Utc>), FicflowError> {
+    pub fn extract_dates(
+        &self,
+        document: &Html,
+    ) -> Result<(DateTime<Utc>, DateTime<Utc>), FicflowError> {
         let published_selector = parse_selector("dd.published");
         let published_text = document
             .select(&published_selector)
@@ -273,13 +296,11 @@ impl Ao3Parser {
 
     pub fn extract_restricted(&self, document: &Html) -> Result<bool, FicflowError> {
         let selector = parse_selector("p.notice");
-        let restricted = document
-            .select(&selector)
-            .any(|element| {
-                let text = element.text().collect::<String>().to_lowercase();
-                text.contains("only available to registered users") ||
-                text.contains("restricted to archive users")
-            });
+        let restricted = document.select(&selector).any(|element| {
+            let text = element.text().collect::<String>().to_lowercase();
+            text.contains("only available to registered users")
+                || text.contains("restricted to archive users")
+        });
 
         Ok(restricted)
     }
@@ -321,10 +342,11 @@ fn parse_date(date_string: &str) -> Result<DateTime<Utc>, FicflowError> {
         }
     };
 
-    let naive_date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|e| FicflowError::Parse {
-        field: "date".to_string(),
-        reason: format!("`{}`: {}", date_str, e),
-    })?;
+    let naive_date =
+        NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|e| FicflowError::Parse {
+            field: "date".to_string(),
+            reason: format!("`{}`: {}", date_str, e),
+        })?;
 
     let datetime = naive_date.and_hms_opt(0, 0, 0).unwrap_or_default();
     Ok(Utc.from_utc_datetime(&datetime))

@@ -35,7 +35,8 @@ impl FanfictionFetcher for Ao3Fetcher {
         let authors = self.parser.extract_authors(&document)?;
         let summary = self.parser.extract_summary(&document)?;
         let categories = self.parser.extract_categories(&document)?;
-        let (chapters_published, chapters_total, complete) = self.parser.extract_chapters(&document)?;
+        let (chapters_published, chapters_total, complete) =
+            self.parser.extract_chapters(&document)?;
         let fandoms = self.parser.extract_fandoms(&document)?;
         let (hits, kudos, words) = self.parser.extract_stats(&document)?;
         let language = self.parser.extract_language(&document)?;
