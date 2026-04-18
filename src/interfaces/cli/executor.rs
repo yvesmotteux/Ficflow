@@ -1,17 +1,19 @@
 use std::env;
 use std::io::{self, Write};
 
-use super::command::CliCommand;
-use super::views::{details_view, list_view};
+use super::command::{CliCommand, ShelfCommand};
+use super::views::{details_view, list_view, shelf_list_view};
 use crate::{
     application::{
-        add_fic::add_fanfiction, delete_fic::delete_fic, get_fic::get_fanfiction,
-        list_fics::list_fics, update_chapters::update_last_chapter_read,
+        add_fic::add_fanfiction, add_to_shelf::add_to_shelf, create_shelf::create_shelf,
+        delete_fic::delete_fic, delete_shelf::delete_shelf, get_fic::get_fanfiction,
+        list_fics::list_fics, list_shelf_fics::list_shelf_fics, list_shelves::list_shelves,
+        remove_from_shelf::remove_from_shelf, update_chapters::update_last_chapter_read,
         update_note::update_personal_note, update_rating::update_user_rating,
         update_read_count::update_read_count, update_status::update_reading_status,
         wipe_db::wipe_database,
     },
-    domain::{fanfiction::DatabaseOps, fanfiction::FanfictionFetcher, url_config},
+    domain::{fanfiction::DatabaseOps, fanfiction::FanfictionFetcher, shelf::ShelfOps, url_config},
     error::FicflowError,
 };
 
@@ -22,11 +24,20 @@ pub trait CommandExecutor {
 pub struct CliCommandExecutor<'a> {
     fetcher: &'a dyn FanfictionFetcher,
     database: &'a dyn DatabaseOps,
+    shelf_ops: &'a dyn ShelfOps,
 }
 
 impl<'a> CliCommandExecutor<'a> {
-    pub fn new(fetcher: &'a dyn FanfictionFetcher, database: &'a dyn DatabaseOps) -> Self {
-        Self { fetcher, database }
+    pub fn new(
+        fetcher: &'a dyn FanfictionFetcher,
+        database: &'a dyn DatabaseOps,
+        shelf_ops: &'a dyn ShelfOps,
+    ) -> Self {
+        Self {
+            fetcher,
+            database,
+            shelf_ops,
+        }
     }
 
     fn execute_add(&self, fic_id: u64) {
@@ -157,6 +168,57 @@ impl<'a> CliCommandExecutor<'a> {
         }
     }
 
+    fn execute_shelf_create(&self, name: &str) {
+        match create_shelf(self.shelf_ops, name) {
+            Ok(shelf) => {
+                println!(
+                    "Created shelf \"{}\" (id: {}). Use this id to add, remove, or show fics.",
+                    shelf.name, shelf.id
+                );
+            }
+            Err(e) => report_error("creating shelf", &e),
+        }
+    }
+
+    fn execute_shelf_delete(&self, shelf_id: u64) {
+        match delete_shelf(self.shelf_ops, shelf_id) {
+            Ok(()) => println!("Deleted shelf {}.", shelf_id),
+            Err(e) => report_error("deleting shelf", &e),
+        }
+    }
+
+    fn execute_shelf_list(&self) {
+        match list_shelves(self.shelf_ops) {
+            Ok(shelves) => {
+                println!("{}", shelf_list_view::render_shelf_list(&shelves));
+            }
+            Err(e) => report_error("listing shelves", &e),
+        }
+    }
+
+    fn execute_shelf_add(&self, fic_id: u64, shelf_id: u64) {
+        match add_to_shelf(self.shelf_ops, fic_id, shelf_id) {
+            Ok(()) => println!("Added fanfiction {} to shelf {}.", fic_id, shelf_id),
+            Err(e) => report_error("adding fanfiction to shelf", &e),
+        }
+    }
+
+    fn execute_shelf_remove(&self, fic_id: u64, shelf_id: u64) {
+        match remove_from_shelf(self.shelf_ops, fic_id, shelf_id) {
+            Ok(()) => println!("Removed fanfiction {} from shelf {}.", fic_id, shelf_id),
+            Err(e) => report_error("removing fanfiction from shelf", &e),
+        }
+    }
+
+    fn execute_shelf_show(&self, shelf_id: u64) {
+        match list_shelf_fics(self.shelf_ops, shelf_id) {
+            Ok(fics) => {
+                println!("{}", list_view::render_fanfiction_list(&fics));
+            }
+            Err(e) => report_error("listing shelf contents", &e),
+        }
+    }
+
     fn execute_update_note(&self, fic_id: u64, note: Option<&str>) {
         // If removing a note, show the current one first so the user sees what's being dropped.
         if note.is_none() {
@@ -199,6 +261,12 @@ fn report_error(verb: &str, err: &FicflowError) {
         }
         FicflowError::AlreadyExists { fic_id } => {
             eprintln!("Fanfiction ID {} is already in your library", fic_id);
+        }
+        FicflowError::ShelfNotFound { shelf_id } => {
+            eprintln!(
+                "Shelf ID {} not found. Run `ficflow shelf list` to see available shelves.",
+                shelf_id
+            );
         }
         FicflowError::InvalidInput(msg) => {
             eprintln!("{}", msg);
@@ -253,6 +321,16 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             }
             CliCommand::List => self.execute_list(),
             CliCommand::Wipe => self.execute_wipe(),
+            CliCommand::Shelf(sub) => match sub {
+                ShelfCommand::Create { name } => self.execute_shelf_create(&name),
+                ShelfCommand::Delete { shelf_id } => self.execute_shelf_delete(shelf_id),
+                ShelfCommand::List => self.execute_shelf_list(),
+                ShelfCommand::Add { fic_id, shelf_id } => self.execute_shelf_add(fic_id, shelf_id),
+                ShelfCommand::Remove { fic_id, shelf_id } => {
+                    self.execute_shelf_remove(fic_id, shelf_id)
+                }
+                ShelfCommand::Show { shelf_id } => self.execute_shelf_show(shelf_id),
+            },
         }
     }
 }

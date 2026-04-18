@@ -8,7 +8,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Allow users to create shelves and organise more flexibly
+- [ ] the CLI binary exits with code 0 even when application errors are reported to stderr (e.g., shelf create "" writes to stderr but returns success).
 - [ ] Add the retry mechanism with different URLs
 - [ ] Use a soft delete so that wipe or delete never truly deletes anything
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time

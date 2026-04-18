@@ -13,6 +13,17 @@ pub enum CliCommand {
     UpdateReadCount { fic_id: u64, read_count: u32 },
     UpdateRating { fic_id: u64, rating: String },
     UpdateNote { fic_id: u64, note: Option<String> },
+    Shelf(ShelfCommand),
+}
+
+#[derive(Debug)]
+pub enum ShelfCommand {
+    Create { name: String },
+    Delete { shelf_id: u64 },
+    List,
+    Add { fic_id: u64, shelf_id: u64 },
+    Remove { fic_id: u64, shelf_id: u64 },
+    Show { shelf_id: u64 },
 }
 
 pub fn parse_cli_commands() -> CliCommand {
@@ -64,6 +75,40 @@ pub fn parse_cli_commands() -> CliCommand {
         )
         .subcommand(Command::new("list").about("List all stored fanfictions"))
         .subcommand(Command::new("wipe").about("Wipe the database (removes all fanfictions)"))
+        .subcommand(
+            Command::new("shelf")
+                .about("Manage shelves (custom groupings of fanfictions)")
+                .subcommand_required(true)
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("create")
+                        .about("Create a new shelf")
+                        .arg(Arg::new("name").required(true).index(1).help("Shelf name")),
+                )
+                .subcommand(
+                    Command::new("delete")
+                        .about("Delete a shelf")
+                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
+                )
+                .subcommand(Command::new("list").about("List all shelves"))
+                .subcommand(
+                    Command::new("add")
+                        .about("Add a fanfiction to a shelf")
+                        .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("Fanfiction ID"))
+                        .arg(Arg::new("shelf-id").required(true).index(2).value_parser(value_parser!(u64)).help("Shelf ID")),
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Remove a fanfiction from a shelf")
+                        .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("Fanfiction ID"))
+                        .arg(Arg::new("shelf-id").required(true).index(2).value_parser(value_parser!(u64)).help("Shelf ID")),
+                )
+                .subcommand(
+                    Command::new("show")
+                        .about("List the fanfictions in a shelf")
+                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
+                ),
+        )
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("add") {
@@ -133,8 +178,38 @@ pub fn parse_cli_commands() -> CliCommand {
         CliCommand::List
     } else if matches.subcommand_matches("wipe").is_some() {
         CliCommand::Wipe
+    } else if let Some(shelf_matches) = matches.subcommand_matches("shelf") {
+        CliCommand::Shelf(parse_shelf_subcommand(shelf_matches))
     } else {
         // Default to list if no command provided
         CliCommand::List
+    }
+}
+
+fn parse_shelf_subcommand(matches: &clap::ArgMatches) -> ShelfCommand {
+    if let Some(m) = matches.subcommand_matches("create") {
+        let name = m
+            .get_one::<String>("name")
+            .expect("name is required")
+            .to_string();
+        ShelfCommand::Create { name }
+    } else if let Some(m) = matches.subcommand_matches("delete") {
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        ShelfCommand::Delete { shelf_id }
+    } else if matches.subcommand_matches("list").is_some() {
+        ShelfCommand::List
+    } else if let Some(m) = matches.subcommand_matches("add") {
+        let fic_id = *m.get_one::<u64>("fic-id").expect("fic-id is required");
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        ShelfCommand::Add { fic_id, shelf_id }
+    } else if let Some(m) = matches.subcommand_matches("remove") {
+        let fic_id = *m.get_one::<u64>("fic-id").expect("fic-id is required");
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        ShelfCommand::Remove { fic_id, shelf_id }
+    } else if let Some(m) = matches.subcommand_matches("show") {
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        ShelfCommand::Show { shelf_id }
+    } else {
+        unreachable!("subcommand_required on shelf ensures one of the above matches")
     }
 }
