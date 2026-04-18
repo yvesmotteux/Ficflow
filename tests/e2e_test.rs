@@ -3,16 +3,9 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use ficflow::domain::url_config;
-
 #[path = "common/mod.rs"]
 mod common;
 use common::{assertions, fixtures};
-
-/// Helper function to check if running in CI environment
-fn is_ci_environment() -> bool {
-    std::env::var("CI").is_ok()
-}
 
 #[cfg(test)]
 mod tests {
@@ -89,18 +82,9 @@ mod tests {
 
     #[test]
     fn test_add_list_remove_fanfiction() -> Result<(), Box<dyn Error>> {
-        // Skip this test if running in CI environment
-        if is_ci_environment() {
-            println!("Skipping test_add_list_remove_fanfiction in CI environment");
-            return Ok(());
-        }
-
         // Given
         let test_db = setup_test_db();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-
-        // Save original base URL
-        let original_url = url_config::get_ao3_base_url();
 
         // When - Add fanfiction via CLI
         let (_add_stdout, add_stderr, add_status) = run_cli_command(
@@ -140,26 +124,14 @@ mod tests {
         // Then - Verify database is empty using direct access
         assertions::then_fanfiction_was_deleted(&test_db.conn, fic_id)?;
 
-        // Cleanup
-        url_config::set_ao3_base_url(&original_url);
-
         Ok(())
     }
 
     #[test]
     fn test_add_get_wipe_fanfiction() -> Result<(), Box<dyn Error>> {
-        // Skip this test if running in CI environment
-        if is_ci_environment() {
-            println!("Skipping test_add_get_wipe_fanfiction in CI environment");
-            return Ok(());
-        }
-
         // Given
         let test_db = setup_test_db();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-
-        // Save original base URL
-        let original_url = url_config::get_ao3_base_url();
 
         // When - Add fanfiction via CLI
         let (_add_stdout, add_stderr, add_status) = run_cli_command(
@@ -202,9 +174,6 @@ mod tests {
 
         // Then - Verify database is empty using direct access
         assertions::then_database_was_wiped(&test_db.conn)?;
-
-        // Cleanup
-        url_config::set_ao3_base_url(&original_url);
 
         Ok(())
     }

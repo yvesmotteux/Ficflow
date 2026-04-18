@@ -14,6 +14,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
     - [x] Support for direct AO3 URLs when adding fanfictions
 - [x] Implement a function that checks for fic updates
 - [ ] **Re-adding a fanfiction overwrites your custom fields.** Running `ficflow add <id>` on a fic that's already in your library silently resets reading status, user rating, read count, personal note, and last chapter read to defaults. Root cause: `save_fanfiction` uses `INSERT OR REPLACE`, and `add_fanfiction` passes a fresh fic fetched from AO3 (with default user fields). Planned fix: check for an existing row in `add_fanfiction` before saving, and return an `AlreadyExists` outcome without touching the DB — restoring the guard that was silently broken by the current `INSERT OR REPLACE` semantics.
+- [ ] Fix AO3 communication - currently serves 403 Forbidden
 - [ ] Allow users to create shelves and organise more flexibly
 - [ ] Add the retry mechanism with different URLs
 - [ ] Use a soft delete so that wipe or delete never truly deletes anything
