@@ -4,6 +4,7 @@ use crate::infrastructure::external::ao3::ao3_client::Ao3Client;
 use crate::infrastructure::external::ao3::parser::Ao3Parser;
 use chrono::Utc;
 use scraper::Html;
+use std::time::Duration;
 
 pub struct Ao3Fetcher {
     client: Ao3Client,
@@ -12,10 +13,19 @@ pub struct Ao3Fetcher {
 
 impl Ao3Fetcher {
     pub fn new() -> Result<Self, FicflowError> {
-        let client = Ao3Client::new()?;
-        let parser = Ao3Parser;
+        Ok(Self {
+            client: Ao3Client::new()?,
+            parser: Ao3Parser,
+        })
+    }
 
-        Ok(Self { client, parser })
+    /// Override the minimum inter-request gap. Pass `Duration::ZERO` in tests
+    /// so mock-backed runs don't pay the AO3 throttle.
+    pub fn with_min_gap(min_gap: Duration) -> Result<Self, FicflowError> {
+        Ok(Self {
+            client: Ao3Client::with_min_gap(min_gap)?,
+            parser: Ao3Parser,
+        })
     }
 }
 

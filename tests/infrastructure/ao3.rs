@@ -13,12 +13,13 @@ mod tests {
         },
         infrastructure::external::ao3::Ao3Fetcher,
     };
+    use std::time::Duration;
 
     #[test]
     fn test_fetch_fanfiction_from_mock() {
         // Given
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-        let fetcher = Ao3Fetcher::new().unwrap();
+        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
 
         let expected_fanfic = Fanfiction {
             id: 53960491,
@@ -83,7 +84,7 @@ mod tests {
         // Given
         let original_url = url_config::get_ao3_base_url();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-        let fetcher = Ao3Fetcher::new().unwrap();
+        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
 
         // When
         url_config::set_ao3_base_url(&mock_server.base_url());
@@ -108,7 +109,7 @@ mod tests {
         let (conn, _path, _temp_dir) = fixtures::given_test_database();
         let db_ops = SqliteRepository::new(&conn);
 
-        let fetcher = Ao3Fetcher::new().unwrap();
+        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
         let (outdated_server, fic_id) = fixtures::given_mock_outdated_ao3_server();
         let (updated_server, _) = fixtures::given_mock_up_to_date_ao3_server();
 
