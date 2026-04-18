@@ -1,6 +1,9 @@
+use std::env;
+use std::io::{self, Write};
+
 use crate::{
     application::{
-        add_fic::add_fanfiction,
+        add_fic::{add_fanfiction, AddOutcome},
         delete_fic::delete_fic,
         get_fic::get_fanfiction,
         list_fics::list_fics,
@@ -36,11 +39,13 @@ impl<'a> CliCommandExecutor<'a> {
 
     fn execute_add(&self, fic_id: u64) {
         println!("Adding fanfiction with ID: {}", fic_id);
-        
+
         let base_url = url_config::get_ao3_base_url();
-        
-        if let Err(e) = add_fanfiction(self.fetcher, self.database, fic_id, &base_url) {
-            eprintln!("Error adding fanfiction: {}", e);
+
+        match add_fanfiction(self.fetcher, self.database, fic_id, &base_url) {
+            Ok(AddOutcome::Added { title }) => println!("Successfully added: {}", title),
+            Ok(AddOutcome::AlreadyExists) => println!("Fanfiction already exists in your library"),
+            Err(e) => eprintln!("Error adding fanfiction: {}", e),
         }
     }
 
@@ -78,9 +83,15 @@ impl<'a> CliCommandExecutor<'a> {
 
     fn execute_wipe(&self) {
         println!("Preparing to wipe database...");
-        
-        if let Err(e) = wipe_database(self.database) {
-            eprintln!("Error wiping database: {}", e);
+
+        if !confirm_wipe() {
+            println!("Operation cancelled.");
+            return;
+        }
+
+        match wipe_database(self.database) {
+            Ok(()) => println!("Database wiped successfully."),
+            Err(e) => eprintln!("Error wiping database: {}", e),
         }
     }
     
@@ -196,6 +207,27 @@ impl<'a> CliCommandExecutor<'a> {
             }
         }
     }
+}
+
+fn confirm_wipe() -> bool {
+    if env::var("FICFLOW_NON_INTERACTIVE").is_ok() {
+        return true;
+    }
+
+    print!(
+        "WARNING: This action will delete ALL fanfictions from the database. \
+         This process CANNOT be reversed!\nAre you sure you want to continue? (y/N): "
+    );
+    if io::stdout().flush().is_err() {
+        return false;
+    }
+
+    let mut input = String::new();
+    if io::stdin().read_line(&mut input).is_err() {
+        return false;
+    }
+
+    input.trim().eq_ignore_ascii_case("y")
 }
 
 impl<'a> CommandExecutor for CliCommandExecutor<'a> {

@@ -14,7 +14,7 @@ pub fn update_read_count(
     
     // If read count is set to 0 and status was Read, change to PlanToRead
     if new_read_count == 0 && fic.reading_status == ReadingStatus::Read {
-        println!("Read count set to 0. Changing status from Read to Plan To Read.");
+        log::info!("Read count set to 0. Changing status from Read to Plan To Read.");
         fic.reading_status = ReadingStatus::PlanToRead;
     }
     

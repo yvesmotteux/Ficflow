@@ -11,8 +11,10 @@ pub fn update_last_chapter_read(
     // Make sure new_chapter_count doesn't exceed total_chapters if total is known
     let adjusted_chapter_count = if let Some(total_chapters) = fic.chapters_total {
         if new_chapter_count > total_chapters {
-            println!("Warning: Requested chapter {} exceeds total chapters {}. Setting to maximum.", 
-                     new_chapter_count, total_chapters);
+            log::warn!(
+                "Requested chapter {} exceeds total chapters {}. Setting to maximum.",
+                new_chapter_count, total_chapters
+            );
             total_chapters
         } else {
             new_chapter_count
