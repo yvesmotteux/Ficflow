@@ -802,6 +802,7 @@ dependencies = [
  "strum_macros",
  "tempfile",
  "term-table",
+ "thiserror",
 ]
 
 [[package]]

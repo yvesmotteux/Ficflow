@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
-use std::error::Error;
+use crate::error::FicflowError;
 
-pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn Error>> {
+pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
     let migrations = Migrations::new(vec![
         M::up(r#"
             CREATE TABLE IF NOT EXISTS fanfiction (

@@ -239,20 +239,22 @@ pub mod fixtures {
     
     /// Adds a fanfiction to the test database.
     pub fn when_fanfiction_added_to_db(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-        SqliteRepository::new(conn).save_fanfiction(fic)
+        SqliteRepository::new(conn).save_fanfiction(fic)?;
+        Ok(())
     }
 
     /// Deletes a fanfiction from the test database.
     pub fn when_fanfiction_deleted_from_db(conn: &Connection, fic_id: u64) -> Result<(), Box<dyn Error>> {
-        SqliteRepository::new(conn).delete_fanfiction(fic_id)
+        SqliteRepository::new(conn).delete_fanfiction(fic_id)?;
+        Ok(())
     }
-    
+
     /// Fetches a fanfiction using the provided fetcher.
     pub fn when_fetching_fanfiction(
-        fetcher: &dyn FanfictionFetcher, 
-        fic_id: u64, 
-        base_url: &str
+        fetcher: &dyn FanfictionFetcher,
+        fic_id: u64,
+        base_url: &str,
     ) -> Result<Fanfiction, Box<dyn Error>> {
-        fetcher.fetch_fanfiction(fic_id, base_url)
+        Ok(fetcher.fetch_fanfiction(fic_id, base_url)?)
     }
 }

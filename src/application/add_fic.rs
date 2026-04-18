@@ -1,21 +1,16 @@
-use crate::domain::fanfiction::FanfictionFetcher;
-use crate::domain::fanfiction::DatabaseOps;
+use crate::domain::fanfiction::{DatabaseOps, FanfictionFetcher};
+use crate::error::FicflowError;
 use std::time::Duration;
 use std::thread;
-
-pub enum AddOutcome {
-    Added { title: String },
-    AlreadyExists,
-}
 
 pub fn add_fanfiction(
     fetcher: &dyn FanfictionFetcher,
     db_ops: &dyn DatabaseOps,
     fic_id: u64,
     base_url: &str,
-) -> Result<AddOutcome, Box<dyn std::error::Error>> {
+) -> Result<String, FicflowError> {
     let max_retries = 3;
-    let mut last_error = None;
+    let mut last_error: Option<FicflowError> = None;
 
     for attempt in 1..=max_retries {
         match fetcher.fetch_fanfiction(fic_id, base_url) {
@@ -29,7 +24,9 @@ pub fn add_fanfiction(
                             "Could not fetch fanfiction data after {} attempts. Not adding to database.",
                             max_retries
                         );
-                        return Err("Failed to fetch valid fanfiction data".into());
+                        return Err(FicflowError::Other(
+                            "Failed to fetch valid fanfiction data".into(),
+                        ));
                     }
 
                     let wait_time = Duration::from_secs(attempt as u64 * 2);
@@ -41,15 +38,8 @@ pub fn add_fanfiction(
                     continue;
                 }
 
-                match db_ops.save_fanfiction(&fic) {
-                    Ok(_) => return Ok(AddOutcome::Added { title: fic.title }),
-                    Err(e) => {
-                        if e.to_string().contains("UNIQUE constraint failed") {
-                            return Ok(AddOutcome::AlreadyExists);
-                        }
-                        return Err(e);
-                    }
-                }
+                db_ops.save_fanfiction(&fic)?;
+                return Ok(fic.title);
             }
             Err(e) => {
                 let error_str = e.to_string();
@@ -75,5 +65,7 @@ pub fn add_fanfiction(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "Failed to add fanfiction after multiple attempts".into()))
+    Err(last_error.unwrap_or_else(|| {
+        FicflowError::Other("Failed to add fanfiction after multiple attempts".into())
+    }))
 }

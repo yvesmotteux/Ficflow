@@ -1,6 +1,6 @@
 use crate::domain::fanfiction::DatabaseOps;
-use std::error::Error;
+use crate::error::FicflowError;
 
-pub fn wipe_database(db_ops: &dyn DatabaseOps) -> Result<(), Box<dyn Error>> {
+pub fn wipe_database(db_ops: &dyn DatabaseOps) -> Result<(), FicflowError> {
     db_ops.wipe_database()
 }

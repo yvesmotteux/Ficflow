@@ -3,7 +3,7 @@ use std::io::{self, Write};
 
 use crate::{
     application::{
-        add_fic::{add_fanfiction, AddOutcome},
+        add_fic::add_fanfiction,
         delete_fic::delete_fic,
         get_fic::get_fanfiction,
         list_fics::list_fics,
@@ -19,6 +19,7 @@ use crate::{
         fanfiction::FanfictionFetcher,
         url_config
     },
+    error::FicflowError,
 };
 use super::command::CliCommand;
 use super::views::{details_view, list_view};
@@ -43,16 +44,15 @@ impl<'a> CliCommandExecutor<'a> {
         let base_url = url_config::get_ao3_base_url();
 
         match add_fanfiction(self.fetcher, self.database, fic_id, &base_url) {
-            Ok(AddOutcome::Added { title }) => println!("Successfully added: {}", title),
-            Ok(AddOutcome::AlreadyExists) => println!("Fanfiction already exists in your library"),
-            Err(e) => eprintln!("Error adding fanfiction: {}", e),
+            Ok(title) => println!("Successfully added: {}", title),
+            Err(e) => report_error("adding fanfiction", &e),
         }
     }
 
     fn execute_delete(&self, fic_id: u64) {
         println!("Deleting fanfiction with ID: {}", fic_id);
         if let Err(e) = delete_fic(self.database, fic_id) {
-            eprintln!("Error deleting fanfiction: {}", e);
+            report_error("deleting fanfiction", &e);
         }
     }
 
@@ -64,7 +64,7 @@ impl<'a> CliCommandExecutor<'a> {
                 println!("\n{}", details);
             },
             Err(e) => {
-                eprintln!("Error getting fanfiction: {}", e);
+                report_error("getting fanfiction", &e);
             }
         }
     }
@@ -76,7 +76,7 @@ impl<'a> CliCommandExecutor<'a> {
                 println!("{}", list_view::render_fanfiction_list(&fanfictions));
             },
             Err(e) => {
-                eprintln!("Error listing fanfictions: {}", e);
+                report_error("listing fanfictions", &e);
             }
         }
     }
@@ -91,7 +91,7 @@ impl<'a> CliCommandExecutor<'a> {
 
         match wipe_database(self.database) {
             Ok(()) => println!("Database wiped successfully."),
-            Err(e) => eprintln!("Error wiping database: {}", e),
+            Err(e) => report_error("wiping database", &e),
         }
     }
     
@@ -110,7 +110,7 @@ impl<'a> CliCommandExecutor<'a> {
                 }
             },
             Err(e) => {
-                eprintln!("Error updating last read chapter: {}", e);
+                report_error("updating last read chapter", &e);
             }
         }
     }
@@ -128,7 +128,7 @@ impl<'a> CliCommandExecutor<'a> {
                 }
             },
             Err(e) => {
-                eprintln!("Error updating reading status: {}", e);
+                report_error("updating reading status", &e);
             }
         }
     }
@@ -147,7 +147,7 @@ impl<'a> CliCommandExecutor<'a> {
                 }
             },
             Err(e) => {
-                eprintln!("Error updating read count: {}", e);
+                report_error("updating read count", &e);
             }
         }
     }
@@ -169,7 +169,7 @@ impl<'a> CliCommandExecutor<'a> {
                 }
             },
             Err(e) => {
-                eprintln!("Error updating user rating: {}", e);
+                report_error("updating user rating", &e);
             }
         }
     }
@@ -203,8 +203,22 @@ impl<'a> CliCommandExecutor<'a> {
                 }
             },
             Err(e) => {
-                eprintln!("Error updating personal note: {}", e);
+                report_error("updating personal note", &e);
             }
+        }
+    }
+}
+
+fn report_error(verb: &str, err: &FicflowError) {
+    match err {
+        FicflowError::NotFound { fic_id } => {
+            eprintln!("Fanfiction ID {} not found in your library", fic_id);
+        }
+        FicflowError::InvalidInput(msg) => {
+            eprintln!("{}", msg);
+        }
+        other => {
+            eprintln!("Error {}: {}", verb, other);
         }
     }
 }

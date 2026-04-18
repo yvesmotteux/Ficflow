@@ -1,53 +1,59 @@
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use regex::Regex;
 use scraper::{Html, Selector};
-use std::error::Error;
 
 use crate::domain::fanfiction::{ArchiveWarnings, Categories, Rating};
+use crate::error::FicflowError;
 
 pub struct Ao3Parser;
 
+fn parse_selector(sel: &str) -> Selector {
+    Selector::parse(sel).unwrap_or_else(|e| panic!("invalid CSS selector `{}`: {}", sel, e))
+}
+
+fn missing(field: &str) -> FicflowError {
+    FicflowError::Parse {
+        field: field.to_string(),
+        reason: "element not found in HTML".to_string(),
+    }
+}
+
 impl Ao3Parser {
-    pub fn extract_title(&self, document: &Html) -> Result<String, Box<dyn Error>> {
-        let title_selector = Selector::parse("h2.title.heading")?;
-        let title = document
-            .select(&title_selector)
+    pub fn extract_title(&self, document: &Html) -> Result<String, FicflowError> {
+        let selector = parse_selector("h2.title.heading");
+        document
+            .select(&selector)
             .next()
             .map(|element| element.text().collect::<String>().trim().to_string())
-            .ok_or_else(|| "Title not found".to_string())?;
-
-        Ok(title)
+            .ok_or_else(|| missing("title"))
     }
 
-    pub fn extract_authors(&self, document: &Html) -> Result<Vec<String>, Box<dyn Error>> {
-        let author_selector = Selector::parse("h3.byline.heading a[rel=\"author\"]")?;
+    pub fn extract_authors(&self, document: &Html) -> Result<Vec<String>, FicflowError> {
+        let selector = parse_selector("h3.byline.heading a[rel=\"author\"]");
         let authors = document
-            .select(&author_selector)
+            .select(&selector)
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
 
         if authors.is_empty() {
-            return Err("Authors not found".into());
+            return Err(missing("authors"));
         }
 
         Ok(authors)
     }
 
-    pub fn extract_summary(&self, document: &Html) -> Result<String, Box<dyn Error>> {
-        // Try primary selector: standard AO3 summary format
-        let summary_selector = Selector::parse("div.summary.module blockquote.userstuff")?;
-        
+    pub fn extract_summary(&self, document: &Html) -> Result<String, FicflowError> {
+        let summary_selector = parse_selector("div.summary.module blockquote.userstuff");
+
         if let Some(element) = document.select(&summary_selector).next() {
-            // Use inner_html to get content with tags, then strip them
             let raw_summary = element.inner_html();
             let summary = self.strip_html_tags(&raw_summary);
             if !summary.is_empty() {
                 return Ok(summary);
             }
         }
-        
-        // Try alternative selector: sometimes the summary is in a different location
-        let alt_summary_selector = Selector::parse(".preface .summary")?;
+
+        let alt_summary_selector = parse_selector(".preface .summary");
         if let Some(element) = document.select(&alt_summary_selector).next() {
             let raw_summary = element.inner_html();
             let summary = self.strip_html_tags(&raw_summary);
@@ -55,24 +61,22 @@ impl Ao3Parser {
                 return Ok(summary);
             }
         }
-        
-        // If no summary is found, return a default one rather than failing
+
         Ok("No summary available".to_string())
     }
 
-    // Helper function to strip HTML tags from a string
     fn strip_html_tags(&self, html: &str) -> String {
         let fragment = Html::parse_fragment(html);
         fragment.root_element().text().collect::<String>().trim().to_string()
     }
 
-    pub fn extract_categories(&self, document: &Html) -> Result<Option<Vec<Categories>>, Box<dyn Error>> {
-        let categories_selector = Selector::parse("dd.category.tags a.tag")?;
+    pub fn extract_categories(&self, document: &Html) -> Result<Option<Vec<Categories>>, FicflowError> {
+        let selector = parse_selector("dd.category.tags a.tag");
         let categories = document
-            .select(&categories_selector)
+            .select(&selector)
             .filter_map(|a| {
                 let category_text = a.text().collect::<String>().trim().to_string();
-                map_category(&category_text) // Map the category string to Categories enum
+                map_category(&category_text)
             })
             .collect::<Vec<Categories>>();
 
@@ -83,10 +87,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_chapters(&self, document: &Html) -> Result<(u32, Option<u32>, bool), Box<dyn Error>> {
-        let chapters_selector = Selector::parse("dd.chapters")?;
+    pub fn extract_chapters(&self, document: &Html) -> Result<(u32, Option<u32>, bool), FicflowError> {
+        let selector = parse_selector("dd.chapters");
         let chapter_text = document
-            .select(&chapters_selector)
+            .select(&selector)
             .next()
             .map(|element| element.text().collect::<String>())
             .unwrap_or_else(|| "0/0".to_string());
@@ -96,35 +100,32 @@ impl Ao3Parser {
         let chapters_published = chapters_iter.next().unwrap_or(0);
         let total_chapters = chapters_iter.next();
 
-        // If total chapters is 0 or ? (parsed as 0), then it's None
         let total_chapters = if total_chapters == Some(0) { None } else { total_chapters };
 
-        // Complete (whether the fic is completed or not)
         let complete = match total_chapters {
             Some(total) => chapters_published > 0 && chapters_published == total,
-            None => false, // If total chapters is unknown, it's likely not complete
+            None => false,
         };
 
         Ok((chapters_published, total_chapters, complete))
     }
 
-    pub fn extract_fandoms(&self, document: &Html) -> Result<Vec<String>, Box<dyn Error>> {
-        let fandom_selector = Selector::parse("dd.fandom.tags a.tag")?;
+    pub fn extract_fandoms(&self, document: &Html) -> Result<Vec<String>, FicflowError> {
+        let selector = parse_selector("dd.fandom.tags a.tag");
         let fandoms = document
-            .select(&fandom_selector)
+            .select(&selector)
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
 
         if fandoms.is_empty() {
-            return Err("Fandoms not found".into());
+            return Err(missing("fandoms"));
         }
 
         Ok(fandoms)
     }
 
-    pub fn extract_stats(&self, document: &Html) -> Result<(u32, u32, u32), Box<dyn Error>> {
-        // Hits
-        let hits_selector = Selector::parse("dd.hits")?;
+    pub fn extract_stats(&self, document: &Html) -> Result<(u32, u32, u32), FicflowError> {
+        let hits_selector = parse_selector("dd.hits");
         let hits = document
             .select(&hits_selector)
             .next()
@@ -135,8 +136,7 @@ impl Ao3Parser {
             })
             .unwrap_or(0);
 
-        // Kudos
-        let kudos_selector = Selector::parse("dd.kudos")?;
+        let kudos_selector = parse_selector("dd.kudos");
         let kudos = document
             .select(&kudos_selector)
             .next()
@@ -147,8 +147,7 @@ impl Ao3Parser {
             })
             .unwrap_or(0);
 
-        // Words
-        let words_selector = Selector::parse("dd.words")?;
+        let words_selector = parse_selector("dd.words");
         let words = document
             .select(&words_selector)
             .next()
@@ -162,10 +161,10 @@ impl Ao3Parser {
         Ok((hits, kudos, words))
     }
 
-    pub fn extract_language(&self, document: &Html) -> Result<String, Box<dyn Error>> {
-        let language_selector = Selector::parse("dd.language")?;
+    pub fn extract_language(&self, document: &Html) -> Result<String, FicflowError> {
+        let selector = parse_selector("dd.language");
         let language = document
-            .select(&language_selector)
+            .select(&selector)
             .next()
             .map(|element| element.text().collect::<String>().trim().to_string())
             .unwrap_or_else(|| "English".to_string());
@@ -173,10 +172,10 @@ impl Ao3Parser {
         Ok(language)
     }
 
-    pub fn extract_rating(&self, document: &Html) -> Result<Rating, Box<dyn Error>> {
-        let rating_selector = Selector::parse("dd.rating.tags a.tag")?;
+    pub fn extract_rating(&self, document: &Html) -> Result<Rating, FicflowError> {
+        let selector = parse_selector("dd.rating.tags a.tag");
         let rating_text = document
-            .select(&rating_selector)
+            .select(&selector)
             .next()
             .map(|element| element.text().collect::<String>().trim().to_string())
             .unwrap_or_else(|| "Not Rated".to_string());
@@ -192,17 +191,16 @@ impl Ao3Parser {
         Ok(rating)
     }
 
-    pub fn extract_warnings(&self, document: &Html) -> Result<Vec<ArchiveWarnings>, Box<dyn Error>> {
-        let warnings_selector = Selector::parse("dd.warning.tags a.tag")?;
+    pub fn extract_warnings(&self, document: &Html) -> Result<Vec<ArchiveWarnings>, FicflowError> {
+        let selector = parse_selector("dd.warning.tags a.tag");
         let warnings = document
-            .select(&warnings_selector)
+            .select(&selector)
             .filter_map(|element| {
                 let warning_text = element.text().collect::<String>().trim().to_string();
                 map_warning(&warning_text)
             })
             .collect::<Vec<ArchiveWarnings>>();
 
-        // Default to "No Archive Warnings Apply" if no warnings are found
         if warnings.is_empty() {
             Ok(vec![ArchiveWarnings::NoArchiveWarningsApply])
         } else {
@@ -210,10 +208,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_relationships(&self, document: &Html) -> Result<Option<Vec<String>>, Box<dyn Error>> {
-        let relationship_selector = Selector::parse("dd.relationship.tags a.tag")?;
+    pub fn extract_relationships(&self, document: &Html) -> Result<Option<Vec<String>>, FicflowError> {
+        let selector = parse_selector("dd.relationship.tags a.tag");
         let relationships = document
-            .select(&relationship_selector)
+            .select(&selector)
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
 
@@ -224,10 +222,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_characters(&self, document: &Html) -> Result<Option<Vec<String>>, Box<dyn Error>> {
-        let character_selector = Selector::parse("dd.character.tags a.tag")?;
+    pub fn extract_characters(&self, document: &Html) -> Result<Option<Vec<String>>, FicflowError> {
+        let selector = parse_selector("dd.character.tags a.tag");
         let characters = document
-            .select(&character_selector)
+            .select(&selector)
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
 
@@ -238,10 +236,10 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_tags(&self, document: &Html) -> Result<Option<Vec<String>>, Box<dyn Error>> {
-        let tag_selector = Selector::parse("dd.freeform.tags a.tag")?;
+    pub fn extract_tags(&self, document: &Html) -> Result<Option<Vec<String>>, FicflowError> {
+        let selector = parse_selector("dd.freeform.tags a.tag");
         let tags = document
-            .select(&tag_selector)
+            .select(&selector)
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
 
@@ -252,20 +250,20 @@ impl Ao3Parser {
         }
     }
 
-    pub fn extract_dates(&self, document: &Html) -> Result<(DateTime<Utc>, DateTime<Utc>), Box<dyn Error>> {
-        let published_selector = Selector::parse("dd.published")?;
+    pub fn extract_dates(&self, document: &Html) -> Result<(DateTime<Utc>, DateTime<Utc>), FicflowError> {
+        let published_selector = parse_selector("dd.published");
         let published_text = document
             .select(&published_selector)
             .next()
             .map(|element| element.text().collect::<String>().trim().to_string())
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let updated_selector = Selector::parse("dd.status")?;
+        let updated_selector = parse_selector("dd.status");
         let updated_text = document
             .select(&updated_selector)
             .next()
             .map(|element| element.text().collect::<String>().trim().to_string())
-            .unwrap_or_else(|| published_text.clone()); // Use published date if updated not found
+            .unwrap_or_else(|| published_text.clone());
 
         let published_date = parse_date(&published_text)?;
         let updated_date = parse_date(&updated_text)?;
@@ -273,14 +271,13 @@ impl Ao3Parser {
         Ok((published_date, updated_date))
     }
 
-    pub fn extract_restricted(&self, document: &Html) -> Result<bool, Box<dyn Error>> {
-        // Check if there's a "This work is only available to registered users of the Archive" message
-        let restricted_selector = Selector::parse("p.notice")?;
+    pub fn extract_restricted(&self, document: &Html) -> Result<bool, FicflowError> {
+        let selector = parse_selector("p.notice");
         let restricted = document
-            .select(&restricted_selector)
+            .select(&selector)
             .any(|element| {
                 let text = element.text().collect::<String>().to_lowercase();
-                text.contains("only available to registered users") || 
+                text.contains("only available to registered users") ||
                 text.contains("restricted to archive users")
             });
 
@@ -288,7 +285,6 @@ impl Ao3Parser {
     }
 }
 
-// Helper function to map category text to Categories enum
 fn map_category(category_text: &str) -> Option<Categories> {
     match category_text {
         "F/F" => Some(Categories::FF),
@@ -301,7 +297,6 @@ fn map_category(category_text: &str) -> Option<Categories> {
     }
 }
 
-// Helper function to map warning text to ArchiveWarnings enum
 fn map_warning(warning_text: &str) -> Option<ArchiveWarnings> {
     match warning_text {
         "Creator Chose Not To Use Archive Warnings" => Some(ArchiveWarnings::ChooseNotToUse),
@@ -314,22 +309,23 @@ fn map_warning(warning_text: &str) -> Option<ArchiveWarnings> {
     }
 }
 
-// Helper function to parse date strings from AO3
-fn parse_date(date_string: &str) -> Result<DateTime<Utc>, Box<dyn Error>> {
-    // AO3 date format is like: "2020-10-31" or sometimes with additional text
-
-    // Extract just the date part (YYYY-MM-DD)
-    let date_regex = Regex::new(r"(\d{4}-\d{2}-\d{2})")?;
+fn parse_date(date_string: &str) -> Result<DateTime<Utc>, FicflowError> {
+    let date_regex = Regex::new(r"(\d{4}-\d{2}-\d{2})").expect("invalid date regex");
     let date_str = match date_regex.captures(date_string) {
         Some(cap) => cap.get(1).map_or("", |m| m.as_str()),
-        None => return Err(format!("Could not parse date: {}", date_string).into()),
+        None => {
+            return Err(FicflowError::Parse {
+                field: "date".to_string(),
+                reason: format!("no YYYY-MM-DD substring in `{}`", date_string),
+            });
+        }
     };
 
-    // Parse the date
-    let naive_date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")?;
+    let naive_date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|e| FicflowError::Parse {
+        field: "date".to_string(),
+        reason: format!("`{}`: {}", date_str, e),
+    })?;
 
-    // Convert to DateTime<Utc> (using midnight UTC as the time)
-    // let datetime = Utc.from_utc_datetime(&naive_date.and_hms(0, 0, 0));
     let datetime = naive_date.and_hms_opt(0, 0, 0).unwrap_or_default();
     Ok(Utc.from_utc_datetime(&datetime))
 }

@@ -1,6 +1,6 @@
 use rusqlite::{Connection, params};
-use std::error::Error;
 use crate::domain::fanfiction::{DatabaseOps, Fanfiction};
+use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::row_to_fanfiction;
 
 pub struct SqliteRepository<'a> {
@@ -14,7 +14,7 @@ impl<'a> SqliteRepository<'a> {
 }
 
 impl<'a> DatabaseOps for SqliteRepository<'a> {
-    fn save_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
+    fn save_fanfiction(&self, fic: &Fanfiction) -> Result<(), FicflowError> {
         let authors = serde_json::to_string(&fic.authors)?;
         let categories = serde_json::to_string(&fic.categories)?;
         let characters = serde_json::to_string(&fic.characters)?;
@@ -69,25 +69,28 @@ impl<'a> DatabaseOps for SqliteRepository<'a> {
         Ok(())
     }
 
-    fn delete_fanfiction(&self, fic_id: u64) -> Result<(), Box<dyn Error>> {
+    fn delete_fanfiction(&self, fic_id: u64) -> Result<(), FicflowError> {
         self.conn.execute("DELETE FROM fanfiction WHERE id = ?1", params![fic_id])?;
         Ok(())
     }
 
-    fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, Box<dyn Error>> {
+    fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, FicflowError> {
         let mut stmt = self.conn.prepare("SELECT * FROM fanfiction ORDER BY title")?;
         let rows = stmt.query_map([], row_to_fanfiction)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+        let fics = rows.collect::<Result<Vec<_>, _>>()?;
+        Ok(fics)
     }
 
-    fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
+    fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, FicflowError> {
         let mut stmt = self.conn.prepare("SELECT * FROM fanfiction WHERE id = ?1")?;
         stmt.query_row(params![fic_id], row_to_fanfiction)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => FicflowError::NotFound { fic_id },
+                other => FicflowError::Database(other),
+            })
     }
 
-    fn wipe_database(&self) -> Result<(), Box<dyn Error>> {
+    fn wipe_database(&self) -> Result<(), FicflowError> {
         self.conn.execute("DELETE FROM fanfiction", [])?;
         Ok(())
     }

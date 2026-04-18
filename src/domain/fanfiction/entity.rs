@@ -3,9 +3,10 @@ use chrono::{DateTime, Utc};
 
 use super::rating::{Rating, ArchiveWarnings, Categories, UserRating};
 use super::status::ReadingStatus;
+use crate::error::FicflowError;
 
 pub trait FanfictionFetcher {
-    fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, Box<dyn std::error::Error>>;
+    fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, FicflowError>;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
