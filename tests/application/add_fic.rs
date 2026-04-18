@@ -84,7 +84,9 @@ mod tests {
 
         // Then: we get AlreadyExists and the fetcher was never called.
         match result {
-            Err(FicflowError::AlreadyExists { fic_id: returned_id }) => {
+            Err(FicflowError::AlreadyExists {
+                fic_id: returned_id,
+            }) => {
                 assert_eq!(returned_id, fic_id);
             }
             other => panic!("expected AlreadyExists, got {:?}", other),
