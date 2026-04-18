@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use httpmock::MockServer;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use std::error::Error;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -175,7 +175,7 @@ pub mod fixtures {
     use super::*;
     use ficflow::{
         domain::fanfiction::{ArchiveWarnings, Categories, Rating, ReadingStatus},
-        infrastructure::persistence::database::migration::run_migrations,
+        infrastructure::persistence::database::connection::open_configured_db,
     };
     use httpmock::Method::GET;
     use std::fs;
@@ -185,14 +185,7 @@ pub mod fixtures {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let db_path = temp_dir.path().join("test.db");
 
-        // Explicitly set the OpenFlags to CREATE | READ_WRITE to ensure write permissions
-        let mut conn = Connection::open_with_flags(
-            &db_path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-        )
-        .expect("Failed to open database with write permissions");
-
-        run_migrations(&mut conn).expect("Failed to run migrations");
+        let conn = open_configured_db(&db_path).expect("Failed to open test database");
 
         (conn, db_path, temp_dir)
     }
