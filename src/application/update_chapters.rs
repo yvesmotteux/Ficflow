@@ -42,7 +42,7 @@ pub fn update_last_chapter_read(
     }
     
     // Update the fanfiction in the database
-    db_ops.update_fanfiction(&fic)?;
+    db_ops.save_fanfiction(&fic)?;
     
     Ok(())
 }

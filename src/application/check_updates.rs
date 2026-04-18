@@ -44,7 +44,7 @@ pub fn check_fic_updates(
     // Update last checked date
     current_fic.last_checked_date = Utc::now();
     
-    match db_ops.update_fanfiction(&current_fic) {
+    match db_ops.save_fanfiction(&current_fic) {
         Ok(_) => {},
         Err(e) => return Err(format!("Failed to update fanfiction in database: {}", e).into()),
     }

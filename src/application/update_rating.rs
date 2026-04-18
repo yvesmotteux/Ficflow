@@ -26,7 +26,7 @@ pub fn update_user_rating(
     fic.user_rating = user_rating;
     
     // Update the fanfiction in the database
-    db_ops.update_fanfiction(&fic)?;
+    db_ops.save_fanfiction(&fic)?;
     
     Ok(())
 }

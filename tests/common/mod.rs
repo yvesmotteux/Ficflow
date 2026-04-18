@@ -239,7 +239,7 @@ pub mod fixtures {
     
     /// Adds a fanfiction to the test database.
     pub fn when_fanfiction_added_to_db(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-        SqliteRepository::new(conn).insert_fanfiction(fic)
+        SqliteRepository::new(conn).save_fanfiction(fic)
     }
 
     /// Deletes a fanfiction from the test database.

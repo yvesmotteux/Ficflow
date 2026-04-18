@@ -36,7 +36,7 @@ pub fn add_fanfiction(
                 }
                 
                 // Successfully fetched with valid data, now insert into database
-                match db_ops.insert_fanfiction(&fic) {
+                match db_ops.save_fanfiction(&fic) {
                     Ok(_) => {
                         println!("Successfully added: {}", fic.title);
                         return Ok(());

@@ -19,7 +19,7 @@ pub fn update_read_count(
     }
     
     // Update the fanfiction in the database
-    db_ops.update_fanfiction(&fic)?;
+    db_ops.save_fanfiction(&fic)?;
     
     Ok(())
 }

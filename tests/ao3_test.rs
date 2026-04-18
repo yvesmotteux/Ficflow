@@ -117,7 +117,7 @@ mod tests {
         outdated_fic.reading_status = ReadingStatus::InProgress;
         outdated_fic.read_count = 3;
         
-        db_ops.insert_fanfiction(&outdated_fic).expect("Failed to insert outdated fic");
+        db_ops.save_fanfiction(&outdated_fic).expect("Failed to save outdated fic");
         
         // When
         let (has_new_chapters, updated_fic) = check_fic_updates(

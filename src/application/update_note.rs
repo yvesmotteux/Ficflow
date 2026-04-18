@@ -8,7 +8,7 @@ pub fn update_personal_note(db_ops: &dyn DatabaseOps, fic_id: u64, note_text: Op
     fanfiction.personal_note = note_text.map(|s| s.to_string());
     
     // Save the updated fanfiction
-    db_ops.update_fanfiction(&fanfiction)?;
+    db_ops.save_fanfiction(&fanfiction)?;
     
     Ok(())
 }

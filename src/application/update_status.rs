@@ -23,7 +23,7 @@ pub fn update_reading_status(
     fic.reading_status = reading_status;
     
     // Update the fanfiction in the database
-    db_ops.update_fanfiction(&fic)?;
+    db_ops.save_fanfiction(&fic)?;
     
     Ok(())
 }
