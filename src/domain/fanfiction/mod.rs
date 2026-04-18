@@ -1,10 +1,10 @@
 pub mod entity;
 pub mod rating;
-pub mod status;
 pub mod repository;
+pub mod status;
 
 pub use entity::Fanfiction;
 pub use entity::FanfictionFetcher;
-pub use rating::{Rating, ArchiveWarnings, Categories, UserRating};
-pub use status::ReadingStatus;
+pub use rating::{ArchiveWarnings, Categories, Rating, UserRating};
 pub use repository::DatabaseOps;
+pub use status::ReadingStatus;

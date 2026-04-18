@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use strum_macros::Display;
 
 #[derive(Debug, Serialize, Deserialize, Display, PartialEq)]

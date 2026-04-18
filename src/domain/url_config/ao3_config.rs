@@ -1,5 +1,5 @@
-use std::sync::RwLock;
 use once_cell::sync::Lazy;
+use std::sync::RwLock;
 
 const DEFAULT_AO3_URL: &str = "https://archiveofourown.org";
 const ALT_AO3_URL: &str = "https://archiveofourown.gay";

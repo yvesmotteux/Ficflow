@@ -1,9 +1,9 @@
 use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher, ReadingStatus};
+use crate::error::FicflowError;
 use crate::infrastructure::external::ao3::ao3_client::Ao3Client;
 use crate::infrastructure::external::ao3::parser::Ao3Parser;
 use chrono::Utc;
 use scraper::Html;
-use std::error::Error;
 
 pub struct Ao3Fetcher {
     client: Ao3Client,
@@ -11,10 +11,10 @@ pub struct Ao3Fetcher {
 }
 
 impl Ao3Fetcher {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new() -> Result<Self, FicflowError> {
         let client = Ao3Client::new()?;
         let parser = Ao3Parser;
-        
+
         Ok(Self { client, parser })
     }
 }
@@ -26,22 +26,17 @@ impl Default for Ao3Fetcher {
 }
 
 impl FanfictionFetcher for Ao3Fetcher {
-    fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, Box<dyn Error>> {
-        // Fetch the HTML content
+    fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, FicflowError> {
         let response = self.client.fetch_work(fic_id, base_url)?;
-        
-        // Parse the HTML document
         let document = Html::parse_document(&response);
-        
-        // Check if the work is restricted
+
         let restricted = self.parser.extract_restricted(&document)?;
-        
-        // Parse all the information from the document
         let title = self.parser.extract_title(&document)?;
         let authors = self.parser.extract_authors(&document)?;
         let summary = self.parser.extract_summary(&document)?;
         let categories = self.parser.extract_categories(&document)?;
-        let (chapters_published, chapters_total, complete) = self.parser.extract_chapters(&document)?;
+        let (chapters_published, chapters_total, complete) =
+            self.parser.extract_chapters(&document)?;
         let fandoms = self.parser.extract_fandoms(&document)?;
         let (hits, kudos, words) = self.parser.extract_stats(&document)?;
         let language = self.parser.extract_language(&document)?;
@@ -51,8 +46,7 @@ impl FanfictionFetcher for Ao3Fetcher {
         let characters = self.parser.extract_characters(&document)?;
         let tags = self.parser.extract_tags(&document)?;
         let (date_published, date_updated) = self.parser.extract_dates(&document)?;
-        
-        // Construct and return the Fanfiction object
+
         Ok(Fanfiction {
             id: fic_id,
             title,

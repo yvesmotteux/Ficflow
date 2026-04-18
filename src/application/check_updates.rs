@@ -1,4 +1,5 @@
-use crate::domain::fanfiction::{DatabaseOps, FanfictionFetcher, Fanfiction};
+use crate::domain::fanfiction::{DatabaseOps, Fanfiction, FanfictionFetcher};
+use crate::error::FicflowError;
 use chrono::Utc;
 
 pub fn check_fic_updates(
@@ -6,19 +7,12 @@ pub fn check_fic_updates(
     db_ops: &dyn DatabaseOps,
     fic_id: u64,
     base_url: &str,
-) -> Result<(bool, Fanfiction), Box<dyn std::error::Error>> {
-    let mut current_fic = match db_ops.get_fanfiction_by_id(fic_id) {
-        Ok(fic) => fic,
-        Err(e) => return Err(format!("Failed to get fanfiction from database: {}", e).into()),
-    };
-    
-    let new_fic = match fetcher.fetch_fanfiction(fic_id, base_url) {
-        Ok(fic) => fic,
-        Err(e) => return Err(format!("Failed to fetch updated fanfiction data: {}", e).into()),
-    };
-    
+) -> Result<(bool, Fanfiction), FicflowError> {
+    let mut current_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+    let new_fic = fetcher.fetch_fanfiction(fic_id, base_url)?;
+
     let has_new_chapters = new_fic.chapters_published > current_fic.chapters_published;
-    
+
     // Only update fields that can change over time, preserving user's custom fields
     current_fic.title = new_fic.title;
     current_fic.authors = new_fic.authors;
@@ -40,15 +34,10 @@ pub fn check_fic_updates(
     current_fic.words = new_fic.words;
     current_fic.date_published = new_fic.date_published;
     current_fic.date_updated = new_fic.date_updated;
-    
-    // Update last checked date
+
     current_fic.last_checked_date = Utc::now();
-    
-    match db_ops.update_fanfiction(&current_fic) {
-        Ok(_) => {},
-        Err(e) => return Err(format!("Failed to update fanfiction in database: {}", e).into()),
-    }
-    
-    // Return whether there are new chapters and the updated fanfiction object
+
+    db_ops.save_fanfiction(&current_fic)?;
+
     Ok((has_new_chapters, current_fic))
 }

@@ -13,7 +13,7 @@ impl<'a> InterfaceFactory<'a> {
     pub fn new(fetcher: &'a dyn FanfictionFetcher, database: &'a dyn DatabaseOps) -> Self {
         Self { fetcher, database }
     }
-    
+
     pub fn create_cli_interface(&self) -> Box<dyn UserInterface + '_> {
         Box::new(CliInterface {
             fetcher: self.fetcher,

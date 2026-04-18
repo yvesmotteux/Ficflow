@@ -1,7 +1,6 @@
-use crate::domain::fanfiction::DatabaseOps;
-use crate::domain::fanfiction::Fanfiction;
-use std::error::Error;
+use crate::domain::fanfiction::{DatabaseOps, Fanfiction};
+use crate::error::FicflowError;
 
-pub fn get_fanfiction(database: &dyn DatabaseOps, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
+pub fn get_fanfiction(database: &dyn DatabaseOps, fic_id: u64) -> Result<Fanfiction, FicflowError> {
     database.get_fanfiction_by_id(fic_id)
 }

@@ -1,16 +1,23 @@
-use ficflow::infrastructure::{establish_connection, FanfictionRepository, Ao3Fetcher};
+use ficflow::domain::url_config;
+use ficflow::infrastructure::{
+    establish_connection, Ao3Fetcher, RetryingFetcher, SqliteRepository,
+};
 use ficflow::interfaces::interface::InterfaceFactory;
 
 fn main() {
-    // Initialize core dependencies
-    let conn = establish_connection().expect("Failed to establish database connection");
-    let db_instance = ficflow::infrastructure::persistence::database::sqlite_connection::Database::new(&conn);
-    let fanfiction_repo = FanfictionRepository::new(db_instance);
-    let fetcher = Ao3Fetcher::new().expect("Failed to create Ao3Fetcher");
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let factory = InterfaceFactory::new(&fetcher, &fanfiction_repo);
-    
+    if let Ok(url) = std::env::var("AO3_BASE_URL") {
+        url_config::set_ao3_base_url(&url);
+    }
+
+    let conn = establish_connection().expect("Failed to establish database connection");
+    let repository = SqliteRepository::new(&conn);
+    let ao3_fetcher = Ao3Fetcher::new().expect("Failed to create Ao3Fetcher");
+    let fetcher = RetryingFetcher::new(ao3_fetcher, 3);
+
+    let factory = InterfaceFactory::new(&fetcher, &repository);
     let interface = factory.create_cli_interface();
-    
+
     interface.run();
 }
