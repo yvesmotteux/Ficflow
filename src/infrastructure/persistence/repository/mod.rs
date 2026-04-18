@@ -1,5 +1,4 @@
-pub mod fanfiction_repository;
 pub mod mapping;
-pub mod operations;
+pub mod sqlite_repository;
 
-pub use fanfiction_repository::FanfictionRepository;
+pub use sqlite_repository::SqliteRepository;

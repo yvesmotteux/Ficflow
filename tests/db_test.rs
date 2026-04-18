@@ -8,8 +8,9 @@ use common::{fixtures, assertions};
 
 #[cfg(test)]
 mod tests {
+    use ficflow::domain::fanfiction::DatabaseOps;
     use ficflow::infrastructure::persistence::database::migration::run_migrations;
-    use ficflow::infrastructure::persistence::repository::operations::{delete_fanfiction, get_all_fanfictions, get_fanfiction_by_id, wipe_database};
+    use ficflow::infrastructure::persistence::repository::SqliteRepository;
 
     use super::*;
 
@@ -49,7 +50,7 @@ mod tests {
         fixtures::when_fanfiction_added_to_db(&conn, &new_fic)?;
 
         // When
-        delete_fanfiction(&conn, new_fic.id)?;
+        SqliteRepository::new(&conn).delete_fanfiction(new_fic.id)?;
 
         // Then
         assertions::then_fanfiction_was_deleted(&conn, new_fic.id)?;
@@ -72,7 +73,7 @@ mod tests {
         fixtures::when_fanfiction_added_to_db(&conn, &fic3)?;
         
         // Then
-        let result = get_all_fanfictions(&conn)?;
+        let result = SqliteRepository::new(&conn).list_fanfictions()?;
         assert_eq!(result.len(), 3);
         
         // Verify each fanfiction was properly added
@@ -96,11 +97,12 @@ mod tests {
         fixtures::when_fanfiction_added_to_db(&conn, &fic2)?;
         fixtures::when_fanfiction_added_to_db(&conn, &fic3)?;
 
-        let before_wipe = get_all_fanfictions(&conn)?;
+        let repo = SqliteRepository::new(&conn);
+        let before_wipe = repo.list_fanfictions()?;
         assert_eq!(before_wipe.len(), 3);
-        
+
         // When
-        let wipe_result = wipe_database(&conn);
+        let wipe_result = repo.wipe_database();
         assert!(wipe_result.is_ok());
         
         // Then
@@ -119,7 +121,7 @@ mod tests {
         fixtures::when_fanfiction_added_to_db(&conn, &test_fic)?;
         
         // Then
-        let result = get_fanfiction_by_id(&conn, 301)
+        let result = SqliteRepository::new(&conn).get_fanfiction_by_id(301)
             .expect("Failed to retrieve fanfiction by ID");
         
         assertions::then_fanfiction_was_fetched(&test_fic, &result, None);

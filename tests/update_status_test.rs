@@ -8,53 +8,14 @@ use common::fixtures;
 
 use ficflow::{
     application::update_status::update_reading_status,
-    domain::fanfiction::{Fanfiction, ReadingStatus},
-    infrastructure::persistence::repository::operations::{
-        insert_fanfiction, get_fanfiction_by_id
-    },
+    domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus},
+    infrastructure::persistence::repository::SqliteRepository,
     infrastructure::persistence::database::migration::run_migrations
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    // Mock DatabaseOps implementation for testing
-    struct MockDatabase<'a> {
-        conn: &'a Connection,
-    }
-    
-    impl<'a> MockDatabase<'a> {
-        fn new(conn: &'a Connection) -> Self {
-            Self { conn }
-        }
-    }
-    
-    impl<'a> ficflow::domain::fanfiction::DatabaseOps for MockDatabase<'a> {
-        fn insert_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-            insert_fanfiction(self.conn, fic)
-        }
-        
-        fn update_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::update_fanfiction(self.conn, fic)
-        }
-        
-        fn delete_fanfiction(&self, fic_id: u64) -> Result<(), Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::delete_fanfiction(self.conn, fic_id)
-        }
-        
-        fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::get_all_fanfictions(self.conn)
-        }
-        
-        fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
-            get_fanfiction_by_id(self.conn, fic_id)
-        }
-        
-        fn wipe_database(&self) -> Result<(), Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::wipe_database(self.conn)
-        }
-    }
     
     fn setup_test_db() -> (Connection, TempDir) {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
@@ -80,13 +41,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::PlanToRead);
         
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = MockDatabase::new(&conn);
+        let db_ops = SqliteRepository::new(&conn);
         
         // When
         update_reading_status(&db_ops, fic_id, "inprogress")?;
         
         // Then
-        let updated_fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
         
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress);
         
@@ -101,13 +62,13 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::InProgress);
         
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = MockDatabase::new(&conn);
+        let db_ops = SqliteRepository::new(&conn);
         
         // When
         update_reading_status(&db_ops, fic_id, "read")?;
         
         // Then
-        let updated_fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(updated_fic.reading_status, ReadingStatus::Read);
         
         Ok(())
@@ -121,23 +82,23 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::InProgress);
         
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = MockDatabase::new(&conn);
+        let db_ops = SqliteRepository::new(&conn);
         
         // When - Test with different formats of the same status
         update_reading_status(&db_ops, fic_id, "plan-to-read")?;
-        let fic1 = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic1 = db_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic1.reading_status, ReadingStatus::PlanToRead);
         
         update_reading_status(&db_ops, fic_id, "plantoread")?;
-        let fic2 = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic2 = db_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic2.reading_status, ReadingStatus::PlanToRead);
         
         update_reading_status(&db_ops, fic_id, "plan")?;
-        let fic3 = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic3 = db_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic3.reading_status, ReadingStatus::PlanToRead);
         
         update_reading_status(&db_ops, fic_id, "in-progress")?;
-        let fic4 = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic4 = db_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(fic4.reading_status, ReadingStatus::InProgress);
         
         Ok(())
@@ -151,7 +112,7 @@ mod tests {
         let fic = create_test_fanfiction(fic_id, ReadingStatus::InProgress);
         
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = MockDatabase::new(&conn);
+        let db_ops = SqliteRepository::new(&conn);
         
         // When - Test with invalid status
         let result = update_reading_status(&db_ops, fic_id, "invalid_status");
@@ -162,7 +123,7 @@ mod tests {
         assert!(error.to_string().contains("Invalid reading status"));
         
         // Verify status was not changed
-        let unchanged_fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let unchanged_fic = db_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(unchanged_fic.reading_status, ReadingStatus::InProgress);
         
         Ok(())

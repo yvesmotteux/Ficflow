@@ -95,14 +95,12 @@ mod tests {
         use ficflow::{
             application::check_updates::check_fic_updates,
             domain::fanfiction::DatabaseOps,
-            infrastructure::persistence::repository::FanfictionRepository,
-            infrastructure::persistence::database::sqlite_connection::Database
+            infrastructure::persistence::repository::SqliteRepository,
         };
-        
+
         // Given
         let (conn, _path, _temp_dir) = fixtures::given_test_database();
-        let database = Database::new(&conn);
-        let db_ops = FanfictionRepository::new(database);
+        let db_ops = SqliteRepository::new(&conn);
         
         let fetcher = Ao3Fetcher::new().unwrap();
         let (outdated_server, fic_id) = fixtures::given_mock_outdated_ao3_server();

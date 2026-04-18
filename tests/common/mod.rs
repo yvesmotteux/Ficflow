@@ -8,8 +8,8 @@ use tempfile::TempDir;
 use chrono::Utc;
 
 use ficflow::{
-    domain::fanfiction::{Fanfiction, FanfictionFetcher},
-    infrastructure::persistence::repository::operations::{get_all_fanfictions, delete_fanfiction, insert_fanfiction},
+    domain::fanfiction::{DatabaseOps, Fanfiction, FanfictionFetcher},
+    infrastructure::persistence::repository::SqliteRepository,
 };
 
 pub mod assertions {
@@ -79,7 +79,7 @@ pub mod assertions {
     /// * `conn` - Database connection
     /// * `expected_fic` - The fanfiction that was expected to be added
     pub fn then_fanfiction_was_added(conn: &Connection, expected_fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-        let fanfictions = get_all_fanfictions(conn)?;
+        let fanfictions = SqliteRepository::new(conn).list_fanfictions()?;
         assert!(!fanfictions.is_empty(), "Expected fanfictions in database but none were found");
         
         let found = fanfictions.iter().any(|fic| {
@@ -99,7 +99,7 @@ pub mod assertions {
     /// * `conn` - Database connection
     /// * `fic_id` - The ID of the fanfiction that was expected to be deleted
     pub fn then_fanfiction_was_deleted(conn: &Connection, fic_id: u64) -> Result<(), Box<dyn Error>> {
-        let fanfictions = get_all_fanfictions(conn)?;
+        let fanfictions = SqliteRepository::new(conn).list_fanfictions()?;
         
         let found = fanfictions.iter().any(|fic| fic.id == fic_id);
         assert!(!found, "Fanfiction with id={} still exists in database after deletion", fic_id);
@@ -113,7 +113,7 @@ pub mod assertions {
     /// 
     /// * `conn` - Database connection
     pub fn then_database_was_wiped(conn: &Connection) -> Result<(), Box<dyn Error>> {
-        let fanfictions = get_all_fanfictions(conn)?;
+        let fanfictions = SqliteRepository::new(conn).list_fanfictions()?;
         assert_eq!(fanfictions.len(), 0, "Expected no fanfictions in database after wipe");
         
         Ok(())
@@ -239,14 +239,12 @@ pub mod fixtures {
     
     /// Adds a fanfiction to the test database.
     pub fn when_fanfiction_added_to_db(conn: &Connection, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-        insert_fanfiction(conn, fic)?;
-        Ok(())
+        SqliteRepository::new(conn).insert_fanfiction(fic)
     }
-    
+
     /// Deletes a fanfiction from the test database.
     pub fn when_fanfiction_deleted_from_db(conn: &Connection, fic_id: u64) -> Result<(), Box<dyn Error>> {
-        delete_fanfiction(conn, fic_id)?;
-        Ok(())
+        SqliteRepository::new(conn).delete_fanfiction(fic_id)
     }
     
     /// Fetches a fanfiction using the provided fetcher.

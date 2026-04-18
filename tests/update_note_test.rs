@@ -8,53 +8,14 @@ use common::fixtures;
 
 use ficflow::{
     application::update_note::update_personal_note,
-    domain::fanfiction::Fanfiction,
-    infrastructure::persistence::repository::operations::{
-        insert_fanfiction, get_fanfiction_by_id
-    },
+    domain::fanfiction::{DatabaseOps, Fanfiction},
+    infrastructure::persistence::repository::SqliteRepository,
     infrastructure::persistence::database::migration::run_migrations
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    // Mock DatabaseOps implementation for testing
-    struct MockDatabase<'a> {
-        conn: &'a Connection,
-    }
-    
-    impl<'a> MockDatabase<'a> {
-        fn new(conn: &'a Connection) -> Self {
-            Self { conn }
-        }
-    }
-    
-    impl<'a> ficflow::domain::fanfiction::DatabaseOps for MockDatabase<'a> {
-        fn insert_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-            insert_fanfiction(self.conn, fic)
-        }
-        
-        fn update_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::update_fanfiction(self.conn, fic)
-        }
-        
-        fn delete_fanfiction(&self, fic_id: u64) -> Result<(), Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::delete_fanfiction(self.conn, fic_id)
-        }
-        
-        fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::get_all_fanfictions(self.conn)
-        }
-        
-        fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
-            get_fanfiction_by_id(self.conn, fic_id)
-        }
-        
-        fn wipe_database(&self) -> Result<(), Box<dyn Error>> {
-            ficflow::infrastructure::persistence::repository::operations::wipe_database(self.conn)
-        }
-    }
     
     fn setup_test_db() -> (Connection, TempDir) {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
@@ -78,10 +39,10 @@ mod tests {
         let fic = create_test_fanfiction(fic_id);
         
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = MockDatabase::new(&conn);
+        let db_ops = SqliteRepository::new(&conn);
         
         // Initial note should be None
-        let initial_fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let initial_fic = db_ops.get_fanfiction_by_id(fic_id)?;
         assert!(initial_fic.personal_note.is_none());
         
         // When adding a note
@@ -89,7 +50,7 @@ mod tests {
         update_personal_note(&db_ops, fic_id, Some(note))?;
         
         // Then note should be added
-        let fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic = db_ops.get_fanfiction_by_id(fic_id)?;
         assert!(fic.personal_note.is_some());
         assert_eq!(fic.personal_note.unwrap(), note);
         
@@ -98,7 +59,7 @@ mod tests {
         update_personal_note(&db_ops, fic_id, Some(updated_note))?;
         
         // Then note should be updated
-        let fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic = db_ops.get_fanfiction_by_id(fic_id)?;
         assert!(fic.personal_note.is_some());
         assert_eq!(fic.personal_note.unwrap(), updated_note);
         
@@ -106,7 +67,7 @@ mod tests {
         update_personal_note(&db_ops, fic_id, None)?;
         
         // Then note should be removed
-        let fic = get_fanfiction_by_id(&conn, fic_id)?;
+        let fic = db_ops.get_fanfiction_by_id(fic_id)?;
         assert!(fic.personal_note.is_none());
         
         Ok(())
@@ -115,7 +76,7 @@ mod tests {
     #[test]
     fn test_update_note_nonexistent_fic() {
         let (conn, _temp_dir) = setup_test_db();
-        let db_ops = MockDatabase::new(&conn);
+        let db_ops = SqliteRepository::new(&conn);
         
         let invalid_fic_id = 999999; // A non-existent fanfiction ID
         let result = update_personal_note(&db_ops, invalid_fic_id, Some("Note for non-existent fic"));

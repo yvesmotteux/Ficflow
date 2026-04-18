@@ -1,0 +1,170 @@
+use rusqlite::{Connection, params};
+use std::error::Error;
+use crate::domain::fanfiction::{DatabaseOps, Fanfiction};
+use crate::infrastructure::persistence::repository::mapping::row_to_fanfiction;
+
+pub struct SqliteRepository<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> SqliteRepository<'a> {
+    pub fn new(conn: &'a Connection) -> Self {
+        Self { conn }
+    }
+}
+
+impl<'a> DatabaseOps for SqliteRepository<'a> {
+    fn insert_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
+        let authors = serde_json::to_string(&fic.authors)?;
+        let categories = serde_json::to_string(&fic.categories)?;
+        let characters = serde_json::to_string(&fic.characters)?;
+        let fandoms = serde_json::to_string(&fic.fandoms)?;
+        let relationships = serde_json::to_string(&fic.relationships)?;
+        let tags = serde_json::to_string(&fic.tags)?;
+        let warnings = serde_json::to_string(&fic.warnings)?;
+
+        let date_published_str = fic.date_published.to_rfc3339();
+        let date_updated_str = fic.date_updated.to_rfc3339();
+        let last_checked_date_str = fic.last_checked_date.to_rfc3339();
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO fanfiction (
+                id, title, authors, categories, chapters_total, chapters_published, characters,
+                complete, fandoms, hits, kudos, language, rating, relationships, restricted,
+                summary, tags, warnings, words, date_published, date_updated, last_chapter_read,
+                reading_status, read_count, user_rating, personal_note, last_checked_date
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+            params![
+                fic.id,
+                fic.title,
+                authors,
+                categories,
+                fic.chapters_total,
+                fic.chapters_published,
+                characters,
+                fic.complete,
+                fandoms,
+                fic.hits,
+                fic.kudos,
+                fic.language,
+                fic.rating.to_string(),
+                relationships,
+                fic.restricted,
+                fic.summary,
+                tags,
+                warnings,
+                fic.words,
+                date_published_str,
+                date_updated_str,
+                fic.last_chapter_read,
+                fic.reading_status.to_string(),
+                fic.read_count,
+                fic.user_rating.map(|r| r as u32),
+                fic.personal_note,
+                last_checked_date_str
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    fn update_fanfiction(&self, fic: &Fanfiction) -> Result<(), Box<dyn Error>> {
+        let authors = serde_json::to_string(&fic.authors)?;
+        let categories = serde_json::to_string(&fic.categories)?;
+        let characters = serde_json::to_string(&fic.characters)?;
+        let fandoms = serde_json::to_string(&fic.fandoms)?;
+        let relationships = serde_json::to_string(&fic.relationships)?;
+        let tags = serde_json::to_string(&fic.tags)?;
+        let warnings = serde_json::to_string(&fic.warnings)?;
+
+        let date_published_str = fic.date_published.to_rfc3339();
+        let date_updated_str = fic.date_updated.to_rfc3339();
+        let last_checked_date_str = fic.last_checked_date.to_rfc3339();
+
+        self.conn.execute(
+            "UPDATE fanfiction SET
+                title = ?2,
+                authors = ?3,
+                categories = ?4,
+                chapters_total = ?5,
+                chapters_published = ?6,
+                characters = ?7,
+                complete = ?8,
+                fandoms = ?9,
+                hits = ?10,
+                kudos = ?11,
+                language = ?12,
+                rating = ?13,
+                relationships = ?14,
+                restricted = ?15,
+                summary = ?16,
+                tags = ?17,
+                warnings = ?18,
+                words = ?19,
+                date_published = ?20,
+                date_updated = ?21,
+                last_chapter_read = ?22,
+                reading_status = ?23,
+                read_count = ?24,
+                user_rating = ?25,
+                personal_note = ?26,
+                last_checked_date = ?27
+            WHERE id = ?1",
+            params![
+                fic.id,
+                fic.title,
+                authors,
+                categories,
+                fic.chapters_total,
+                fic.chapters_published,
+                characters,
+                fic.complete,
+                fandoms,
+                fic.hits,
+                fic.kudos,
+                fic.language,
+                fic.rating.to_string(),
+                relationships,
+                fic.restricted,
+                fic.summary,
+                tags,
+                warnings,
+                fic.words,
+                date_published_str,
+                date_updated_str,
+                fic.last_chapter_read,
+                fic.reading_status.to_string(),
+                fic.read_count,
+                fic.user_rating.as_ref().map(|r| *r as i32),
+                fic.personal_note,
+                last_checked_date_str,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    fn delete_fanfiction(&self, fic_id: u64) -> Result<(), Box<dyn Error>> {
+        self.conn.execute("DELETE FROM fanfiction WHERE id = ?1", params![fic_id])?;
+        Ok(())
+    }
+
+    fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, Box<dyn Error>> {
+        let mut stmt = self.conn.prepare("SELECT * FROM fanfiction ORDER BY title")?;
+        let rows = stmt.query_map([], row_to_fanfiction)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Box::new(e) as Box<dyn Error>)
+    }
+
+    fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, Box<dyn Error>> {
+        let mut stmt = self.conn.prepare("SELECT * FROM fanfiction WHERE id = ?1")?;
+        stmt.query_row(params![fic_id], row_to_fanfiction)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)
+    }
+
+    fn wipe_database(&self) -> Result<(), Box<dyn Error>> {
+        self.conn.execute("DELETE FROM fanfiction", [])?;
+        Ok(())
+    }
+}
