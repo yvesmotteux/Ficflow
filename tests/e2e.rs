@@ -128,6 +128,140 @@ mod tests {
     }
 
     #[test]
+    fn test_shelves_full_workflow() -> Result<(), Box<dyn Error>> {
+        use ficflow::domain::shelf::ShelfOps;
+        use ficflow::infrastructure::persistence::repository::SqliteRepository;
+
+        // Given: a fic in the library
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+
+        // When: create a shelf
+        let (create_out, create_err, create_status) =
+            run_cli_command(&["shelf", "create", "Comfort reads"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            create_status,
+            &create_err,
+            Some(&["Comfort reads", "id: 1"]),
+            Some(&create_out),
+        );
+
+        // And: shelf list shows it
+        let (list_out, list_err, list_status) =
+            run_cli_command(&["shelf", "list"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            list_status,
+            &list_err,
+            Some(&["Comfort reads"]),
+            Some(&list_out),
+        );
+
+        // When: add the fic to the shelf (first shelf → id=1)
+        let shelf_id = "1";
+        let (_, add_shelf_err, add_shelf_status) = run_cli_command(
+            &["shelf", "add", &fic_id.to_string(), shelf_id],
+            db_path,
+            &base,
+            None,
+        );
+        assertions::then_command_succeeded(add_shelf_status, &add_shelf_err, None, None);
+
+        // Then: shelf show lists the fic
+        let (show_out, show_err, show_status) =
+            run_cli_command(&["shelf", "show", shelf_id], db_path, &base, None);
+        assertions::then_command_succeeded(
+            show_status,
+            &show_err,
+            Some(&["Featherlight"]),
+            Some(&show_out),
+        );
+
+        // And: library list still shows the fic (unaffected by shelf membership)
+        let (lib_out, lib_err, lib_status) = run_cli_command(&["list"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            lib_status,
+            &lib_err,
+            Some(&["Featherlight"]),
+            Some(&lib_out),
+        );
+
+        // When: add the same fic again (idempotent — silent no-op)
+        let (_, dup_err, dup_status) = run_cli_command(
+            &["shelf", "add", &fic_id.to_string(), shelf_id],
+            db_path,
+            &base,
+            None,
+        );
+        assertions::then_command_succeeded(dup_status, &dup_err, None, None);
+
+        // Then: only one row in fic_shelf (not two)
+        let shelf_ops = SqliteRepository::new(&test_db.conn);
+        assert_eq!(shelf_ops.list_fics_in_shelf(1)?.len(), 1);
+
+        // When: hard-delete the fic from the library
+        let (_, del_err, del_status) =
+            run_cli_command(&["delete", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(del_status, &del_err, None, None);
+
+        // Then: FK cascade wiped the shelf membership
+        let (show2_out, show2_err, show2_status) =
+            run_cli_command(&["shelf", "show", shelf_id], db_path, &base, None);
+        assertions::then_command_succeeded(
+            show2_status,
+            &show2_err,
+            Some(&["No fanfictions"]),
+            Some(&show2_out),
+        );
+
+        // When: delete the shelf itself
+        let (_, shelf_del_err, shelf_del_status) =
+            run_cli_command(&["shelf", "delete", shelf_id], db_path, &base, None);
+        assertions::then_command_succeeded(shelf_del_status, &shelf_del_err, None, None);
+
+        // Then: shelf list is empty
+        let (final_out, final_err, final_status) =
+            run_cli_command(&["shelf", "list"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            final_status,
+            &final_err,
+            Some(&["No shelves"]),
+            Some(&final_out),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_shelf_create_rejects_empty_name() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, _) = fixtures::given_mock_ao3_server();
+
+        let (_, stderr, _status) = run_cli_command(
+            &["shelf", "create", "   "],
+            &test_db.db_path,
+            &mock_server.base_url(),
+            None,
+        );
+
+        // NB: the CLI currently exits 0 even on application errors (pre-existing
+        // behaviour shared with other commands). Assert on the stderr message
+        // rather than the exit code.
+        assert!(
+            stderr.contains("shelf name must not be empty"),
+            "expected empty-name error, got stderr: {}",
+            stderr
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn test_add_get_wipe_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
         let test_db = setup_test_db();

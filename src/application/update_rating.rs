@@ -1,12 +1,12 @@
-use crate::domain::fanfiction::{DatabaseOps, Fanfiction, UserRating};
+use crate::domain::fanfiction::{Fanfiction, FanfictionOps, UserRating};
 use crate::error::FicflowError;
 
 pub fn update_user_rating(
-    db_ops: &dyn DatabaseOps,
+    fanfiction_ops: &dyn FanfictionOps,
     fic_id: u64,
     rating_str: &str,
 ) -> Result<Fanfiction, FicflowError> {
-    let mut fic = db_ops.get_fanfiction_by_id(fic_id)?;
+    let mut fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
     let user_rating = match rating_str.to_lowercase().as_str() {
         "1" | "one" => Some(UserRating::One),
@@ -24,7 +24,7 @@ pub fn update_user_rating(
     };
 
     fic.user_rating = user_rating;
-    db_ops.save_fanfiction(&fic)?;
+    fanfiction_ops.save_fanfiction(&fic)?;
 
     Ok(fic)
 }

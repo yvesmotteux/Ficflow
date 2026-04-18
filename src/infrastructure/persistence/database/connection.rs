@@ -4,7 +4,7 @@ use dirs_next::data_local_dir;
 use rusqlite::Connection;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn establish_connection() -> Result<Connection, FicflowError> {
     let db_path = if let Ok(path) = env::var("FICFLOW_DB_PATH") {
@@ -18,7 +18,15 @@ pub fn establish_connection() -> Result<Connection, FicflowError> {
         path
     };
 
-    let mut conn = Connection::open(&db_path)?;
+    open_configured_db(&db_path)
+}
+
+// Single canonical path to obtain a ready-to-use Connection: open, migrate,
+// then enable FK enforcement. SQLite FKs are off by default per-connection,
+// so production and test code must go through here to keep cascades working.
+pub fn open_configured_db(path: &Path) -> Result<Connection, FicflowError> {
+    let mut conn = Connection::open(path)?;
     run_migrations(&mut conn)?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     Ok(conn)
 }

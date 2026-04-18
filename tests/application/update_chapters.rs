@@ -6,7 +6,7 @@ use crate::common::fixtures;
 
 use ficflow::{
     application::update_chapters::update_last_chapter_read,
-    domain::fanfiction::{DatabaseOps, Fanfiction, ReadingStatus},
+    domain::fanfiction::{Fanfiction, FanfictionOps, ReadingStatus},
     infrastructure::persistence::database::migration::run_migrations,
     infrastructure::persistence::repository::SqliteRepository,
 };
@@ -48,13 +48,13 @@ mod tests {
         fic.last_chapter_read = None;
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 5)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 5)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(5));
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress);
@@ -72,13 +72,13 @@ mod tests {
         fic.last_chapter_read = Some(3);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 5)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 5)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(5));
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress);
@@ -96,13 +96,13 @@ mod tests {
         fic.last_chapter_read = Some(3);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 5)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 5)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(5));
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress);
@@ -120,13 +120,13 @@ mod tests {
         fic.last_chapter_read = Some(8);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 10)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 10)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(10));
         assert_eq!(updated_fic.reading_status, ReadingStatus::Read);
@@ -144,14 +144,14 @@ mod tests {
         fic.last_chapter_read = Some(10);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
         // Re-reading the final chapter should increment read count
-        update_last_chapter_read(&db_ops, fic_id, 10)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 10)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(10));
         assert_eq!(updated_fic.reading_status, ReadingStatus::Read);
@@ -169,13 +169,13 @@ mod tests {
         fic.last_chapter_read = Some(5);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 15)?; // Try to exceed total
+        update_last_chapter_read(&fanfiction_ops, fic_id, 15)?; // Try to exceed total
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(10)); // Should be adjusted to maximum
         assert_eq!(updated_fic.reading_status, ReadingStatus::Read);
@@ -193,22 +193,22 @@ mod tests {
         fic.last_chapter_read = None;
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 5)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 5)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(5));
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress);
         assert_eq!(updated_fic.read_count, 0); // Should not change
 
         // Can go to any chapter number since total is unknown
-        update_last_chapter_read(&db_ops, fic_id, 100)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 100)?;
 
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(updated_fic.last_chapter_read, Some(100));
         assert_eq!(updated_fic.reading_status, ReadingStatus::InProgress); // Still in progress without known total
 
@@ -224,22 +224,22 @@ mod tests {
         fic.last_chapter_read = Some(3);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When
-        update_last_chapter_read(&db_ops, fic_id, 5)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 5)?;
 
         // Then
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
         assert_eq!(updated_fic.last_chapter_read, Some(5));
         assert_eq!(updated_fic.reading_status, ReadingStatus::Abandoned); // Should stay Abandoned
         assert_eq!(updated_fic.read_count, 0);
 
         // Even if reaching final chapter
-        update_last_chapter_read(&db_ops, fic_id, 10)?;
+        update_last_chapter_read(&fanfiction_ops, fic_id, 10)?;
 
-        let updated_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let updated_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(updated_fic.last_chapter_read, Some(10));
         assert_eq!(updated_fic.reading_status, ReadingStatus::Read); // Final chapter changes to Read
         assert_eq!(updated_fic.read_count, 1); // Should increment

@@ -7,7 +7,7 @@ use crate::common::fixtures;
 
 use ficflow::{
     application::add_fic::add_fanfiction,
-    domain::fanfiction::{DatabaseOps, Fanfiction, FanfictionFetcher, ReadingStatus, UserRating},
+    domain::fanfiction::{Fanfiction, FanfictionFetcher, FanfictionOps, ReadingStatus, UserRating},
     error::FicflowError,
     infrastructure::persistence::database::migration::run_migrations,
     infrastructure::persistence::repository::SqliteRepository,
@@ -77,10 +77,10 @@ mod tests {
             call_count: Cell::new(0),
         };
 
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When: add is invoked again.
-        let result = add_fanfiction(&fetcher, &db_ops, fic_id, "http://unused");
+        let result = add_fanfiction(&fetcher, &fanfiction_ops, fic_id, "http://unused");
 
         // Then: we get AlreadyExists and the fetcher was never called.
         match result {
@@ -98,7 +98,7 @@ mod tests {
         );
 
         // And: user-customized fields are untouched.
-        let stored = db_ops.get_fanfiction_by_id(fic_id)?;
+        let stored = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(stored.reading_status, ReadingStatus::InProgress);
         assert_eq!(stored.user_rating, Some(UserRating::Five));
         assert_eq!(stored.read_count, 3);
@@ -123,16 +123,16 @@ mod tests {
             call_count: Cell::new(0),
         };
 
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When: add is invoked.
-        let title = add_fanfiction(&fetcher, &db_ops, fic_id, "http://unused")?;
+        let title = add_fanfiction(&fetcher, &fanfiction_ops, fic_id, "http://unused")?;
 
         // Then: the fetcher was called and the fic is persisted.
         assert_eq!(title, "A New Fic");
         assert_eq!(fetcher.call_count.get(), 1);
 
-        let stored = db_ops.get_fanfiction_by_id(fic_id)?;
+        let stored = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert_eq!(stored.id, fic_id);
         assert_eq!(stored.title, "A New Fic");
 

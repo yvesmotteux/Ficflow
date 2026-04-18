@@ -6,7 +6,7 @@ use crate::common::{assertions, fixtures};
 
 #[cfg(test)]
 mod tests {
-    use ficflow::domain::fanfiction::DatabaseOps;
+    use ficflow::domain::fanfiction::FanfictionOps;
     use ficflow::infrastructure::persistence::database::migration::run_migrations;
     use ficflow::infrastructure::persistence::repository::SqliteRepository;
 

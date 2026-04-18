@@ -1,14 +1,14 @@
-use crate::domain::fanfiction::{DatabaseOps, Fanfiction, FanfictionFetcher};
+use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher, FanfictionOps};
 use crate::error::FicflowError;
 use chrono::Utc;
 
 pub fn check_fic_updates(
     fetcher: &dyn FanfictionFetcher,
-    db_ops: &dyn DatabaseOps,
+    fanfiction_ops: &dyn FanfictionOps,
     fic_id: u64,
     base_url: &str,
 ) -> Result<(bool, Fanfiction), FicflowError> {
-    let mut current_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+    let mut current_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
     let new_fic = fetcher.fetch_fanfiction(fic_id, base_url)?;
 
     let has_new_chapters = new_fic.chapters_published > current_fic.chapters_published;
@@ -37,7 +37,7 @@ pub fn check_fic_updates(
 
     current_fic.last_checked_date = Utc::now();
 
-    db_ops.save_fanfiction(&current_fic)?;
+    fanfiction_ops.save_fanfiction(&current_fic)?;
 
     Ok((has_new_chapters, current_fic))
 }

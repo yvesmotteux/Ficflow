@@ -6,7 +6,7 @@ use crate::common::fixtures;
 
 use ficflow::{
     application::update_note::update_personal_note,
-    domain::fanfiction::{DatabaseOps, Fanfiction},
+    domain::fanfiction::{Fanfiction, FanfictionOps},
     infrastructure::persistence::database::migration::run_migrations,
     infrastructure::persistence::repository::SqliteRepository,
 };
@@ -37,35 +37,35 @@ mod tests {
         let fic = create_test_fanfiction(fic_id);
 
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         // Initial note should be None
-        let initial_fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let initial_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert!(initial_fic.personal_note.is_none());
 
         // When adding a note
         let note = "This is my favorite story!";
-        update_personal_note(&db_ops, fic_id, Some(note))?;
+        update_personal_note(&fanfiction_ops, fic_id, Some(note))?;
 
         // Then note should be added
-        let fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert!(fic.personal_note.is_some());
         assert_eq!(fic.personal_note.unwrap(), note);
 
         // When updating the note
         let updated_note = "Actually I changed my mind. It's good but not my favorite.";
-        update_personal_note(&db_ops, fic_id, Some(updated_note))?;
+        update_personal_note(&fanfiction_ops, fic_id, Some(updated_note))?;
 
         // Then note should be updated
-        let fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert!(fic.personal_note.is_some());
         assert_eq!(fic.personal_note.unwrap(), updated_note);
 
         // When removing the note
-        update_personal_note(&db_ops, fic_id, None)?;
+        update_personal_note(&fanfiction_ops, fic_id, None)?;
 
         // Then note should be removed
-        let fic = db_ops.get_fanfiction_by_id(fic_id)?;
+        let fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
         assert!(fic.personal_note.is_none());
 
         Ok(())
@@ -74,11 +74,14 @@ mod tests {
     #[test]
     fn test_update_note_nonexistent_fic() {
         let (conn, _temp_dir) = setup_test_db();
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         let invalid_fic_id = 999999; // A non-existent fanfiction ID
-        let result =
-            update_personal_note(&db_ops, invalid_fic_id, Some("Note for non-existent fic"));
+        let result = update_personal_note(
+            &fanfiction_ops,
+            invalid_fic_id,
+            Some("Note for non-existent fic"),
+        );
 
         assert!(
             result.is_err(),

@@ -101,13 +101,13 @@ mod tests {
     #[test]
     fn test_check_fic_updates() {
         use ficflow::{
-            application::check_updates::check_fic_updates, domain::fanfiction::DatabaseOps,
+            application::check_updates::check_fic_updates, domain::fanfiction::FanfictionOps,
             infrastructure::persistence::repository::SqliteRepository,
         };
 
         // Given
         let (conn, _path, _temp_dir) = fixtures::given_test_database();
-        let db_ops = SqliteRepository::new(&conn);
+        let fanfiction_ops = SqliteRepository::new(&conn);
 
         let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
         let (outdated_server, fic_id) = fixtures::given_mock_outdated_ao3_server();
@@ -127,14 +127,18 @@ mod tests {
         outdated_fic.reading_status = ReadingStatus::InProgress;
         outdated_fic.read_count = 3;
 
-        db_ops
+        fanfiction_ops
             .save_fanfiction(&outdated_fic)
             .expect("Failed to save outdated fic");
 
         // When
-        let (has_new_chapters, updated_fic) =
-            check_fic_updates(&fetcher, &db_ops, fic_id, &updated_server.base_url())
-                .expect("Failed to check for updates");
+        let (has_new_chapters, updated_fic) = check_fic_updates(
+            &fetcher,
+            &fanfiction_ops,
+            fic_id,
+            &updated_server.base_url(),
+        )
+        .expect("Failed to check for updates");
 
         // Then
         assert!(has_new_chapters, "Should detect new chapters");
@@ -143,7 +147,7 @@ mod tests {
             "Updated fic should have 32 chapters"
         );
 
-        let stored_fic = db_ops
+        let stored_fic = fanfiction_ops
             .get_fanfiction_by_id(fic_id)
             .expect("Failed to retrieve from DB");
         assert_eq!(
@@ -183,9 +187,13 @@ mod tests {
         assert_eq!(stored_fic.read_count, 3, "Read count should be preserved");
 
         // Verify no changes reported when checking again
-        let (has_newer_chapters, _) =
-            check_fic_updates(&fetcher, &db_ops, fic_id, &updated_server.base_url())
-                .expect("Failed to check for updates second time");
+        let (has_newer_chapters, _) = check_fic_updates(
+            &fetcher,
+            &fanfiction_ops,
+            fic_id,
+            &updated_server.base_url(),
+        )
+        .expect("Failed to check for updates second time");
 
         assert!(
             !has_newer_chapters,

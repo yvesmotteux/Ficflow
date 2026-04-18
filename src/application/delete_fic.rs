@@ -1,6 +1,6 @@
-use crate::domain::fanfiction::DatabaseOps;
+use crate::domain::fanfiction::FanfictionOps;
 use crate::error::FicflowError;
 
-pub fn delete_fic(db_ops: &dyn DatabaseOps, fic_id: u64) -> Result<(), FicflowError> {
-    db_ops.delete_fanfiction(fic_id)
+pub fn delete_fic(fanfiction_ops: &dyn FanfictionOps, fic_id: u64) -> Result<(), FicflowError> {
+    fanfiction_ops.delete_fanfiction(fic_id)
 }

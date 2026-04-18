@@ -1,6 +1,6 @@
-use crate::domain::fanfiction::DatabaseOps;
+use crate::domain::fanfiction::FanfictionOps;
 use crate::error::FicflowError;
 
-pub fn wipe_database(db_ops: &dyn DatabaseOps) -> Result<(), FicflowError> {
-    db_ops.wipe_database()
+pub fn wipe_database(fanfiction_ops: &dyn FanfictionOps) -> Result<(), FicflowError> {
+    fanfiction_ops.wipe_database()
 }

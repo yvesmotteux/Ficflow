@@ -3,8 +3,9 @@ use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 
 pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
-    let migrations = Migrations::new(vec![M::up(
-        r#"
+    let migrations = Migrations::new(vec![
+        M::up(
+            r#"
             CREATE TABLE IF NOT EXISTS fanfiction (
                 id INTEGER PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -35,7 +36,24 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
                 last_checked_date TEXT NOT NULL
             )
         "#,
-    )]);
+        ),
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS shelf (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS fic_shelf (
+                fic_id   INTEGER NOT NULL REFERENCES fanfiction(id) ON DELETE CASCADE,
+                shelf_id INTEGER NOT NULL REFERENCES shelf(id)      ON DELETE CASCADE,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (fic_id, shelf_id)
+            );
+        "#,
+        ),
+    ]);
 
     migrations.to_latest(conn)?;
 
