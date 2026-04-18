@@ -197,6 +197,9 @@ fn report_error(verb: &str, err: &FicflowError) {
         FicflowError::NotFound { fic_id } => {
             eprintln!("Fanfiction ID {} not found in your library", fic_id);
         }
+        FicflowError::AlreadyExists { fic_id } => {
+            eprintln!("Fanfiction ID {} is already in your library", fic_id);
+        }
         FicflowError::InvalidInput(msg) => {
             eprintln!("{}", msg);
         }

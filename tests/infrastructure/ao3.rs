@@ -1,6 +1,4 @@
-#[path = "common/mod.rs"]
-mod common;
-use common::{assertions, fixtures};
+use crate::common::{assertions, fixtures};
 
 #[cfg(test)]
 mod tests {

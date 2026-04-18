@@ -2,9 +2,7 @@ use rusqlite::Connection;
 use std::error::Error;
 use tempfile::TempDir;
 
-#[path = "common/mod.rs"]
-mod common;
-use common::fixtures;
+use crate::common::fixtures;
 
 use ficflow::{
     application::update_read_count::update_read_count,

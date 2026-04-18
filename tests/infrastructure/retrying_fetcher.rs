@@ -1,9 +1,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-#[path = "common/mod.rs"]
-mod common;
-use common::fixtures;
+use crate::common::fixtures;
 
 use ficflow::{
     domain::fanfiction::{Fanfiction, FanfictionFetcher},

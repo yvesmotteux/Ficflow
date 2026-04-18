@@ -8,6 +8,9 @@ pub enum FicflowError {
     #[error("fanfiction with ID {fic_id} not found")]
     NotFound { fic_id: u64 },
 
+    #[error("fanfiction with ID {fic_id} already exists in your library")]
+    AlreadyExists { fic_id: u64 },
+
     #[error("failed to parse {field}: {reason}")]
     Parse { field: String, reason: String },
 
