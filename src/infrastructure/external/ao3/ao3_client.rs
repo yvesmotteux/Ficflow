@@ -41,6 +41,7 @@ impl Ao3Client {
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
             .default_headers(headers)
+            .http1_only()
             .build()?;
 
         Ok(Self {
