@@ -1,4 +1,4 @@
-use clap::{Command, Arg};
+use clap::{Command, Arg, value_parser};
 use crate::interfaces::utils::url_parser;
 
 #[derive(Debug)]
@@ -25,41 +25,41 @@ pub fn parse_cli_commands() -> CliCommand {
         .subcommand(
             Command::new("delete")
                 .about("Delete a fanfiction from the database")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction")),
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction")),
         )
         .subcommand(
             Command::new("get")
                 .about("Get detailed information about a specific fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction")),
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction")),
         )
         .subcommand(
             Command::new("chapter")
                 .about("Update the last chapter read for a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
-                .arg(Arg::new("chapter").required(true).index(2).help("The chapter number you've read up to")),
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
+                .arg(Arg::new("chapter").required(true).index(2).value_parser(value_parser!(u32)).help("The chapter number you've read up to")),
         )
         .subcommand(
             Command::new("status")
                 .about("Update the reading status of a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
                 .arg(Arg::new("status").required(true).index(2).help("The new reading status (inprogress, read, plantoread, paused, abandoned)")),
         )
         .subcommand(
             Command::new("reads")
                 .about("Update the read count of a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
-                .arg(Arg::new("count").required(true).index(2).help("The new read count")),
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
+                .arg(Arg::new("count").required(true).index(2).value_parser(value_parser!(u32)).help("The new read count")),
         )
         .subcommand(
             Command::new("rating")
                 .about("Update the user rating of a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
                 .arg(Arg::new("rating").required(true).index(2).help("The new rating (1-5, or 'one' through 'five', or 'none' to remove)")),
         )
         .subcommand(
             Command::new("note")
                 .about("Add or remove a personal note for a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID of the fanfiction"))
+                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
                 .arg(Arg::new("note").required(false).index(2).help("The personal note text (omit to remove note)")),
         )
         .subcommand(Command::new("list").about("List all stored fanfictions"))
@@ -78,46 +78,31 @@ pub fn parse_cli_commands() -> CliCommand {
             }
         }
     } else if let Some(matches) = matches.subcommand_matches("delete") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        CliCommand::Delete { fic_id: fic_id.parse::<u64>().unwrap() }
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        CliCommand::Delete { fic_id }
     } else if let Some(matches) = matches.subcommand_matches("get") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        CliCommand::Get { fic_id: fic_id.parse::<u64>().unwrap() }
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        CliCommand::Get { fic_id }
     } else if let Some(matches) = matches.subcommand_matches("chapter") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        let chapter = matches.get_one::<String>("chapter").expect("chapter number is required");
-        CliCommand::UpdateChapter { 
-            fic_id: fic_id.parse::<u64>().unwrap(),
-            chapter: chapter.parse::<u32>().unwrap()
-        }
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let chapter = *matches.get_one::<u32>("chapter").expect("chapter number is required");
+        CliCommand::UpdateChapter { fic_id, chapter }
     } else if let Some(matches) = matches.subcommand_matches("status") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        let status = matches.get_one::<String>("status").expect("status is required");
-        CliCommand::UpdateStatus { 
-            fic_id: fic_id.parse::<u64>().unwrap(),
-            status: status.to_string()
-        }
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let status = matches.get_one::<String>("status").expect("status is required").to_string();
+        CliCommand::UpdateStatus { fic_id, status }
     } else if let Some(matches) = matches.subcommand_matches("reads") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        let count = matches.get_one::<String>("count").expect("read count is required");
-        CliCommand::UpdateReadCount { 
-            fic_id: fic_id.parse::<u64>().unwrap(),
-            read_count: count.parse::<u32>().unwrap()
-        }
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let read_count = *matches.get_one::<u32>("count").expect("read count is required");
+        CliCommand::UpdateReadCount { fic_id, read_count }
     } else if let Some(matches) = matches.subcommand_matches("rating") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
-        let rating = matches.get_one::<String>("rating").expect("rating is required");
-        CliCommand::UpdateRating { 
-            fic_id: fic_id.parse::<u64>().unwrap(),
-            rating: rating.to_string()
-        }
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
+        let rating = matches.get_one::<String>("rating").expect("rating is required").to_string();
+        CliCommand::UpdateRating { fic_id, rating }
     } else if let Some(matches) = matches.subcommand_matches("note") {
-        let fic_id = matches.get_one::<String>("fic-id").expect("fic-id is required");
+        let fic_id = *matches.get_one::<u64>("fic-id").expect("fic-id is required");
         let note = matches.get_one::<String>("note").map(|s| s.to_string());
-        CliCommand::UpdateNote { 
-            fic_id: fic_id.parse::<u64>().unwrap(),
-            note
-        }
+        CliCommand::UpdateNote { fic_id, note }
     } else if matches.subcommand_matches("list").is_some() {
         CliCommand::List
     } else if matches.subcommand_matches("wipe").is_some() {
