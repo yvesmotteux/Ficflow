@@ -1,8 +1,10 @@
+use std::process::ExitCode;
+
 use crate::domain::fanfiction::FanfictionFetcher;
 use crate::domain::repository::Repository;
 
 pub trait UserInterface {
-    fn run(&self);
+    fn run(&self) -> ExitCode;
 }
 
 pub struct InterfaceFactory<'a> {
@@ -32,7 +34,7 @@ pub struct CliInterface<'a> {
 }
 
 impl<'a> UserInterface for CliInterface<'a> {
-    fn run(&self) {
-        crate::interfaces::cli::run_cli(self.fetcher, self.repository);
+    fn run(&self) -> ExitCode {
+        crate::interfaces::cli::run_cli(self.fetcher, self.repository)
     }
 }
