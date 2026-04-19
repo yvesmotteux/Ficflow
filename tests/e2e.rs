@@ -242,16 +242,14 @@ mod tests {
         let test_db = setup_test_db();
         let (mock_server, _) = fixtures::given_mock_ao3_server();
 
-        let (_, stderr, _status) = run_cli_command(
+        let (_, stderr, status) = run_cli_command(
             &["shelf", "create", "   "],
             &test_db.db_path,
             &mock_server.base_url(),
             None,
         );
 
-        // NB: the CLI currently exits 0 even on application errors (pre-existing
-        // behaviour shared with other commands). Assert on the stderr message
-        // rather than the exit code.
+        assert_eq!(status, 1, "expected non-zero exit on validation error");
         assert!(
             stderr.contains("shelf name must not be empty"),
             "expected empty-name error, got stderr: {}",
