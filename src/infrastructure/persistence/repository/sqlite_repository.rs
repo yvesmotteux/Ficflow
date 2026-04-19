@@ -29,14 +29,29 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
         let date_updated_str = fic.date_updated.to_rfc3339();
         let last_checked_date_str = fic.last_checked_date.to_rfc3339();
 
+        let reviving = match self.conn.query_row(
+            "SELECT deleted_at IS NOT NULL FROM fanfiction WHERE id = ?1",
+            params![fic.id],
+            |r| r.get::<_, bool>(0),
+        ) {
+            Ok(b) => b,
+            Err(rusqlite::Error::QueryReturnedNoRows) => false,
+            Err(e) => return Err(FicflowError::Database(e)),
+        };
+
+        if reviving {
+            self.conn
+                .execute("DELETE FROM fic_shelf WHERE fic_id = ?1", params![fic.id])?;
+        }
+
         self.conn.execute(
             "INSERT OR REPLACE INTO fanfiction (
                 id, title, authors, categories, chapters_total, chapters_published, characters,
                 complete, fandoms, hits, kudos, language, rating, relationships, restricted,
                 summary, tags, warnings, words, date_published, date_updated, last_chapter_read,
-                reading_status, read_count, user_rating, personal_note, last_checked_date
+                reading_status, read_count, user_rating, personal_note, last_checked_date, deleted_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, NULL)",
             params![
                 fic.id,
                 fic.title,
@@ -72,15 +87,18 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
     }
 
     fn delete_fanfiction(&self, fic_id: u64) -> Result<(), FicflowError> {
-        self.conn
-            .execute("DELETE FROM fanfiction WHERE id = ?1", params![fic_id])?;
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE fanfiction SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+            params![fic_id, now],
+        )?;
         Ok(())
     }
 
     fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, FicflowError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT * FROM fanfiction ORDER BY title")?;
+            .prepare("SELECT * FROM fanfiction WHERE deleted_at IS NULL ORDER BY title")?;
         let rows = stmt.query_map([], row_to_fanfiction)?;
         let fics = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(fics)
@@ -89,7 +107,7 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
     fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, FicflowError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT * FROM fanfiction WHERE id = ?1")?;
+            .prepare("SELECT * FROM fanfiction WHERE id = ?1 AND deleted_at IS NULL")?;
         stmt.query_row(params![fic_id], row_to_fanfiction)
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => FicflowError::NotFound { fic_id },
@@ -98,7 +116,11 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
     }
 
     fn wipe_database(&self) -> Result<(), FicflowError> {
-        self.conn.execute("DELETE FROM fanfiction", [])?;
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE fanfiction SET deleted_at = ?1 WHERE deleted_at IS NULL",
+            params![now],
+        )?;
         Ok(())
     }
 }
@@ -106,7 +128,7 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
 impl<'a> SqliteRepository<'a> {
     fn ensure_fanfiction_exists(&self, fic_id: u64) -> Result<(), FicflowError> {
         let count: u64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM fanfiction WHERE id = ?1",
+            "SELECT COUNT(*) FROM fanfiction WHERE id = ?1 AND deleted_at IS NULL",
             params![fic_id],
             |r| r.get(0),
         )?;
@@ -118,7 +140,7 @@ impl<'a> SqliteRepository<'a> {
 
     fn ensure_shelf_exists(&self, shelf_id: u64) -> Result<(), FicflowError> {
         let count: u64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM shelf WHERE id = ?1",
+            "SELECT COUNT(*) FROM shelf WHERE id = ?1 AND deleted_at IS NULL",
             params![shelf_id],
             |r| r.get(0),
         )?;
@@ -152,9 +174,11 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     }
 
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError> {
-        let rows_affected = self
-            .conn
-            .execute("DELETE FROM shelf WHERE id = ?1", params![shelf_id])?;
+        let now = Utc::now().to_rfc3339();
+        let rows_affected = self.conn.execute(
+            "UPDATE shelf SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+            params![shelf_id, now],
+        )?;
         if rows_affected == 0 {
             return Err(FicflowError::ShelfNotFound { shelf_id });
         }
@@ -162,18 +186,20 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     }
 
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, name, created_at FROM shelf ORDER BY name COLLATE NOCASE")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, created_at FROM shelf \
+             WHERE deleted_at IS NULL \
+             ORDER BY name COLLATE NOCASE",
+        )?;
         let rows = stmt.query_map([], row_to_shelf)?;
         let shelves = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(shelves)
     }
 
     fn get_shelf_by_id(&self, shelf_id: u64) -> Result<Shelf, FicflowError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, name, created_at FROM shelf WHERE id = ?1")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, created_at FROM shelf WHERE id = ?1 AND deleted_at IS NULL",
+        )?;
         stmt.query_row(params![shelf_id], row_to_shelf)
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => FicflowError::ShelfNotFound { shelf_id },
@@ -210,7 +236,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         let mut stmt = self.conn.prepare(
             "SELECT f.* FROM fanfiction f \
              JOIN fic_shelf fs ON fs.fic_id = f.id \
-             WHERE fs.shelf_id = ?1 \
+             WHERE fs.shelf_id = ?1 AND f.deleted_at IS NULL \
              ORDER BY f.title",
         )?;
         let rows = stmt.query_map(params![shelf_id], row_to_fanfiction)?;

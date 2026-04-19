@@ -260,6 +260,267 @@ mod tests {
     }
 
     #[test]
+    fn test_soft_delete_revive_resets_fanfiction() -> Result<(), Box<dyn Error>> {
+        use ficflow::domain::fanfiction::{FanfictionOps, ReadingStatus};
+        use ficflow::infrastructure::persistence::repository::SqliteRepository;
+
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        // Given: fic added with user data
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+
+        let (_, note_err, note_status) = run_cli_command(
+            &["note", &fic_id.to_string(), "loved it"],
+            db_path,
+            &base,
+            None,
+        );
+        assertions::then_command_succeeded(note_status, &note_err, None, None);
+
+        let (_, rating_err, rating_status) =
+            run_cli_command(&["rating", &fic_id.to_string(), "5"], db_path, &base, None);
+        assertions::then_command_succeeded(rating_status, &rating_err, None, None);
+
+        // When: soft-delete the fic
+        let (_, del_err, del_status) =
+            run_cli_command(&["delete", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(del_status, &del_err, None, None);
+
+        // Then: get returns a NotFound error
+        let (_, get_err, get_status) =
+            run_cli_command(&["get", &fic_id.to_string()], db_path, &base, None);
+        assert_ne!(
+            get_status, 0,
+            "expected `get` on soft-deleted fic to exit non-zero"
+        );
+        assert!(
+            get_err.contains("not found"),
+            "expected 'not found' in stderr, got: {}",
+            get_err
+        );
+
+        // And: list is empty
+        let (list_out, list_err, list_status) = run_cli_command(&["list"], db_path, &base, None);
+        assertions::then_command_succeeded(list_status, &list_err, None, Some(&list_out));
+        assert!(
+            !list_out.contains("Featherlight"),
+            "soft-deleted fic leaked into list output: {}",
+            list_out
+        );
+
+        // When: re-add revives the fic
+        let (_, readd_err, readd_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(readd_status, &readd_err, None, None);
+
+        // Then: user data is reset to defaults
+        let repo = SqliteRepository::new(&test_db.conn);
+        let revived = repo.get_fanfiction_by_id(fic_id)?;
+        assert_eq!(
+            revived.personal_note, None,
+            "personal_note should be wiped on revive"
+        );
+        assert_eq!(
+            revived.user_rating, None,
+            "user_rating should be wiped on revive"
+        );
+        assert_eq!(revived.read_count, 0, "read_count should be reset to 0");
+        assert!(
+            matches!(revived.reading_status, ReadingStatus::PlanToRead),
+            "reading_status should be reset to PlanToRead, got {:?}",
+            revived.reading_status
+        );
+        assert_eq!(
+            revived.last_chapter_read, None,
+            "last_chapter_read should be reset to None"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_soft_delete_revive_drops_shelf_membership() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        // Given: fic on a shelf
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+        let (_, sc_err, sc_status) =
+            run_cli_command(&["shelf", "create", "Favorites"], db_path, &base, None);
+        assertions::then_command_succeeded(sc_status, &sc_err, None, None);
+        let (_, sa_err, sa_status) = run_cli_command(
+            &["shelf", "add", &fic_id.to_string(), "1"],
+            db_path,
+            &base,
+            None,
+        );
+        assertions::then_command_succeeded(sa_status, &sa_err, None, None);
+
+        // When: delete fic (soft) then re-add (revive)
+        let (_, del_err, del_status) =
+            run_cli_command(&["delete", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(del_status, &del_err, None, None);
+        let (_, readd_err, readd_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(readd_status, &readd_err, None, None);
+
+        // Then: revived fic is NOT on its old shelf (fic_shelf row was hard-deleted on revive)
+        let (show_out, show_err, show_status) =
+            run_cli_command(&["shelf", "show", "1"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            show_status,
+            &show_err,
+            Some(&["No fanfictions"]),
+            Some(&show_out),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_soft_delete_shelf_flow() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, _) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        // Given: a shelf
+        let (_, sc_err, sc_status) =
+            run_cli_command(&["shelf", "create", "Favorites"], db_path, &base, None);
+        assertions::then_command_succeeded(sc_status, &sc_err, None, None);
+
+        // When: soft-delete the shelf
+        let (_, del_err, del_status) =
+            run_cli_command(&["shelf", "delete", "1"], db_path, &base, None);
+        assertions::then_command_succeeded(del_status, &del_err, None, None);
+
+        // Then: list is empty
+        let (list_out, list_err, list_status) =
+            run_cli_command(&["shelf", "list"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            list_status,
+            &list_err,
+            Some(&["No shelves"]),
+            Some(&list_out),
+        );
+
+        // And: show errors
+        let (_, show_err, show_status) =
+            run_cli_command(&["shelf", "show", "1"], db_path, &base, None);
+        assert_ne!(
+            show_status, 0,
+            "expected `shelf show` on soft-deleted shelf to exit non-zero"
+        );
+        assert!(
+            show_err.contains("not found"),
+            "expected 'not found' in stderr, got: {}",
+            show_err
+        );
+
+        // And: re-deleting reports the same ShelfNotFound
+        let (_, del2_err, del2_status) =
+            run_cli_command(&["shelf", "delete", "1"], db_path, &base, None);
+        assert_ne!(
+            del2_status, 0,
+            "expected re-delete of soft-deleted shelf to exit non-zero"
+        );
+        assert!(
+            del2_err.contains("not found"),
+            "expected 'not found' in stderr, got: {}",
+            del2_err
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_to_shelf_rejects_soft_deleted_fic() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        // Given: fic added then soft-deleted; a shelf exists
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+        let (_, del_err, del_status) =
+            run_cli_command(&["delete", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(del_status, &del_err, None, None);
+        let (_, sc_err, sc_status) =
+            run_cli_command(&["shelf", "create", "Favorites"], db_path, &base, None);
+        assertions::then_command_succeeded(sc_status, &sc_err, None, None);
+
+        // When/Then: shelf add rejects the soft-deleted fic
+        let (_, sa_err, sa_status) = run_cli_command(
+            &["shelf", "add", &fic_id.to_string(), "1"],
+            db_path,
+            &base,
+            None,
+        );
+        assert_ne!(
+            sa_status, 0,
+            "expected shelf add to fail for soft-deleted fic"
+        );
+        assert!(
+            sa_err.contains("not found"),
+            "expected 'not found' in stderr, got: {}",
+            sa_err
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_wipe_leaves_shelves_alone() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        // Given: fic added and a shelf exists
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+        let (_, sc_err, sc_status) =
+            run_cli_command(&["shelf", "create", "Favorites"], db_path, &base, None);
+        assertions::then_command_succeeded(sc_status, &sc_err, None, None);
+
+        // When: wipe
+        let (_, wipe_err, wipe_status) = run_cli_command(
+            &["wipe"],
+            db_path,
+            &base,
+            Some(("FICFLOW_NON_INTERACTIVE", "1")),
+        );
+        assertions::then_command_succeeded(wipe_status, &wipe_err, None, None);
+
+        // Then: no fanfictions
+        assertions::then_database_was_wiped(&test_db.conn)?;
+
+        // And: shelves untouched
+        let (list_out, list_err, list_status) =
+            run_cli_command(&["shelf", "list"], db_path, &base, None);
+        assertions::then_command_succeeded(
+            list_status,
+            &list_err,
+            Some(&["Favorites"]),
+            Some(&list_out),
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn test_add_get_wipe_fanfiction() -> Result<(), Box<dyn Error>> {
         // Given
         let test_db = setup_test_db();

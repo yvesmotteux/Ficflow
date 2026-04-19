@@ -8,7 +8,6 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Use a soft delete so that wipe or delete never truly deletes anything
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
 - [ ] Mockups for the GUI, commit assets
 - [ ] Create a feature-complete GUI version compatible with all OS (target for v1)
