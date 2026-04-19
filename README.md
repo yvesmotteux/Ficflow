@@ -8,7 +8,6 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Add the retry mechanism with different URLs
 - [ ] Use a soft delete so that wipe or delete never truly deletes anything
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
 - [ ] Mockups for the GUI, commit assets
@@ -19,6 +18,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 - [ ] Ability to login to access restricted fics
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one
 - [ ] Add a search system based on tags, with an option to filter out fics already catalogued
+- [ ] Add a notification config panel that sends notifications on fic updates (remote scan? implies ficflow open)
 - [ ] Create a mobile phone app (target for v2)
 
 ## Usage

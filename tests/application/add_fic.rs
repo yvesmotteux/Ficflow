@@ -33,11 +33,7 @@ mod tests {
     }
 
     impl FanfictionFetcher for StubFetcher {
-        fn fetch_fanfiction(
-            &self,
-            _fic_id: u64,
-            _base_url: &str,
-        ) -> Result<Fanfiction, FicflowError> {
+        fn fetch_fanfiction(&self, _fic_id: u64) -> Result<Fanfiction, FicflowError> {
             self.call_count.set(self.call_count.get() + 1);
             Ok(clone_fanfiction(&self.fic_to_return))
         }
@@ -80,7 +76,7 @@ mod tests {
         let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When: add is invoked again.
-        let result = add_fanfiction(&fetcher, &fanfiction_ops, fic_id, "http://unused");
+        let result = add_fanfiction(&fetcher, &fanfiction_ops, fic_id);
 
         // Then: we get AlreadyExists and the fetcher was never called.
         match result {
@@ -126,7 +122,7 @@ mod tests {
         let fanfiction_ops = SqliteRepository::new(&conn);
 
         // When: add is invoked.
-        let title = add_fanfiction(&fetcher, &fanfiction_ops, fic_id, "http://unused")?;
+        let title = add_fanfiction(&fetcher, &fanfiction_ops, fic_id)?;
 
         // Then: the fetcher was called and the fic is persisted.
         assert_eq!(title, "A New Fic");

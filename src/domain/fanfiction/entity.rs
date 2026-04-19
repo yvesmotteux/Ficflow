@@ -6,7 +6,7 @@ use super::status::ReadingStatus;
 use crate::error::FicflowError;
 
 pub trait FanfictionFetcher {
-    fn fetch_fanfiction(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, FicflowError>;
+    fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError>;
 }
 
 #[derive(Debug, Serialize, Deserialize)]

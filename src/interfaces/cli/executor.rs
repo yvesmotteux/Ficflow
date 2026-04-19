@@ -14,7 +14,7 @@ use crate::{
         update_read_count::update_read_count, update_status::update_reading_status,
         wipe_db::wipe_database,
     },
-    domain::{fanfiction::FanfictionFetcher, repository::Repository, url_config},
+    domain::{fanfiction::FanfictionFetcher, repository::Repository},
     error::FicflowError,
 };
 
@@ -38,9 +38,7 @@ impl<'a> CliCommandExecutor<'a> {
     fn execute_add(&self, fic_id: u64) -> ExitCode {
         println!("Adding fanfiction with ID: {}", fic_id);
 
-        let base_url = url_config::get_ao3_base_url();
-
-        match add_fanfiction(self.fetcher, self.repository, fic_id, &base_url) {
+        match add_fanfiction(self.fetcher, self.repository, fic_id) {
             Ok(title) => {
                 println!("Successfully added: {}", title);
                 ExitCode::SUCCESS

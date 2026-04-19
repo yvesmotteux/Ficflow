@@ -6,10 +6,9 @@ pub fn check_fic_updates(
     fetcher: &dyn FanfictionFetcher,
     fanfiction_ops: &dyn FanfictionOps,
     fic_id: u64,
-    base_url: &str,
 ) -> Result<(bool, Fanfiction), FicflowError> {
     let mut current_fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
-    let new_fic = fetcher.fetch_fanfiction(fic_id, base_url)?;
+    let new_fic = fetcher.fetch_fanfiction(fic_id)?;
 
     let has_new_chapters = new_fic.chapters_published > current_fic.chapters_published;
 
