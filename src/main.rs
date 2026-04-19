@@ -21,8 +21,5 @@ fn main() -> ExitCode {
     let factory = InterfaceFactory::new(&fetcher, &repository);
     let interface = factory.create_cli_interface();
 
-    match interface.run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(()) => ExitCode::FAILURE,
-    }
+    interface.run()
 }

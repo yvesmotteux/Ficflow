@@ -1,5 +1,6 @@
 use std::env;
 use std::io::{self, Write};
+use std::process::ExitCode;
 
 use super::command::{CliCommand, ShelfCommand};
 use super::views::{details_view, list_view, shelf_list_view};
@@ -18,7 +19,7 @@ use crate::{
 };
 
 pub trait CommandExecutor {
-    fn execute_command(&self, command: CliCommand) -> Result<(), ()>;
+    fn execute_command(&self, command: CliCommand) -> ExitCode;
 }
 
 pub struct CliCommandExecutor<'a> {
@@ -34,7 +35,7 @@ impl<'a> CliCommandExecutor<'a> {
         }
     }
 
-    fn execute_add(&self, fic_id: u64) -> Result<(), ()> {
+    fn execute_add(&self, fic_id: u64) -> ExitCode {
         println!("Adding fanfiction with ID: {}", fic_id);
 
         let base_url = url_config::get_ao3_base_url();
@@ -42,76 +43,76 @@ impl<'a> CliCommandExecutor<'a> {
         match add_fanfiction(self.fetcher, self.repository, fic_id, &base_url) {
             Ok(title) => {
                 println!("Successfully added: {}", title);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("adding fanfiction", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_delete(&self, fic_id: u64) -> Result<(), ()> {
+    fn execute_delete(&self, fic_id: u64) -> ExitCode {
         println!("Deleting fanfiction with ID: {}", fic_id);
         match delete_fic(self.repository, fic_id) {
-            Ok(()) => Ok(()),
+            Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 report_error("deleting fanfiction", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_get(&self, fic_id: u64) -> Result<(), ()> {
+    fn execute_get(&self, fic_id: u64) -> ExitCode {
         println!("Getting fanfiction with ID: {}", fic_id);
         match get_fanfiction(self.repository, fic_id) {
             Ok(fic) => {
                 let details = details_view::render_fanfiction_details(&fic);
                 println!("\n{}", details);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("getting fanfiction", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_list(&self) -> Result<(), ()> {
+    fn execute_list(&self) -> ExitCode {
         println!("Listing all fanfictions");
         match list_fics(self.repository) {
             Ok(fanfictions) => {
                 println!("{}", list_view::render_fanfiction_list(&fanfictions));
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("listing fanfictions", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_wipe(&self) -> Result<(), ()> {
+    fn execute_wipe(&self) -> ExitCode {
         println!("Preparing to wipe database...");
 
         if !confirm_wipe() {
             println!("Operation cancelled.");
-            return Ok(());
+            return ExitCode::SUCCESS;
         }
 
         match wipe_database(self.repository) {
             Ok(()) => {
                 println!("Database wiped successfully.");
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("wiping database", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_update_chapter(&self, fic_id: u64, chapter: u32) -> Result<(), ()> {
+    fn execute_update_chapter(&self, fic_id: u64, chapter: u32) -> ExitCode {
         println!(
             "Updating last read chapter for fanfiction ID: {} to chapter {}",
             fic_id, chapter
@@ -124,16 +125,16 @@ impl<'a> CliCommandExecutor<'a> {
                 );
                 println!("Reading Status: {}", fic.reading_status);
                 println!("Read Count: {}", fic.read_count);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("updating last read chapter", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_update_status(&self, fic_id: u64, status: &str) -> Result<(), ()> {
+    fn execute_update_status(&self, fic_id: u64, status: &str) -> ExitCode {
         println!(
             "Updating reading status for fanfiction ID: {} to '{}'",
             fic_id, status
@@ -144,16 +145,16 @@ impl<'a> CliCommandExecutor<'a> {
                     "Successfully updated \"{}\" (ID: {}) to status: {}.",
                     fic.title, fic_id, fic.reading_status
                 );
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("updating reading status", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_update_read_count(&self, fic_id: u64, read_count: u32) -> Result<(), ()> {
+    fn execute_update_read_count(&self, fic_id: u64, read_count: u32) -> ExitCode {
         println!(
             "Updating read count for fanfiction ID: {} to {}",
             fic_id, read_count
@@ -165,16 +166,16 @@ impl<'a> CliCommandExecutor<'a> {
                     fic.title, fic_id, fic.read_count
                 );
                 println!("Reading Status: {}", fic.reading_status);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("updating read count", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_update_rating(&self, fic_id: u64, rating: &str) -> Result<(), ()> {
+    fn execute_update_rating(&self, fic_id: u64, rating: &str) -> ExitCode {
         println!(
             "Updating user rating for fanfiction ID: {} to '{}'",
             fic_id, rating
@@ -189,97 +190,97 @@ impl<'a> CliCommandExecutor<'a> {
                     "Successfully updated \"{}\" (ID: {}) to rating: {}.",
                     fic.title, fic_id, rating_display
                 );
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("updating user rating", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_shelf_create(&self, name: &str) -> Result<(), ()> {
+    fn execute_shelf_create(&self, name: &str) -> ExitCode {
         match create_shelf(self.repository, name) {
             Ok(shelf) => {
                 println!(
                     "Created shelf \"{}\" (id: {}). Use this id to add, remove, or show fics.",
                     shelf.name, shelf.id
                 );
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("creating shelf", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_shelf_delete(&self, shelf_id: u64) -> Result<(), ()> {
+    fn execute_shelf_delete(&self, shelf_id: u64) -> ExitCode {
         match delete_shelf(self.repository, shelf_id) {
             Ok(()) => {
                 println!("Deleted shelf {}.", shelf_id);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("deleting shelf", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_shelf_list(&self) -> Result<(), ()> {
+    fn execute_shelf_list(&self) -> ExitCode {
         match list_shelves(self.repository) {
             Ok(shelves) => {
                 println!("{}", shelf_list_view::render_shelf_list(&shelves));
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("listing shelves", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_shelf_add(&self, fic_id: u64, shelf_id: u64) -> Result<(), ()> {
+    fn execute_shelf_add(&self, fic_id: u64, shelf_id: u64) -> ExitCode {
         match add_to_shelf(self.repository, fic_id, shelf_id) {
             Ok(()) => {
                 println!("Added fanfiction {} to shelf {}.", fic_id, shelf_id);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("adding fanfiction to shelf", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_shelf_remove(&self, fic_id: u64, shelf_id: u64) -> Result<(), ()> {
+    fn execute_shelf_remove(&self, fic_id: u64, shelf_id: u64) -> ExitCode {
         match remove_from_shelf(self.repository, fic_id, shelf_id) {
             Ok(()) => {
                 println!("Removed fanfiction {} from shelf {}.", fic_id, shelf_id);
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("removing fanfiction from shelf", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_shelf_show(&self, shelf_id: u64) -> Result<(), ()> {
+    fn execute_shelf_show(&self, shelf_id: u64) -> ExitCode {
         match list_shelf_fics(self.repository, shelf_id) {
             Ok(fics) => {
                 println!("{}", list_view::render_fanfiction_list(&fics));
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("listing shelf contents", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
 
-    fn execute_update_note(&self, fic_id: u64, note: Option<&str>) -> Result<(), ()> {
+    fn execute_update_note(&self, fic_id: u64, note: Option<&str>) -> ExitCode {
         // If removing a note, show the current one first so the user sees what's being dropped.
         if note.is_none() {
             if let Ok(fic) = get_fanfiction(self.repository, fic_id) {
@@ -310,11 +311,11 @@ impl<'a> CliCommandExecutor<'a> {
                         );
                     }
                 }
-                Ok(())
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 report_error("updating personal note", &e);
-                Err(())
+                ExitCode::FAILURE
             }
         }
     }
@@ -365,7 +366,7 @@ fn confirm_wipe() -> bool {
 }
 
 impl<'a> CommandExecutor for CliCommandExecutor<'a> {
-    fn execute_command(&self, command: CliCommand) -> Result<(), ()> {
+    fn execute_command(&self, command: CliCommand) -> ExitCode {
         match command {
             CliCommand::Add { fic_id } => self.execute_add(fic_id),
             CliCommand::Delete { fic_id } => self.execute_delete(fic_id),
