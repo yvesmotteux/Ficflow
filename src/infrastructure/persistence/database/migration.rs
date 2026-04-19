@@ -53,6 +53,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
             );
         "#,
         ),
+        M::up(
+            r#"
+            ALTER TABLE fanfiction ADD COLUMN deleted_at TEXT;
+            ALTER TABLE shelf      ADD COLUMN deleted_at TEXT;
+        "#,
+        ),
     ]);
 
     migrations.to_latest(conn)?;
