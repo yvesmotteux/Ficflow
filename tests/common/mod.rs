@@ -290,8 +290,7 @@ pub mod fixtures {
     pub fn when_fetching_fanfiction(
         fetcher: &dyn FanfictionFetcher,
         fic_id: u64,
-        base_url: &str,
     ) -> Result<Fanfiction, Box<dyn Error>> {
-        Ok(fetcher.fetch_fanfiction(fic_id, base_url)?)
+        Ok(fetcher.fetch_fanfiction(fic_id)?)
     }
 }

@@ -7,7 +7,5 @@ mod ao3;
 mod ao3_real;
 #[path = "infrastructure/db.rs"]
 mod db;
-#[path = "infrastructure/retrying_fetcher.rs"]
-mod retrying_fetcher;
 #[path = "infrastructure/url_parser.rs"]
 mod url_parser;

@@ -5,21 +5,24 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use ficflow::{
-        domain::{
-            fanfiction::{
-                ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus, UserRating,
-            },
-            url_config,
+        domain::fanfiction::{
+            ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus,
+            UserRating,
         },
         infrastructure::external::ao3::Ao3Fetcher,
     };
     use std::time::Duration;
 
+    fn test_fetcher(base_url: String) -> Ao3Fetcher {
+        Ao3Fetcher::with_min_gap(vec![base_url], 1, Duration::ZERO, Duration::from_millis(1))
+            .unwrap()
+    }
+
     #[test]
     fn test_fetch_fanfiction_from_mock() {
         // Given
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
+        let fetcher = test_fetcher(mock_server.base_url());
 
         let expected_fanfic = Fanfiction {
             id: 53960491,
@@ -71,31 +74,40 @@ mod tests {
         };
 
         // When
-        let fetched_fanfic =
-            fixtures::when_fetching_fanfiction(&fetcher, fic_id, &mock_server.base_url())
-                .expect("Failed to fetch fanfiction");
+        let fetched_fanfic = fixtures::when_fetching_fanfiction(&fetcher, fic_id)
+            .expect("Failed to fetch fanfiction");
 
         // Then
         assertions::then_fanfiction_was_fetched(&expected_fanfic, &fetched_fanfic, None);
     }
 
     #[test]
-    fn test_config_base_url() {
-        // Given
-        let original_url = url_config::get_ao3_base_url();
-        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
-        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
+    fn falls_back_from_failing_url_to_working_url() {
+        use httpmock::{Method::GET, MockServer};
 
-        // When
-        url_config::set_ao3_base_url(&mock_server.base_url());
-        let result =
-            fixtures::when_fetching_fanfiction(&fetcher, fic_id, &url_config::get_ao3_base_url());
+        // Broken server — returns 500 on any GET request.
+        let broken = MockServer::start();
+        broken.mock(|when, then| {
+            when.method(GET);
+            then.status(500);
+        });
 
-        // Then
-        assert!(result.is_ok());
+        // Working server — serves the real fanfiction fixture.
+        let (working, fic_id) = fixtures::given_mock_ao3_server();
 
-        // Cleanup
-        url_config::set_ao3_base_url(&original_url);
+        let fetcher = Ao3Fetcher::with_min_gap(
+            vec![broken.base_url(), working.base_url()],
+            1,
+            Duration::ZERO,
+            Duration::from_millis(1),
+        )
+        .unwrap();
+
+        let fic = fetcher
+            .fetch_fanfiction(fic_id)
+            .expect("fallback should reach the working server");
+        assert_eq!(fic.id, fic_id);
+        assert_eq!(fic.title, "Featherlight");
     }
 
     #[test]
@@ -109,13 +121,14 @@ mod tests {
         let (conn, _path, _temp_dir) = fixtures::given_test_database();
         let fanfiction_ops = SqliteRepository::new(&conn);
 
-        let fetcher = Ao3Fetcher::with_min_gap(Duration::ZERO).unwrap();
         let (outdated_server, fic_id) = fixtures::given_mock_outdated_ao3_server();
         let (updated_server, _) = fixtures::given_mock_up_to_date_ao3_server();
 
-        let mut outdated_fic =
-            fixtures::when_fetching_fanfiction(&fetcher, fic_id, &outdated_server.base_url())
-                .expect("Failed to fetch outdated fanfiction");
+        let outdated_fetcher = test_fetcher(outdated_server.base_url());
+        let updated_fetcher = test_fetcher(updated_server.base_url());
+
+        let mut outdated_fic = fixtures::when_fetching_fanfiction(&outdated_fetcher, fic_id)
+            .expect("Failed to fetch outdated fanfiction");
         assert_eq!(
             outdated_fic.chapters_published, 18,
             "Outdated fic should have 18 chapters"
@@ -132,13 +145,9 @@ mod tests {
             .expect("Failed to save outdated fic");
 
         // When
-        let (has_new_chapters, updated_fic) = check_fic_updates(
-            &fetcher,
-            &fanfiction_ops,
-            fic_id,
-            &updated_server.base_url(),
-        )
-        .expect("Failed to check for updates");
+        let (has_new_chapters, updated_fic) =
+            check_fic_updates(&updated_fetcher, &fanfiction_ops, fic_id)
+                .expect("Failed to check for updates");
 
         // Then
         assert!(has_new_chapters, "Should detect new chapters");
@@ -187,13 +196,8 @@ mod tests {
         assert_eq!(stored_fic.read_count, 3, "Read count should be preserved");
 
         // Verify no changes reported when checking again
-        let (has_newer_chapters, _) = check_fic_updates(
-            &fetcher,
-            &fanfiction_ops,
-            fic_id,
-            &updated_server.base_url(),
-        )
-        .expect("Failed to check for updates second time");
+        let (has_newer_chapters, _) = check_fic_updates(&updated_fetcher, &fanfiction_ops, fic_id)
+            .expect("Failed to check for updates second time");
 
         assert!(
             !has_newer_chapters,
