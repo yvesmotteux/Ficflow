@@ -38,6 +38,14 @@ status <fic_id> <status> Update reading status (inprogress, read, plantoread, pa
 reads <fic_id> <count>  Update read count
 rating <fic_id> <rating> Set rating (1-5, one-five, or none/clear to remove)
 note <fic_id> [text]    Add/update/remove personal note (omit text to remove)
+
+# Shelves (custom groupings of fanfictions)
+shelf create <name>               Create a new shelf
+shelf delete <shelf_id>           Delete a shelf
+shelf list                        List all shelves
+shelf add <fic_id> <shelf_id>     Add a fanfiction to a shelf
+shelf remove <fic_id> <shelf_id>  Remove a fanfiction from a shelf
+shelf show <shelf_id>             List the fanfictions in a shelf
 ```
 
 For more details, run `ficflow` with `--help`.
