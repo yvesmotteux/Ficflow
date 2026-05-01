@@ -1,4 +1,5 @@
 mod app;
+mod views;
 
 use std::process::ExitCode;
 
@@ -20,7 +21,13 @@ pub fn run_gui(_fetcher: &dyn FanfictionFetcher, _repository: &dyn Repository) -
     let result = eframe::run_native(
         "Ficflow",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app::FicflowApp::default()))),
+        Box::new(|cc| {
+            let app = app::FicflowApp::new(cc).map_err(|e| {
+                log::error!("Failed to initialise GUI: {}", e);
+                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            Ok(Box::new(app))
+        }),
     );
 
     match result {
