@@ -4,7 +4,7 @@ use ficflow::infrastructure::external::ao3::fetcher::{
     ALT_AO3_URL, PRIMARY_AO3_URL, PROXY_AO3_URL,
 };
 use ficflow::infrastructure::{establish_connection, Ao3Fetcher, SqliteRepository};
-use ficflow::interfaces::interface::InterfaceFactory;
+use ficflow::interfaces::interface::{InterfaceFactory, UserInterface};
 
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -27,7 +27,17 @@ fn main() -> ExitCode {
     let repository = SqliteRepository::new(&conn);
 
     let factory = InterfaceFactory::new(&fetcher, &repository);
-    let interface = factory.create_cli_interface();
+    let interface: Box<dyn UserInterface> = if bare_invocation() {
+        factory.create_gui_interface()
+    } else {
+        factory.create_cli_interface()
+    };
 
     interface.run()
+}
+
+/// True when the binary was invoked with no positional arguments — the user
+/// just typed `ficflow` and wants the GUI. Any subcommand routes to the CLI.
+fn bare_invocation() -> bool {
+    std::env::args().len() <= 1
 }

@@ -26,6 +26,9 @@ log = "0.4"
 env_logger = "0.11"
 thiserror = "2.0.18"
 
+eframe = { version = "=0.29", default-features = false, features = ["wgpu", "wayland", "x11"] }
+egui = "=0.29"
+
 [dev-dependencies]
 httpmock = "0.8.3"
 assert_cmd = "2.2.1"
