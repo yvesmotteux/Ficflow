@@ -1,5 +1,6 @@
 mod app;
 mod selection;
+mod tasks;
 mod view;
 mod views;
 mod widgets;

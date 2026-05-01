@@ -11,17 +11,21 @@ use crate::domain::fanfiction::Fanfiction;
 use crate::domain::shelf::Shelf;
 use crate::error::FicflowError;
 use crate::infrastructure::config::{AppConfig, SortPref};
+use crate::infrastructure::external::ao3::fetcher::{ALT_AO3_URL, PRIMARY_AO3_URL, PROXY_AO3_URL};
 use crate::infrastructure::persistence::database::connection::establish_connection;
 use crate::infrastructure::SqliteRepository;
 
 use super::selection::Selection;
+use super::tasks::TaskExecutor;
 use super::view::View;
+use super::views::add_fic_dialog::{self, AddFicState};
 use super::views::bulk_modals;
 use super::views::details_panel::DetailsState;
 use super::views::shelf_modals::{self, CreateState};
+use super::views::tasks_view;
 use super::views::{
     column_picker, details_panel, library_view, selection_bar, sidebar, LibraryViewState,
-    SelectionBarState, SidebarState,
+    SelectionBarState, SidebarState, TaskFilter, TasksViewState,
 };
 
 pub struct FicflowApp {
@@ -45,6 +49,9 @@ pub struct FicflowApp {
     create_shelf_modal: CreateState,
     delete_shelf_pending: Option<u64>,
     delete_fics_pending: Option<Vec<u64>>,
+    add_fic_modal: AddFicState,
+    task_executor: TaskExecutor,
+    task_filter: TaskFilter,
     toasts: Toasts,
 }
 
@@ -70,6 +77,8 @@ impl FicflowApp {
         let shelves = load_shelves(&connection);
         let config = AppConfig::load();
         let sort = config.default_sort;
+        let (urls, max_cycles) = ao3_config_from_env();
+        let task_executor = TaskExecutor::spawn(urls, max_cycles);
         Ok(Self {
             connection,
             fics,
@@ -86,6 +95,9 @@ impl FicflowApp {
             create_shelf_modal: CreateState::new(),
             delete_shelf_pending: None,
             delete_fics_pending: None,
+            add_fic_modal: AddFicState::new(),
+            task_executor,
+            task_filter: TaskFilter::default(),
             toasts: Toasts::default(),
         })
     }
@@ -180,6 +192,23 @@ impl FicflowApp {
     }
 }
 
+/// AO3 URL list + retry-cycle count, identical to the CLI's logic in main.rs.
+/// `AO3_BASE_URL` pins to a single URL with extra cycles (used by integration
+/// tests); otherwise we round-robin the primary, alt, and proxy URLs.
+fn ao3_config_from_env() -> (Vec<String>, u32) {
+    match std::env::var("AO3_BASE_URL") {
+        Ok(url) => (vec![url], 3),
+        Err(_) => (
+            vec![
+                PRIMARY_AO3_URL.to_string(),
+                ALT_AO3_URL.to_string(),
+                PROXY_AO3_URL.to_string(),
+            ],
+            2,
+        ),
+    }
+}
+
 fn load_fics(connection: &Connection) -> Vec<Fanfiction> {
     let repo = SqliteRepository::new(connection);
     match list_fics::list_fics(&repo) {
@@ -215,6 +244,9 @@ impl eframe::App for FicflowApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Manage Columns").clicked() {
                         self.show_column_picker = !self.show_column_picker;
+                    }
+                    if ui.button("+ Add Fic").clicked() {
+                        self.add_fic_modal.request_open();
                     }
                 });
             });
@@ -277,9 +309,11 @@ impl eframe::App for FicflowApp {
                 );
             });
 
-        // Selection bar (bottom of the central area, only when multi-selecting).
+        // Selection bar (bottom of the central area). Shown whenever there's
+        // an active selection — both single and multi — so the user can act
+        // on the selection without forcing a multi-select first.
         let mut bulk_shelves_changed = false;
-        if matches!(self.selection, Selection::Multi(_)) && self.current_view.shows_library() {
+        if !matches!(self.selection, Selection::None) && self.current_view.shows_library() {
             egui::TopBottomPanel::bottom("ficflow-selection-bar")
                 .resizable(false)
                 .show(ctx, |ui| {
@@ -314,6 +348,14 @@ impl eframe::App for FicflowApp {
                         view: &self.current_view,
                         shelf_members: &self.shelf_members,
                         last_clicked_id: &mut self.last_clicked_id,
+                    },
+                );
+            } else if matches!(self.current_view, View::Tasks) {
+                tasks_view::draw(
+                    ui,
+                    TasksViewState {
+                        executor: &self.task_executor,
+                        filter: &mut self.task_filter,
                     },
                 );
             } else {
@@ -353,6 +395,34 @@ impl eframe::App for FicflowApp {
         match bulk_modals::draw_delete_confirm(ctx, &mut self.delete_fics_pending, &self.fics) {
             bulk_modals::DeleteOutcome::Confirm(ids) => self.handle_bulk_delete(&ids),
             bulk_modals::DeleteOutcome::Cancel | bulk_modals::DeleteOutcome::None => {}
+        }
+        match add_fic_dialog::draw(ctx, &mut self.add_fic_modal) {
+            add_fic_dialog::Outcome::Submit(input) => {
+                self.task_executor.enqueue_add(input);
+                // Stay on the user's current view — the toast on success
+                // (or "Failed" tab in Tasks) tells them the result; jumping
+                // away is jarring.
+            }
+            add_fic_dialog::Outcome::Cancel | add_fic_dialog::Outcome::None => {}
+        }
+
+        // Pull in newly-added fics from the worker and toast each completion.
+        let completions = self.task_executor.take_completions();
+        if !completions.is_empty() {
+            for title in &completions {
+                self.toasts
+                    .success(format!("Added \u{201C}{}\u{201D}", title));
+            }
+            self.fics = load_fics(&self.connection);
+            if matches!(self.current_view, View::Shelf(_)) {
+                self.refresh_shelf_members();
+            }
+            self.refresh_selection_shelf_ids();
+        }
+        // Keep painting while a task is running so the spinner animates and
+        // task age strings tick over without requiring user input.
+        if self.task_executor.has_running() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
 
         if sort_changed {
