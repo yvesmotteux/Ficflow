@@ -22,6 +22,10 @@ pub struct LibraryViewState<'a> {
     pub selection: &'a mut Selection,
     pub view: &'a View,
     pub shelf_members: &'a HashSet<u64>,
+    /// Anchor row id for shift-click range selection. Updated on plain and
+    /// ctrl-clicks; preserved across shift-click extensions so successive
+    /// shift-clicks all anchor to the same row.
+    pub last_clicked_id: &'a mut Option<u64>,
 }
 
 /// Returns true if `sort` was mutated by a header click — caller persists.
@@ -34,13 +38,21 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
         selection,
         view,
         shelf_members,
+        last_clicked_id,
     } = state;
 
     draw_search_bar(ui, search_query);
     ui.add_space(6.0);
 
     let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort, view, shelf_members);
-    draw_table(ui, &visible, sort, visible_columns, selection)
+    draw_table(
+        ui,
+        &visible,
+        sort,
+        visible_columns,
+        selection,
+        last_clicked_id,
+    )
 }
 
 fn draw_search_bar(ui: &mut Ui, query: &mut String) {
@@ -57,6 +69,7 @@ fn draw_table(
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
     selection: &mut Selection,
+    last_clicked_id: &mut Option<u64>,
 ) -> bool {
     if visible_columns.is_empty() {
         ui.label(
@@ -96,16 +109,76 @@ fn draw_table(
         .body(|body| {
             body.rows(ROW_HEIGHT, fics.len(), |mut row| {
                 let fic = fics[row.index()];
+                let row_idx = row.index();
                 row.set_selected(selection.contains(fic.id));
                 for col in visible_columns {
                     row.col(|ui| render_cell(ui, fic, *col));
                 }
-                if row.response().clicked() {
-                    *selection = Selection::Single(fic.id);
+                let resp = row.response();
+                if resp.clicked() {
+                    let mods = resp.ctx.input(|i| i.modifiers);
+                    handle_row_click(selection, last_clicked_id, fics, row_idx, mods);
                 }
             });
         });
     sort_changed
+}
+
+/// Resolve a row click into a new selection. `mods` come from the click
+/// itself so we honour ctrl/shift correctly across platforms (egui's
+/// `Modifiers::command` already maps to Cmd on macOS and Ctrl elsewhere).
+fn handle_row_click(
+    selection: &mut Selection,
+    last_clicked_id: &mut Option<u64>,
+    visible: &[&Fanfiction],
+    clicked_idx: usize,
+    mods: egui::Modifiers,
+) {
+    let clicked_id = visible[clicked_idx].id;
+
+    if mods.shift {
+        // Range select between anchor and clicked row.
+        let anchor_id = last_clicked_id.unwrap_or(clicked_id);
+        let anchor_idx = visible
+            .iter()
+            .position(|f| f.id == anchor_id)
+            .unwrap_or(clicked_idx);
+        let (start, end) = if anchor_idx <= clicked_idx {
+            (anchor_idx, clicked_idx)
+        } else {
+            (clicked_idx, anchor_idx)
+        };
+        let ids: Vec<u64> = visible[start..=end].iter().map(|f| f.id).collect();
+        *selection = match ids.len() {
+            1 => Selection::Single(ids[0]),
+            _ => Selection::Multi(ids),
+        };
+        // Anchor stays put across consecutive shift-clicks.
+    } else if mods.command {
+        let mut current = selection_to_vec(selection);
+        if let Some(pos) = current.iter().position(|&id| id == clicked_id) {
+            current.remove(pos);
+        } else {
+            current.push(clicked_id);
+        }
+        *selection = match current.len() {
+            0 => Selection::None,
+            1 => Selection::Single(current[0]),
+            _ => Selection::Multi(current),
+        };
+        *last_clicked_id = Some(clicked_id);
+    } else {
+        *selection = Selection::Single(clicked_id);
+        *last_clicked_id = Some(clicked_id);
+    }
+}
+
+fn selection_to_vec(selection: &Selection) -> Vec<u64> {
+    match selection {
+        Selection::None => Vec::new(),
+        Selection::Single(id) => vec![*id],
+        Selection::Multi(ids) => ids.clone(),
+    }
 }
 
 fn column_spec(col: ColumnKey, is_last: bool) -> Column {

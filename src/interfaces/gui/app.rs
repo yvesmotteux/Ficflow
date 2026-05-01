@@ -4,7 +4,7 @@ use egui_notify::Toasts;
 use rusqlite::Connection;
 
 use crate::application::{
-    create_shelf::create_shelf, delete_shelf, list_fics, list_shelf_fics, list_shelves,
+    create_shelf::create_shelf, delete_fic, delete_shelf, list_fics, list_shelf_fics, list_shelves,
     list_shelves_for_fic,
 };
 use crate::domain::fanfiction::Fanfiction;
@@ -16,10 +16,12 @@ use crate::infrastructure::SqliteRepository;
 
 use super::selection::Selection;
 use super::view::View;
+use super::views::bulk_modals;
 use super::views::details_panel::DetailsState;
 use super::views::shelf_modals::{self, CreateState};
 use super::views::{
-    column_picker, details_panel, library_view, sidebar, LibraryViewState, SidebarState,
+    column_picker, details_panel, library_view, selection_bar, sidebar, LibraryViewState,
+    SelectionBarState, SidebarState,
 };
 
 pub struct FicflowApp {
@@ -37,9 +39,12 @@ pub struct FicflowApp {
     search_query: String,
     show_column_picker: bool,
     selection: Selection,
+    /// Anchor row id for shift-click range selection in the library table.
+    last_clicked_id: Option<u64>,
     current_view: View,
     create_shelf_modal: CreateState,
     delete_shelf_pending: Option<u64>,
+    delete_fics_pending: Option<Vec<u64>>,
     toasts: Toasts,
 }
 
@@ -76,9 +81,11 @@ impl FicflowApp {
             search_query: String::new(),
             show_column_picker: false,
             selection: Selection::default(),
+            last_clicked_id: None,
             current_view: View::default(),
             create_shelf_modal: CreateState::new(),
             delete_shelf_pending: None,
+            delete_fics_pending: None,
             toasts: Toasts::default(),
         })
     }
@@ -211,6 +218,27 @@ impl eframe::App for FicflowApp {
                 );
             });
 
+        // Selection bar (bottom of the central area, only when multi-selecting).
+        let mut bulk_shelves_changed = false;
+        if matches!(self.selection, Selection::Multi(_)) && self.current_view.shows_library() {
+            egui::TopBottomPanel::bottom("ficflow-selection-bar")
+                .resizable(false)
+                .show(ctx, |ui| {
+                    bulk_shelves_changed = selection_bar::draw(
+                        ui,
+                        SelectionBarState {
+                            selection: &mut self.selection,
+                            fics: &mut self.fics,
+                            conn: &self.connection,
+                            toasts: &mut self.toasts,
+                            current_view: &self.current_view,
+                            all_shelves: &self.shelves,
+                            delete_pending: &mut self.delete_fics_pending,
+                        },
+                    );
+                });
+        }
+
         // Center.
         let mut sort_changed = false;
         let prev_selection = self.selection.clone();
@@ -226,6 +254,7 @@ impl eframe::App for FicflowApp {
                         selection: &mut self.selection,
                         view: &self.current_view,
                         shelf_members: &self.shelf_members,
+                        last_clicked_id: &mut self.last_clicked_id,
                     },
                 );
             } else {
@@ -238,7 +267,7 @@ impl eframe::App for FicflowApp {
         if self.selection != prev_selection {
             self.refresh_selection_shelf_ids();
         }
-        if shelves_changed {
+        if shelves_changed || bulk_shelves_changed {
             // Refresh fic-shelf link cache, plus the shelf-view membership
             // cache if the affected shelf happens to be the active view.
             self.refresh_selection_shelf_ids();
@@ -261,6 +290,10 @@ impl eframe::App for FicflowApp {
         {
             shelf_modals::DeleteOutcome::Confirm(id) => self.handle_delete_shelf(id),
             shelf_modals::DeleteOutcome::Cancel | shelf_modals::DeleteOutcome::None => {}
+        }
+        match bulk_modals::draw_delete_confirm(ctx, &mut self.delete_fics_pending, &self.fics) {
+            bulk_modals::DeleteOutcome::Confirm(ids) => self.handle_bulk_delete(&ids),
+            bulk_modals::DeleteOutcome::Cancel | bulk_modals::DeleteOutcome::None => {}
         }
 
         if sort_changed {
@@ -291,6 +324,33 @@ impl FicflowApp {
             Err(err) => {
                 self.toasts.error(format!("Couldn't create shelf: {}", err));
             }
+        }
+    }
+
+    fn handle_bulk_delete(&mut self, ids: &[u64]) {
+        let repo = SqliteRepository::new(&self.connection);
+        let mut errors = 0usize;
+        for id in ids {
+            if delete_fic::delete_fic(&repo, *id).is_err() {
+                errors += 1;
+            } else {
+                self.fics.retain(|f| f.id != *id);
+            }
+        }
+        if errors == 0 {
+            self.toasts
+                .success(format!("Deleted {} fanfictions", ids.len()));
+        } else {
+            self.toasts
+                .error(format!("{}/{} deletions failed", errors, ids.len()));
+        }
+        // Clear selection now that the underlying fics are gone, and refresh
+        // shelf caches because deletes cascade through `fic_shelf`.
+        self.selection = Selection::None;
+        self.last_clicked_id = None;
+        self.refresh_selection_shelf_ids();
+        if matches!(self.current_view, View::Shelf(_)) {
+            self.refresh_shelf_members();
         }
     }
 
