@@ -197,7 +197,7 @@ fn format_last_chapter(fic: &Fanfiction) -> String {
 
 fn format_rating(fic: &Fanfiction) -> String {
     match fic.user_rating {
-        Some(r) => "*".repeat(r as usize),
+        Some(r) => "\u{2605}".repeat(r as usize),
         None => "-".to_string(),
     }
 }

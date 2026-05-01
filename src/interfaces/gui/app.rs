@@ -1,4 +1,5 @@
 use egui::{RichText, Ui};
+use egui_notify::Toasts;
 use rusqlite::Connection;
 
 use crate::application::list_fics;
@@ -11,10 +12,6 @@ use super::selection::Selection;
 use super::views::{column_picker, details_panel, library_view, LibraryViewState};
 
 pub struct FicflowApp {
-    /// Held by the GUI for the lifetime of the app: needed by later phases
-    /// (status/chapter/note edits) that write via
-    /// `SqliteRepository::new(&self.connection)`.
-    #[allow(dead_code)]
     connection: Connection,
     fics: Vec<Fanfiction>,
     config: AppConfig,
@@ -22,6 +19,7 @@ pub struct FicflowApp {
     search_query: String,
     show_column_picker: bool,
     selection: Selection,
+    toasts: Toasts,
 }
 
 #[derive(Debug)]
@@ -53,6 +51,7 @@ impl FicflowApp {
             search_query: String::new(),
             show_column_picker: false,
             selection: Selection::default(),
+            toasts: Toasts::default(),
         })
     }
 
@@ -102,7 +101,13 @@ impl eframe::App for FicflowApp {
             .default_width(260.0)
             .resizable(true)
             .show(ctx, |ui| {
-                details_panel::draw(ui, &self.selection, &self.fics);
+                details_panel::draw(
+                    ui,
+                    &self.selection,
+                    &mut self.fics,
+                    &self.connection,
+                    &mut self.toasts,
+                );
             });
 
         let mut sort_changed = false;
@@ -139,6 +144,9 @@ impl eframe::App for FicflowApp {
         if sort_changed || columns_changed {
             self.save_config();
         }
+
+        // Toasts must be shown after the rest of the UI so they overlay it.
+        self.toasts.show(ctx);
     }
 }
 

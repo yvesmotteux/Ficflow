@@ -1,6 +1,7 @@
 mod app;
 mod selection;
 mod views;
+mod widgets;
 
 use std::process::ExitCode;
 
