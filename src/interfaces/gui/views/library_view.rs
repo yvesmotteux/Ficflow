@@ -3,10 +3,13 @@ use std::cmp::Ordering;
 use egui::{Align, Layout, RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
+use std::collections::HashSet;
+
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus};
 use crate::infrastructure::config::{ColumnKey, SortDirection, SortPref};
 
 use super::super::selection::Selection;
+use super::super::view::View;
 
 const HEADER_HEIGHT: f32 = 22.0;
 const ROW_HEIGHT: f32 = 22.0;
@@ -17,6 +20,8 @@ pub struct LibraryViewState<'a> {
     pub search_query: &'a mut String,
     pub visible_columns: &'a [ColumnKey],
     pub selection: &'a mut Selection,
+    pub view: &'a View,
+    pub shelf_members: &'a HashSet<u64>,
 }
 
 /// Returns true if `sort` was mutated by a header click — caller persists.
@@ -27,12 +32,14 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
         search_query,
         visible_columns,
         selection,
+        view,
+        shelf_members,
     } = state;
 
     draw_search_bar(ui, search_query);
     ui.add_space(6.0);
 
-    let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort);
+    let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort, view, shelf_members);
     draw_table(ui, &visible, sort, visible_columns, selection)
 }
 
@@ -202,8 +209,18 @@ fn format_rating(fic: &Fanfiction) -> String {
     }
 }
 
-fn filter_and_sort<'a>(fics: &'a [Fanfiction], query: &str, sort: SortPref) -> Vec<&'a Fanfiction> {
-    let mut visible: Vec<&Fanfiction> = fics.iter().filter(|f| matches_search(f, query)).collect();
+fn filter_and_sort<'a>(
+    fics: &'a [Fanfiction],
+    query: &str,
+    sort: SortPref,
+    view: &View,
+    shelf_members: &HashSet<u64>,
+) -> Vec<&'a Fanfiction> {
+    let mut visible: Vec<&Fanfiction> = fics
+        .iter()
+        .filter(|f| view.includes(f, shelf_members))
+        .filter(|f| matches_search(f, query))
+        .collect();
     visible.sort_by(|a, b| {
         let ord = compare(a, b, sort.column);
         match sort.direction {

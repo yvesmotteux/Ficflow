@@ -1,30 +1,46 @@
-use egui::{RichText, Ui};
+use std::collections::HashSet;
+
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
-use crate::application::list_fics;
+use crate::application::{
+    create_shelf::create_shelf, delete_shelf, list_fics, list_shelf_fics, list_shelves,
+};
 use crate::domain::fanfiction::Fanfiction;
+use crate::domain::shelf::Shelf;
+use crate::error::FicflowError;
 use crate::infrastructure::config::{AppConfig, SortPref};
 use crate::infrastructure::persistence::database::connection::establish_connection;
 use crate::infrastructure::SqliteRepository;
 
 use super::selection::Selection;
-use super::views::{column_picker, details_panel, library_view, LibraryViewState};
+use super::view::View;
+use super::views::shelf_modals::{self, CreateState};
+use super::views::{
+    column_picker, details_panel, library_view, sidebar, LibraryViewState, SidebarState,
+};
 
 pub struct FicflowApp {
     connection: Connection,
     fics: Vec<Fanfiction>,
+    shelves: Vec<Shelf>,
+    /// Cached fic-id membership for the currently-selected shelf view. Empty
+    /// (and unused) when `current_view` is anything other than `View::Shelf(_)`.
+    shelf_members: HashSet<u64>,
     config: AppConfig,
     sort: SortPref,
     search_query: String,
     show_column_picker: bool,
     selection: Selection,
+    current_view: View,
+    create_shelf_modal: CreateState,
+    delete_shelf_pending: Option<u64>,
     toasts: Toasts,
 }
 
 #[derive(Debug)]
 pub enum InitError {
-    Database(crate::error::FicflowError),
+    Database(FicflowError),
 }
 
 impl std::fmt::Display for InitError {
@@ -41,16 +57,22 @@ impl FicflowApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Result<Self, InitError> {
         let connection = establish_connection().map_err(InitError::Database)?;
         let fics = load_fics(&connection);
+        let shelves = load_shelves(&connection);
         let config = AppConfig::load();
         let sort = config.default_sort;
         Ok(Self {
             connection,
             fics,
+            shelves,
+            shelf_members: HashSet::new(),
             config,
             sort,
             search_query: String::new(),
             show_column_picker: false,
             selection: Selection::default(),
+            current_view: View::default(),
+            create_shelf_modal: CreateState::new(),
+            delete_shelf_pending: None,
             toasts: Toasts::default(),
         })
     }
@@ -59,6 +81,23 @@ impl FicflowApp {
         if let Err(err) = self.config.save() {
             log::warn!("Failed to save config: {}", err);
         }
+    }
+
+    fn refresh_shelf_members(&mut self) {
+        self.shelf_members = match self.current_view {
+            View::Shelf(id) => {
+                let repo = SqliteRepository::new(&self.connection);
+                match list_shelf_fics::list_shelf_fics(&repo, id) {
+                    Ok(fics) => fics.into_iter().map(|f| f.id).collect(),
+                    Err(err) => {
+                        self.toasts
+                            .error(format!("Couldn't load shelf contents: {}", err));
+                        HashSet::new()
+                    }
+                }
+            }
+            _ => HashSet::new(),
+        };
     }
 }
 
@@ -73,14 +112,27 @@ fn load_fics(connection: &Connection) -> Vec<Fanfiction> {
     }
 }
 
+fn load_shelves(connection: &Connection) -> Vec<Shelf> {
+    let repo = SqliteRepository::new(connection);
+    match list_shelves::list_shelves(&repo) {
+        Ok(shelves) => shelves,
+        Err(err) => {
+            log::error!("Failed to load shelves: {}", err);
+            Vec::new()
+        }
+    }
+}
+
 impl eframe::App for FicflowApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Header — title varies with the current view.
+        let header_title = self.current_view.header_title(&self.shelves);
         egui::TopBottomPanel::top("ficflow-header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading("FICFLOW");
                 ui.separator();
-                ui.label("ALL FICTIONS");
+                ui.label(header_title);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Manage Columns").clicked() {
                         self.show_column_picker = !self.show_column_picker;
@@ -90,13 +142,34 @@ impl eframe::App for FicflowApp {
             ui.add_space(4.0);
         });
 
+        // Sidebar.
+        let mut create_request = false;
+        let prev_view = self.current_view.clone();
         egui::SidePanel::left("ficflow-sidebar")
             .default_width(160.0)
             .resizable(true)
             .show(ctx, |ui| {
-                draw_sidebar(ui);
+                sidebar::draw(
+                    ui,
+                    SidebarState {
+                        current_view: &mut self.current_view,
+                        shelves: &self.shelves,
+                        create_shelf_request: &mut create_request,
+                        delete_shelf_request: &mut self.delete_shelf_pending,
+                    },
+                );
             });
+        if create_request {
+            self.create_shelf_modal.request_open();
+        }
+        // If the user just switched to/from a shelf view, refresh the cache.
+        if matches!(self.current_view, View::Shelf(_)) || matches!(prev_view, View::Shelf(_)) {
+            if self.current_view != prev_view {
+                self.refresh_shelf_members();
+            }
+        }
 
+        // Details panel (right). Only meaningful for library views.
         egui::SidePanel::right("ficflow-details")
             .default_width(260.0)
             .resizable(true)
@@ -110,60 +183,101 @@ impl eframe::App for FicflowApp {
                 );
             });
 
+        // Center.
         let mut sort_changed = false;
         let central = egui::CentralPanel::default().show(ctx, |ui| {
-            sort_changed = library_view::draw(
-                ui,
-                LibraryViewState {
-                    fics: &self.fics,
-                    sort: &mut self.sort,
-                    search_query: &mut self.search_query,
-                    visible_columns: &self.config.visible_columns,
-                    selection: &mut self.selection,
-                },
-            );
+            if self.current_view.shows_library() {
+                sort_changed = library_view::draw(
+                    ui,
+                    LibraryViewState {
+                        fics: &self.fics,
+                        sort: &mut self.sort,
+                        search_query: &mut self.search_query,
+                        visible_columns: &self.config.visible_columns,
+                        selection: &mut self.selection,
+                        view: &self.current_view,
+                        shelf_members: &self.shelf_members,
+                    },
+                );
+            } else {
+                draw_stub_view(ui, &self.current_view);
+            }
         });
-        // Click on dead space inside the central panel (below or beside the
-        // table) clears the selection. Egui only fires `clicked()` here when
-        // no inner widget consumed the click.
-        if central.response.clicked() {
+        if central.response.clicked() && self.current_view.shows_library() {
             self.selection = Selection::None;
         }
 
-        let columns_changed = column_picker::show(
+        // Modals (run after the rest of the UI so they overlay correctly).
+        column_picker::show(
             ctx,
             &mut self.show_column_picker,
             &mut self.config.visible_columns,
         );
+        match shelf_modals::draw_create(ctx, &mut self.create_shelf_modal) {
+            shelf_modals::Outcome::Submit(name) => self.handle_create_shelf(name),
+            shelf_modals::Outcome::Cancel | shelf_modals::Outcome::None => {}
+        }
+        match shelf_modals::draw_delete_confirm(ctx, &mut self.delete_shelf_pending, &self.shelves)
+        {
+            shelf_modals::DeleteOutcome::Confirm(id) => self.handle_delete_shelf(id),
+            shelf_modals::DeleteOutcome::Cancel | shelf_modals::DeleteOutcome::None => {}
+        }
 
-        // Persist preference changes immediately. TOML write is small and
-        // robust against crashes that would skip an `on_exit` save.
         if sort_changed {
             self.config.default_sort = self.sort;
+            self.save_config();
         }
-        if sort_changed || columns_changed {
+        // visible_columns may have changed via the picker; save unconditionally
+        // when picker output isn't tracked separately. (Picker writes to the
+        // same Vec we hand it; cheap to over-save here, but kept off the hot
+        // path by only saving when the picker is open.)
+        if self.show_column_picker {
             self.save_config();
         }
 
-        // Toasts must be shown after the rest of the UI so they overlay it.
         self.toasts.show(ctx);
     }
 }
 
-fn draw_sidebar(ui: &mut Ui) {
-    ui.add_space(4.0);
-    ui.label(RichText::new("LIBRARY").weak());
-    for label in [
-        "All Fanfictions",
-        "In Progress",
-        "Read",
-        "Plan to Read",
-        "Paused",
-        "Abandoned",
-    ] {
-        let _ = ui.selectable_label(false, label);
+impl FicflowApp {
+    fn handle_create_shelf(&mut self, name: String) {
+        let repo = SqliteRepository::new(&self.connection);
+        match create_shelf(&repo, &name) {
+            Ok(shelf) => {
+                self.toasts
+                    .success(format!("Created shelf \u{201C}{}\u{201D}", shelf.name));
+                self.shelves = load_shelves(&self.connection);
+            }
+            Err(err) => {
+                self.toasts.error(format!("Couldn't create shelf: {}", err));
+            }
+        }
     }
+
+    fn handle_delete_shelf(&mut self, shelf_id: u64) {
+        let repo = SqliteRepository::new(&self.connection);
+        match delete_shelf::delete_shelf(&repo, shelf_id) {
+            Ok(()) => {
+                self.toasts.success("Shelf deleted");
+                if self.current_view == View::Shelf(shelf_id) {
+                    self.current_view = View::AllFics;
+                    self.shelf_members.clear();
+                }
+                self.shelves = load_shelves(&self.connection);
+            }
+            Err(err) => {
+                self.toasts.error(format!("Couldn't delete shelf: {}", err));
+            }
+        }
+    }
+}
+
+fn draw_stub_view(ui: &mut egui::Ui, view: &View) {
     ui.add_space(8.0);
-    ui.label(RichText::new("SHELVES").weak());
-    ui.label(RichText::new("(none yet)").italics().weak());
+    let message = match view {
+        View::Tasks => "Background tasks land in Phase 9.",
+        View::Settings => "Settings panel lands in Phase 10.",
+        _ => "",
+    };
+    ui.label(egui::RichText::new(message).italics().weak());
 }
