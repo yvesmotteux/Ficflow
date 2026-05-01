@@ -1,4 +1,5 @@
 mod app;
+mod selection;
 mod views;
 
 use std::process::ExitCode;

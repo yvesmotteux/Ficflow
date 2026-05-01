@@ -7,12 +7,13 @@ use crate::infrastructure::config::{AppConfig, SortPref};
 use crate::infrastructure::persistence::database::connection::establish_connection;
 use crate::infrastructure::SqliteRepository;
 
-use super::views::{column_picker, library_view, LibraryViewState};
+use super::selection::Selection;
+use super::views::{column_picker, details_panel, library_view, LibraryViewState};
 
 pub struct FicflowApp {
     /// Held by the GUI for the lifetime of the app: needed by later phases
-    /// (selection details fetch, status/chapter/note edits) that re-query
-    /// or write via `SqliteRepository::new(&self.connection)`.
+    /// (status/chapter/note edits) that write via
+    /// `SqliteRepository::new(&self.connection)`.
     #[allow(dead_code)]
     connection: Connection,
     fics: Vec<Fanfiction>,
@@ -20,6 +21,7 @@ pub struct FicflowApp {
     sort: SortPref,
     search_query: String,
     show_column_picker: bool,
+    selection: Selection,
 }
 
 #[derive(Debug)]
@@ -50,6 +52,7 @@ impl FicflowApp {
             sort,
             search_query: String::new(),
             show_column_picker: false,
+            selection: Selection::default(),
         })
     }
 
@@ -99,12 +102,11 @@ impl eframe::App for FicflowApp {
             .default_width(260.0)
             .resizable(true)
             .show(ctx, |ui| {
-                ui.add_space(4.0);
-                ui.label("Select a fanfiction to see its details.");
+                details_panel::draw(ui, &self.selection, &self.fics);
             });
 
         let mut sort_changed = false;
-        egui::CentralPanel::default().show(ctx, |ui| {
+        let central = egui::CentralPanel::default().show(ctx, |ui| {
             sort_changed = library_view::draw(
                 ui,
                 LibraryViewState {
@@ -112,9 +114,16 @@ impl eframe::App for FicflowApp {
                     sort: &mut self.sort,
                     search_query: &mut self.search_query,
                     visible_columns: &self.config.visible_columns,
+                    selection: &mut self.selection,
                 },
             );
         });
+        // Click on dead space inside the central panel (below or beside the
+        // table) clears the selection. Egui only fires `clicked()` here when
+        // no inner widget consumed the click.
+        if central.response.clicked() {
+            self.selection = Selection::None;
+        }
 
         let columns_changed = column_picker::show(
             ctx,

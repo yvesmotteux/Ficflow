@@ -6,6 +6,8 @@ use egui_extras::{Column, TableBuilder};
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus};
 use crate::infrastructure::config::{ColumnKey, SortDirection, SortPref};
 
+use super::super::selection::Selection;
+
 const HEADER_HEIGHT: f32 = 22.0;
 const ROW_HEIGHT: f32 = 22.0;
 
@@ -14,6 +16,7 @@ pub struct LibraryViewState<'a> {
     pub sort: &'a mut SortPref,
     pub search_query: &'a mut String,
     pub visible_columns: &'a [ColumnKey],
+    pub selection: &'a mut Selection,
 }
 
 /// Returns true if `sort` was mutated by a header click — caller persists.
@@ -23,13 +26,14 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
         sort,
         search_query,
         visible_columns,
+        selection,
     } = state;
 
     draw_search_bar(ui, search_query);
     ui.add_space(6.0);
 
     let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort);
-    draw_table(ui, &visible, sort, visible_columns)
+    draw_table(ui, &visible, sort, visible_columns, selection)
 }
 
 fn draw_search_bar(ui: &mut Ui, query: &mut String) {
@@ -45,6 +49,7 @@ fn draw_table(
     fics: &[&Fanfiction],
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
+    selection: &mut Selection,
 ) -> bool {
     if visible_columns.is_empty() {
         ui.label(
@@ -67,6 +72,7 @@ fn draw_table(
     let mut builder = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
+        .sense(Sense::click())
         .cell_layout(Layout::left_to_right(Align::Center));
     for (i, col) in visible_columns.iter().enumerate() {
         let is_last = i == visible_columns.len() - 1;
@@ -83,8 +89,12 @@ fn draw_table(
         .body(|body| {
             body.rows(ROW_HEIGHT, fics.len(), |mut row| {
                 let fic = fics[row.index()];
+                row.set_selected(selection.contains(fic.id));
                 for col in visible_columns {
                     row.col(|ui| render_cell(ui, fic, *col));
+                }
+                if row.response().clicked() {
+                    *selection = Selection::Single(fic.id);
                 }
             });
         });
@@ -139,7 +149,10 @@ fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
         ColumnKey::Reads => fic.read_count.to_string(),
         ColumnKey::Updated => fic.date_updated.format("%Y-%m-%d").to_string(),
     };
-    ui.add(egui::Label::new(text).truncate());
+    // `selectable(false)` is essential: by default a `Label` consumes click
+    // events for text-selection (drag-to-highlight), which swallows the row's
+    // click sense and blocks selecting fics via their text.
+    ui.add(egui::Label::new(text).truncate().selectable(false));
 }
 
 /// Toggle direction if same column, else switch column with default-desc.
