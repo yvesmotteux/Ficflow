@@ -1,26 +1,47 @@
+use std::collections::HashSet;
+
 use egui::{ComboBox, DragValue, RichText, ScrollArea, TextEdit, Ui};
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
 use crate::application::{
+    add_to_shelf::add_to_shelf, remove_from_shelf::remove_from_shelf,
     update_chapters::update_last_chapter_read, update_note::update_personal_note,
     update_rating::update_user_rating, update_read_count::update_read_count,
     update_status::update_reading_status,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
+use crate::domain::shelf::Shelf;
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 
 use super::super::selection::Selection;
 use super::super::widgets::star_rating;
 
-pub fn draw(
-    ui: &mut Ui,
-    selection: &Selection,
-    fics: &mut Vec<Fanfiction>,
-    conn: &Connection,
-    toasts: &mut Toasts,
-) {
+pub struct DetailsState<'a> {
+    pub selection: &'a Selection,
+    pub fics: &'a mut Vec<Fanfiction>,
+    pub conn: &'a Connection,
+    pub toasts: &'a mut Toasts,
+    pub all_shelves: &'a [Shelf],
+    /// Shelves currently containing the selected fic. Caller maintains this
+    /// cache and refreshes when this function returns `true`.
+    pub selection_shelf_ids: &'a HashSet<u64>,
+}
+
+/// Returns true when a fic-shelf link was toggled, signalling the caller to
+/// refresh `selection_shelf_ids` (and `shelf_members` if the active view is
+/// the affected shelf).
+pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> bool {
+    let DetailsState {
+        selection,
+        fics,
+        conn,
+        toasts,
+        all_shelves,
+        selection_shelf_ids,
+    } = state;
+
     ui.add_space(4.0);
     match selection {
         Selection::None => {
@@ -29,19 +50,30 @@ pub fn draw(
                     .italics()
                     .weak(),
             );
+            false
         }
         Selection::Single(id) => match fics.iter().position(|f| f.id == *id) {
-            Some(idx) => draw_fic(ui, fics, idx, conn, toasts),
+            Some(idx) => draw_fic(
+                ui,
+                fics,
+                idx,
+                conn,
+                toasts,
+                all_shelves,
+                selection_shelf_ids,
+            ),
             None => {
                 ui.label(
                     RichText::new("Selected fanfiction not found.")
                         .italics()
                         .weak(),
                 );
+                false
             }
         },
         Selection::Multi(ids) => {
             ui.label(format!("Multiple items selected ({})", ids.len()));
+            false
         }
     }
 }
@@ -52,8 +84,11 @@ fn draw_fic(
     idx: usize,
     conn: &Connection,
     toasts: &mut Toasts,
-) {
+    all_shelves: &[Shelf],
+    selection_shelf_ids: &HashSet<u64>,
+) -> bool {
     let fic_id = fics[idx].id;
+    let mut shelves_changed = false;
     ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
@@ -71,6 +106,21 @@ fn draw_fic(
                 draw_rating(ui, fics, idx, conn, toasts);
                 draw_note(ui, fics, idx, conn, toasts);
             });
+
+            if !all_shelves.is_empty() {
+                section(ui, "Shelves", |ui| {
+                    if draw_shelves_checklist(
+                        ui,
+                        fic_id,
+                        all_shelves,
+                        selection_shelf_ids,
+                        conn,
+                        toasts,
+                    ) {
+                        shelves_changed = true;
+                    }
+                });
+            }
 
             // Story metadata stays read-only — these come from AO3.
             section(ui, "Story", |ui| {
@@ -100,6 +150,46 @@ fn draw_fic(
 
             draw_metadata_lists(ui, &fics[idx]);
         });
+    shelves_changed
+}
+
+/// Renders one checkbox per shelf. Toggling calls add/remove on the spot.
+/// Returns true if any change was committed (caller refreshes its caches).
+fn draw_shelves_checklist(
+    ui: &mut Ui,
+    fic_id: u64,
+    all_shelves: &[Shelf],
+    selection_shelf_ids: &HashSet<u64>,
+    conn: &Connection,
+    toasts: &mut Toasts,
+) -> bool {
+    let mut changed = false;
+    for shelf in all_shelves {
+        let mut on = selection_shelf_ids.contains(&shelf.id);
+        if ui.checkbox(&mut on, &shelf.name).changed() {
+            let repo = SqliteRepository::new(conn);
+            let result = if on {
+                add_to_shelf(&repo, fic_id, shelf.id)
+            } else {
+                remove_from_shelf(&repo, fic_id, shelf.id)
+            };
+            match result {
+                Ok(()) => {
+                    changed = true;
+                }
+                Err(err) => toast_error(
+                    toasts,
+                    if on {
+                        "Couldn't add to shelf"
+                    } else {
+                        "Couldn't remove from shelf"
+                    },
+                    err,
+                ),
+            }
+        }
+    }
+    changed
 }
 
 fn draw_status(

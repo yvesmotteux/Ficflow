@@ -243,4 +243,18 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         let fics = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(fics)
     }
+
+    fn list_shelves_for_fic(&self, fic_id: u64) -> Result<Vec<Shelf>, FicflowError> {
+        self.ensure_fanfiction_exists(fic_id)?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.name, s.created_at FROM shelf s \
+             JOIN fic_shelf fs ON fs.shelf_id = s.id \
+             WHERE fs.fic_id = ?1 AND s.deleted_at IS NULL \
+             ORDER BY s.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map(params![fic_id], row_to_shelf)?;
+        let shelves = rows.collect::<Result<Vec<_>, _>>()?;
+        Ok(shelves)
+    }
 }

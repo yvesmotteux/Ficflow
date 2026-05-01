@@ -5,6 +5,7 @@ use rusqlite::Connection;
 
 use crate::application::{
     create_shelf::create_shelf, delete_shelf, list_fics, list_shelf_fics, list_shelves,
+    list_shelves_for_fic,
 };
 use crate::domain::fanfiction::Fanfiction;
 use crate::domain::shelf::Shelf;
@@ -15,6 +16,7 @@ use crate::infrastructure::SqliteRepository;
 
 use super::selection::Selection;
 use super::view::View;
+use super::views::details_panel::DetailsState;
 use super::views::shelf_modals::{self, CreateState};
 use super::views::{
     column_picker, details_panel, library_view, sidebar, LibraryViewState, SidebarState,
@@ -27,6 +29,9 @@ pub struct FicflowApp {
     /// Cached fic-id membership for the currently-selected shelf view. Empty
     /// (and unused) when `current_view` is anything other than `View::Shelf(_)`.
     shelf_members: HashSet<u64>,
+    /// Cached shelf-ids that the currently-selected fic belongs to. Empty
+    /// when `selection` is not `Single(_)`.
+    selection_shelf_ids: HashSet<u64>,
     config: AppConfig,
     sort: SortPref,
     search_query: String,
@@ -65,6 +70,7 @@ impl FicflowApp {
             fics,
             shelves,
             shelf_members: HashSet::new(),
+            selection_shelf_ids: HashSet::new(),
             config,
             sort,
             search_query: String::new(),
@@ -92,6 +98,23 @@ impl FicflowApp {
                     Err(err) => {
                         self.toasts
                             .error(format!("Couldn't load shelf contents: {}", err));
+                        HashSet::new()
+                    }
+                }
+            }
+            _ => HashSet::new(),
+        };
+    }
+
+    fn refresh_selection_shelf_ids(&mut self) {
+        self.selection_shelf_ids = match self.selection {
+            Selection::Single(id) => {
+                let repo = SqliteRepository::new(&self.connection);
+                match list_shelves_for_fic::list_shelves_for_fic(&repo, id) {
+                    Ok(shelves) => shelves.into_iter().map(|s| s.id).collect(),
+                    Err(err) => {
+                        self.toasts
+                            .error(format!("Couldn't load shelves for fic: {}", err));
                         HashSet::new()
                     }
                 }
@@ -170,21 +193,27 @@ impl eframe::App for FicflowApp {
         }
 
         // Details panel (right). Only meaningful for library views.
+        let mut shelves_changed = false;
         egui::SidePanel::right("ficflow-details")
             .default_width(260.0)
             .resizable(true)
             .show(ctx, |ui| {
-                details_panel::draw(
+                shelves_changed = details_panel::draw(
                     ui,
-                    &self.selection,
-                    &mut self.fics,
-                    &self.connection,
-                    &mut self.toasts,
+                    DetailsState {
+                        selection: &self.selection,
+                        fics: &mut self.fics,
+                        conn: &self.connection,
+                        toasts: &mut self.toasts,
+                        all_shelves: &self.shelves,
+                        selection_shelf_ids: &self.selection_shelf_ids,
+                    },
                 );
             });
 
         // Center.
         let mut sort_changed = false;
+        let prev_selection = self.selection.clone();
         let central = egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_view.shows_library() {
                 sort_changed = library_view::draw(
@@ -205,6 +234,17 @@ impl eframe::App for FicflowApp {
         });
         if central.response.clicked() && self.current_view.shows_library() {
             self.selection = Selection::None;
+        }
+        if self.selection != prev_selection {
+            self.refresh_selection_shelf_ids();
+        }
+        if shelves_changed {
+            // Refresh fic-shelf link cache, plus the shelf-view membership
+            // cache if the affected shelf happens to be the active view.
+            self.refresh_selection_shelf_ids();
+            if matches!(self.current_view, View::Shelf(_)) {
+                self.refresh_shelf_members();
+            }
         }
 
         // Modals (run after the rest of the UI so they overlay correctly).
