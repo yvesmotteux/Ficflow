@@ -1,4 +1,4 @@
-use egui::{RichText, Ui};
+use egui::{Color32, RichText, Stroke, Ui};
 
 use crate::domain::fanfiction::ReadingStatus;
 use crate::domain::shelf::Shelf;
@@ -10,6 +10,9 @@ pub struct SidebarState<'a> {
     pub shelves: &'a [Shelf],
     pub create_shelf_request: &'a mut bool,
     pub delete_shelf_request: &'a mut Option<u64>,
+    /// Set when a drag-and-drop drop lands on a shelf row: `(shelf_id, fic_ids)`.
+    /// Caller bulk-adds the fics to the shelf and refreshes its caches.
+    pub drop_on_shelf: &'a mut Option<(u64, Vec<u64>)>,
 }
 
 pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
@@ -18,6 +21,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
         shelves,
         create_shelf_request,
         delete_shelf_request,
+        drop_on_shelf,
     } = state;
 
     // Pin Tasks/Settings to the bottom; Library + Shelves scroll above them.
@@ -84,6 +88,20 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
                         for shelf in shelves {
                             let resp =
                                 view_row(ui, current_view, View::Shelf(shelf.id), &shelf.name);
+
+                            // Drop target: highlight while a row is hovering
+                            // with a payload, commit the drop on release.
+                            if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
+                                ui.painter().rect_stroke(
+                                    resp.rect,
+                                    4.0,
+                                    Stroke::new(2.0, Color32::from_rgb(120, 200, 120)),
+                                );
+                            }
+                            if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
+                                *drop_on_shelf = Some((shelf.id, (*payload).clone()));
+                            }
+
                             resp.context_menu(|ui| {
                                 if ui.button("Delete shelf").clicked() {
                                     *delete_shelf_request = Some(shelf.id);

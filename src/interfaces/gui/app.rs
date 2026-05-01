@@ -4,8 +4,8 @@ use egui_notify::Toasts;
 use rusqlite::Connection;
 
 use crate::application::{
-    create_shelf::create_shelf, delete_fic, delete_shelf, list_fics, list_shelf_fics, list_shelves,
-    list_shelves_for_fic,
+    add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, list_fics,
+    list_shelf_fics, list_shelves, list_shelves_for_fic,
 };
 use crate::domain::fanfiction::Fanfiction;
 use crate::domain::shelf::Shelf;
@@ -113,6 +113,55 @@ impl FicflowApp {
         };
     }
 
+    /// Drop selected fic ids that aren't visible in the current view, so the
+    /// details panel never shows a fic the user can't see in the table.
+    /// On non-library views (Tasks/Settings) the selection is cleared entirely.
+    fn prune_selection_to_view(&mut self) {
+        let before = self.selection.clone();
+
+        if !self.current_view.shows_library() {
+            self.selection = Selection::None;
+            self.last_clicked_id = None;
+        } else {
+            let visible_ids: Vec<u64> = match &self.selection {
+                Selection::None => Vec::new(),
+                Selection::Single(id) => self
+                    .fics
+                    .iter()
+                    .find(|f| f.id == *id)
+                    .filter(|f| self.current_view.includes(f, &self.shelf_members))
+                    .map(|f| f.id)
+                    .into_iter()
+                    .collect(),
+                Selection::Multi(ids) => ids
+                    .iter()
+                    .filter_map(|id| {
+                        self.fics
+                            .iter()
+                            .find(|f| f.id == *id)
+                            .filter(|f| self.current_view.includes(f, &self.shelf_members))
+                            .map(|f| f.id)
+                    })
+                    .collect(),
+            };
+            self.selection = match visible_ids.len() {
+                0 => Selection::None,
+                1 => Selection::Single(visible_ids[0]),
+                _ => Selection::Multi(visible_ids),
+            };
+            if matches!(self.selection, Selection::None) {
+                self.last_clicked_id = None;
+            }
+        }
+
+        // Refresh the per-fic shelf-membership cache here too: the regular
+        // post-library-view diff captures `prev_selection` *after* this prune
+        // runs, so it won't notice changes we made above.
+        if self.selection != before {
+            self.refresh_selection_shelf_ids();
+        }
+    }
+
     fn refresh_selection_shelf_ids(&mut self) {
         self.selection_shelf_ids = match self.selection {
             Selection::Single(id) => {
@@ -174,6 +223,7 @@ impl eframe::App for FicflowApp {
 
         // Sidebar.
         let mut create_request = false;
+        let mut drop_on_shelf: Option<(u64, Vec<u64>)> = None;
         let prev_view = self.current_view.clone();
         egui::SidePanel::left("ficflow-sidebar")
             .default_width(160.0)
@@ -186,17 +236,26 @@ impl eframe::App for FicflowApp {
                         shelves: &self.shelves,
                         create_shelf_request: &mut create_request,
                         delete_shelf_request: &mut self.delete_shelf_pending,
+                        drop_on_shelf: &mut drop_on_shelf,
                     },
                 );
             });
         if create_request {
             self.create_shelf_modal.request_open();
         }
-        // If the user just switched to/from a shelf view, refresh the cache.
-        if matches!(self.current_view, View::Shelf(_)) || matches!(prev_view, View::Shelf(_)) {
-            if self.current_view != prev_view {
+        if let Some((shelf_id, fic_ids)) = drop_on_shelf {
+            self.handle_drop_on_shelf(shelf_id, &fic_ids);
+        }
+        // If the view changed: refresh the shelf-membership cache (if needed)
+        // and prune the selection so the details panel doesn't keep showing
+        // a fic that's no longer visible.
+        if self.current_view != prev_view {
+            if matches!(self.current_view, View::Shelf(_)) {
                 self.refresh_shelf_members();
+            } else {
+                self.shelf_members.clear();
             }
+            self.prune_selection_to_view();
         }
 
         // Details panel (right). Only meaningful for library views.
@@ -308,7 +367,42 @@ impl eframe::App for FicflowApp {
             self.save_config();
         }
 
+        self.draw_drag_preview(ctx);
         self.toasts.show(ctx);
+    }
+}
+
+impl FicflowApp {
+    /// Renders a small popup near the cursor showing what's being dragged
+    /// (the title of the single fic, or "N fanfictions" for a multi-drag).
+    /// egui's built-in dnd doesn't ship a drag-preview, so we paint one
+    /// ourselves whenever there's an active payload of our type.
+    fn draw_drag_preview(&self, ctx: &egui::Context) {
+        let Some(payload) = egui::DragAndDrop::payload::<Vec<u64>>(ctx) else {
+            return;
+        };
+        let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) else {
+            return;
+        };
+        let label = match payload.as_slice() {
+            [single] => self
+                .fics
+                .iter()
+                .find(|f| f.id == *single)
+                .map(|f| f.title.clone())
+                .unwrap_or_else(|| "(unknown)".to_string()),
+            ids => format!("{} fanfictions", ids.len()),
+        };
+        egui::Area::new(egui::Id::new("ficflow-drag-preview"))
+            .fixed_pos(pointer + egui::Vec2::new(14.0, 14.0))
+            .order(egui::Order::Tooltip)
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(260.0);
+                    ui.add(egui::Label::new(label).truncate());
+                });
+            });
     }
 }
 
@@ -324,6 +418,30 @@ impl FicflowApp {
             Err(err) => {
                 self.toasts.error(format!("Couldn't create shelf: {}", err));
             }
+        }
+    }
+
+    fn handle_drop_on_shelf(&mut self, shelf_id: u64, fic_ids: &[u64]) {
+        let repo = SqliteRepository::new(&self.connection);
+        let mut errors = 0usize;
+        for id in fic_ids {
+            if add_to_shelf(&repo, *id, shelf_id).is_err() {
+                errors += 1;
+            }
+        }
+        let attempted = fic_ids.len();
+        if errors == 0 {
+            self.toasts
+                .success(format!("Added {} fanfiction(s) to shelf", attempted));
+        } else if errors == attempted {
+            self.toasts.error(format!("All {} drops failed", attempted));
+        } else {
+            self.toasts
+                .error(format!("{}/{} drops failed", errors, attempted));
+        }
+        self.refresh_selection_shelf_ids();
+        if matches!(self.current_view, View::Shelf(_)) {
+            self.refresh_shelf_members();
         }
     }
 

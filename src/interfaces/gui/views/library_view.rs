@@ -92,7 +92,9 @@ fn draw_table(
     let mut builder = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
-        .sense(Sense::click())
+        // `click_and_drag` so a quick click still selects but holding+moving
+        // initiates a drag (used for dropping rows onto sidebar shelves).
+        .sense(Sense::click_and_drag())
         .cell_layout(Layout::left_to_right(Align::Center));
     for (i, col) in visible_columns.iter().enumerate() {
         let is_last = i == visible_columns.len() - 1;
@@ -118,6 +120,18 @@ fn draw_table(
                 if resp.clicked() {
                     let mods = resp.ctx.input(|i| i.modifiers);
                     handle_row_click(selection, last_clicked_id, fics, row_idx, mods);
+                }
+                if resp.drag_started() {
+                    // If the user starts dragging a row that's already part
+                    // of the selection, we drag the whole selection. Else
+                    // drag just that row (without changing the selection,
+                    // which would feel surprising).
+                    let drag_ids: Vec<u64> = if selection.contains(fic.id) {
+                        selection_to_vec(selection)
+                    } else {
+                        vec![fic.id]
+                    };
+                    resp.dnd_set_drag_payload(drag_ids);
                 }
             });
         });
