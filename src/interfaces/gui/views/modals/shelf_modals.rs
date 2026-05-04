@@ -4,22 +4,24 @@ use crate::domain::shelf::Shelf;
 
 /// State for the create-shelf modal. `name_buf` holds the in-progress text;
 /// when the user submits we hand it back to the caller via `Outcome::Submit`.
+/// Buffer for the in-progress shelf name. The "is the modal open?"
+/// answer lives in the parent `ActiveModal` enum — when this struct
+/// exists at all, the modal is open.
 pub struct CreateState {
-    pub open: bool,
     pub name: String,
 }
 
 impl CreateState {
     pub fn new() -> Self {
         Self {
-            open: false,
             name: String::new(),
         }
     }
+}
 
-    pub fn request_open(&mut self) {
-        self.open = true;
-        self.name.clear();
+impl Default for CreateState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -29,10 +31,10 @@ pub enum Outcome {
     Cancel,
 }
 
+/// Draws the create-shelf modal. Caller is responsible for only
+/// invoking this when `ActiveModal::CreateShelf(_)` is the current
+/// modal — the early-return `if !state.open` guard is gone.
 pub fn draw_create(ctx: &Context, state: &mut CreateState) -> Outcome {
-    if !state.open {
-        return Outcome::None;
-    }
     let mut still_open = true;
     let mut outcome = Outcome::None;
     Window::new("Create shelf")
@@ -68,10 +70,6 @@ pub fn draw_create(ctx: &Context, state: &mut CreateState) -> Outcome {
     if !still_open {
         outcome = Outcome::Cancel;
     }
-    if matches!(outcome, Outcome::Submit(_) | Outcome::Cancel) {
-        state.open = false;
-        state.name.clear();
-    }
     outcome
 }
 
@@ -81,14 +79,10 @@ pub enum DeleteOutcome {
     Cancel,
 }
 
-pub fn draw_delete_confirm(
-    ctx: &Context,
-    pending: &mut Option<u64>,
-    shelves: &[Shelf],
-) -> DeleteOutcome {
-    let Some(shelf_id) = *pending else {
-        return DeleteOutcome::None;
-    };
+/// Draws the delete-shelf confirmation modal. Caller is responsible
+/// for only invoking this when `ActiveModal::DeleteShelf(_)` is the
+/// current modal — the early-return guard is gone.
+pub fn draw_delete_confirm(ctx: &Context, shelf_id: u64, shelves: &[Shelf]) -> DeleteOutcome {
     let shelf_name = shelves
         .iter()
         .find(|s| s.id == shelf_id)
@@ -122,9 +116,6 @@ pub fn draw_delete_confirm(
         });
     if !still_open {
         outcome = DeleteOutcome::Cancel;
-    }
-    if matches!(outcome, DeleteOutcome::Confirm(_) | DeleteOutcome::Cancel) {
-        *pending = None;
     }
     outcome
 }

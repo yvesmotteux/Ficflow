@@ -9,8 +9,7 @@
 
 #[cfg(test)]
 mod tests {
-    use ficflow::infrastructure::config::{ColumnKey, SortDirection};
-    use ficflow::interfaces::gui::{Selection, View};
+    use ficflow::interfaces::gui::{ColumnKey, Selection, SortDirection, View};
 
     use crate::common::fixtures;
     use crate::harness::GuiHarness;

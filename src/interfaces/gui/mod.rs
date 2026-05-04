@@ -1,5 +1,7 @@
 pub mod app;
+mod config;
 mod fonts;
+mod format;
 mod selection;
 mod tasks;
 mod view;
@@ -9,14 +11,15 @@ mod widgets;
 use std::process::ExitCode;
 
 pub use app::{FicflowApp, FicflowConfig, InitError};
+pub use config::{ColumnKey, SortDirection, SortPref};
 pub use selection::Selection;
 pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
 
-use crate::domain::fanfiction::FanfictionFetcher;
-use crate::domain::repository::Repository;
-
-pub fn run_gui(_fetcher: &dyn FanfictionFetcher, _repository: &dyn Repository) -> ExitCode {
+/// Entry point for the GUI binary path. Builds its own connection,
+/// fetcher, and worker thread inside `FicflowApp::with_config` — the
+/// caller doesn't need to pre-construct anything.
+pub fn run_gui() -> ExitCode {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Ficflow")

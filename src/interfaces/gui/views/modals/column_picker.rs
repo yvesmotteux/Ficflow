@@ -1,6 +1,6 @@
 use egui::{Context, Window};
 
-use crate::infrastructure::config::ColumnKey;
+use super::super::super::config::ColumnKey;
 
 /// Renders the column-picker window when `open` is true. Returns true if the
 /// user toggled any column (caller persists the new `visible_columns`).

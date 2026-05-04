@@ -13,13 +13,12 @@ use crate::application::{
     update_rating::update_user_rating, update_read_count::update_read_count,
     update_status::update_reading_status,
 };
-use crate::domain::fanfiction::{
-    ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus, UserRating,
-};
+use crate::domain::fanfiction::{ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus};
 use crate::domain::shelf::Shelf;
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 
+use super::super::format::{format_status, format_thousands, rating_payload, status_payload};
 use super::super::selection::Selection;
 use super::super::tasks::TaskExecutor;
 use super::super::widgets::shelves_dropdown::{self, DropdownOutcome};
@@ -631,37 +630,6 @@ fn relative_time(when: DateTime<Utc>) -> String {
     format!("{}y ago", years)
 }
 
-fn format_status(status: &ReadingStatus) -> &'static str {
-    match status {
-        ReadingStatus::InProgress => "In Progress",
-        ReadingStatus::Read => "Read",
-        ReadingStatus::PlanToRead => "Plan to Read",
-        ReadingStatus::Paused => "Paused",
-        ReadingStatus::Abandoned => "Abandoned",
-    }
-}
-
-fn status_payload(status: ReadingStatus) -> &'static str {
-    match status {
-        ReadingStatus::InProgress => "inprogress",
-        ReadingStatus::Read => "read",
-        ReadingStatus::PlanToRead => "plantoread",
-        ReadingStatus::Paused => "paused",
-        ReadingStatus::Abandoned => "abandoned",
-    }
-}
-
-fn rating_payload(rating: Option<UserRating>) -> &'static str {
-    match rating {
-        Some(UserRating::One) => "1",
-        Some(UserRating::Two) => "2",
-        Some(UserRating::Three) => "3",
-        Some(UserRating::Four) => "4",
-        Some(UserRating::Five) => "5",
-        None => "none",
-    }
-}
-
 fn format_ao3_rating(r: &Rating) -> &'static str {
     match r {
         Rating::NotRated => "Not Rated",
@@ -695,19 +663,6 @@ fn format_category(c: &Categories) -> &'static str {
         Categories::Multi => "Multi",
         Categories::Other => "Other",
     }
-}
-
-fn format_thousands(n: u32) -> String {
-    let s = n.to_string();
-    let bytes = s.as_bytes();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(*b as char);
-    }
-    out
 }
 
 fn toast_error(toasts: &mut Toasts, prefix: &str, err: FicflowError) {

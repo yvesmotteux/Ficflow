@@ -10,18 +10,12 @@ pub enum DeleteOutcome {
     Cancel,
 }
 
-/// Confirms a bulk-delete. Lists the first few titles by way of "are you sure",
-/// summarises the rest as "+ N more". `pending` is cleared on Confirm or Cancel.
-pub fn draw_delete_confirm(
-    ctx: &Context,
-    pending: &mut Option<Vec<u64>>,
-    fics: &[Fanfiction],
-) -> DeleteOutcome {
-    let Some(ids) = pending.as_ref() else {
-        return DeleteOutcome::None;
-    };
-    let id_list = ids.clone();
-    let total = id_list.len();
+/// Confirms a bulk-delete. Lists the first few titles by way of "are
+/// you sure", summarises the rest as "+ N more". Caller is responsible
+/// for only invoking this when `ActiveModal::DeleteFics(_)` is the
+/// current modal — the early-return guard is gone.
+pub fn draw_delete_confirm(ctx: &Context, ids: &[u64], fics: &[Fanfiction]) -> DeleteOutcome {
+    let total = ids.len();
 
     let mut still_open = true;
     let mut outcome = DeleteOutcome::None;
@@ -34,7 +28,7 @@ pub fn draw_delete_confirm(
         .show(ctx, |ui| {
             ui.label(format!("Delete {} fanfiction(s)?", total));
             ui.add_space(4.0);
-            for id in id_list.iter().take(MAX_TITLES_SHOWN) {
+            for id in ids.iter().take(MAX_TITLES_SHOWN) {
                 let title = fics
                     .iter()
                     .find(|f| f.id == *id)
@@ -52,7 +46,7 @@ pub fn draw_delete_confirm(
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button("Delete").clicked() {
-                    outcome = DeleteOutcome::Confirm(id_list.clone());
+                    outcome = DeleteOutcome::Confirm(ids.to_vec());
                 }
                 if ui.button("Cancel").clicked() {
                     outcome = DeleteOutcome::Cancel;
@@ -61,9 +55,6 @@ pub fn draw_delete_confirm(
         });
     if !still_open {
         outcome = DeleteOutcome::Cancel;
-    }
-    if matches!(outcome, DeleteOutcome::Confirm(_) | DeleteOutcome::Cancel) {
-        *pending = None;
     }
     outcome
 }

@@ -107,8 +107,14 @@ impl TaskExecutor {
             started_at: Utc::now(),
         };
         self.inbox.tasks.lock().unwrap().push(task);
-        // SendError only happens if the worker is dead; in that case the app
-        // is already shutting down so swallowing is safe.
+        // SendError only fires if the receiver was dropped, which only
+        // happens when the worker thread exited — we catch panics inside
+        // command processing so that's narrowed to (a) the executor
+        // being torn down (app shutting down: swallow is fine) and (b)
+        // a worker init failure at spawn time (open_configured_db /
+        // Ao3Fetcher::new errored, logged at thread start). Either way
+        // there's nothing we can do here; the task stays Running and
+        // the user sees a stuck spinner — acceptable trade-off.
         let _ = self.sender.send(WorkerCommand::AddFic { task_id, input });
     }
 

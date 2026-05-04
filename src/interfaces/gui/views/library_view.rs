@@ -5,9 +5,10 @@ use egui_extras::{Column, TableBuilder};
 
 use std::collections::HashSet;
 
+use super::super::config::{ColumnKey, SortDirection, SortPref};
 use crate::domain::fanfiction::{ArchiveWarnings, Fanfiction, Rating, ReadingStatus};
-use crate::infrastructure::config::{ColumnKey, SortDirection, SortPref};
 
+use super::super::format::{format_status, format_thousands};
 use super::super::selection::Selection;
 use super::super::view::View;
 
@@ -420,23 +421,6 @@ fn first_or_dash(v: &[String]) -> String {
     v.first().cloned().unwrap_or_else(|| "\u{2014}".to_string())
 }
 
-/// Insert thousands separators: 12345 → "12,345". Cheaper than pulling
-/// in `num_format` for one call site.
-fn format_thousands(n: u32) -> String {
-    let s = n.to_string();
-    let bytes = s.as_bytes();
-    let len = bytes.len();
-    let mut out = String::with_capacity(len + len / 3);
-    for (i, b) in bytes.iter().enumerate() {
-        out.push(*b as char);
-        let remaining = len - i - 1;
-        if remaining > 0 && remaining.is_multiple_of(3) {
-            out.push(',');
-        }
-    }
-    out
-}
-
 fn format_ao3_rating(r: &Rating) -> &'static str {
     match r {
         Rating::NotRated => "Not Rated",
@@ -493,16 +477,6 @@ fn sort_glyph(sort: SortPref, column: ColumnKey) -> &'static str {
         // Shapes block so the bundled fonts cover them.
         SortDirection::Ascending => " \u{25B2}",
         SortDirection::Descending => " \u{25BC}",
-    }
-}
-
-fn format_status(status: &ReadingStatus) -> &'static str {
-    match status {
-        ReadingStatus::InProgress => "In Progress",
-        ReadingStatus::Read => "Read",
-        ReadingStatus::PlanToRead => "Plan to Read",
-        ReadingStatus::Paused => "Paused",
-        ReadingStatus::Abandoned => "Abandoned",
     }
 }
 

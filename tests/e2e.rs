@@ -206,4 +206,62 @@ mod tests {
 
         Ok(())
     }
+
+    /// CLI parser accepts several aliases for each reading status —
+    /// "plan", "ptr", "tbr" all map to PlanToRead; "finished" /
+    /// "completed" map to Read; etc. The GUI uses the typed enum
+    /// directly so it never exercises this parser; that means this
+    /// is the only test that prevents an accidental alias removal
+    /// from breaking users' shell scripts and aliases.
+    #[test]
+    fn test_cli_status_aliases() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], &test_db.db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+
+        // Each alias should round-trip without error. We don't assert
+        // the canonical name in stdout — we only need to know the
+        // parser accepted the input.
+        for alias in [
+            "inprogress",
+            "read",
+            "finished",
+            "completed",
+            "plantoread",
+            "plan-to-read",
+            "plan_to_read",
+            "plan",
+            "ptr",
+            "tbr",
+            "paused",
+            "abandoned",
+        ] {
+            let (_, err, status) = run_cli_command(
+                &["status", &fic_id.to_string(), alias],
+                &test_db.db_path,
+                &base,
+                None,
+            );
+            assert_eq!(
+                status, 0,
+                "alias {:?} should be accepted; stderr was: {}",
+                alias, err
+            );
+        }
+
+        // Garbage strings should still be rejected.
+        let (_, _, bad_status) = run_cli_command(
+            &["status", &fic_id.to_string(), "definitelynotastatus"],
+            &test_db.db_path,
+            &base,
+            None,
+        );
+        assert_ne!(bad_status, 0, "unknown status should be rejected");
+
+        Ok(())
+    }
 }

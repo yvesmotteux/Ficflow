@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
+use super::config::{AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
     add_to_shelf::add_to_shelf, count_fics_in_shelf::count_fics_in_shelf,
     create_shelf::create_shelf, delete_fic, delete_shelf, list_fics, list_shelf_fics, list_shelves,
@@ -13,14 +14,14 @@ use crate::application::{
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
 use crate::domain::shelf::Shelf;
 use crate::error::FicflowError;
-use crate::infrastructure::config::{AppConfig, ColumnKey, SortDirection, SortPref};
-use crate::infrastructure::external::ao3::fetcher::{ALT_AO3_URL, PRIMARY_AO3_URL, PROXY_AO3_URL};
+use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
 use crate::infrastructure::persistence::database::connection::{
     establish_connection, open_configured_db,
 };
 use crate::infrastructure::SqliteRepository;
 
 use super::fonts;
+use super::format::{rating_payload, status_payload};
 use super::selection::Selection;
 use super::tasks::TaskExecutor;
 use super::view::View;
@@ -60,10 +61,11 @@ pub struct FicflowApp {
     /// Anchor row id for shift-click range selection in the library table.
     last_clicked_id: Option<u64>,
     current_view: View,
-    create_shelf_modal: CreateState,
-    delete_shelf_pending: Option<u64>,
-    delete_fics_pending: Option<Vec<u64>>,
-    add_fic_modal: AddFicState,
+    /// Which (at most one) modal window is currently displayed. The
+    /// enum guarantees exclusivity at the type level — opening any
+    /// modal first overwrites the previous one, so two stacked
+    /// windows can never happen.
+    active_modal: ActiveModal,
     task_executor: TaskExecutor,
     task_filter: TaskFilter,
     /// Set by the Ctrl+F shortcut; library_view consumes it on next paint.
@@ -86,6 +88,24 @@ impl std::fmt::Display for InitError {
 
 impl std::error::Error for InitError {}
 
+/// Mutually-exclusive set of modal windows. Replaces what used to be
+/// four independent fields (`create_shelf_modal`, `delete_shelf_pending`,
+/// `delete_fics_pending`, `add_fic_modal`) — the enum form makes "at
+/// most one modal open" a property the type system enforces, instead
+/// of an invariant the code has to maintain by convention.
+pub enum ActiveModal {
+    None,
+    /// Create-shelf dialog; payload is the in-progress name buffer.
+    CreateShelf(CreateState),
+    /// Confirmation modal before soft-deleting a shelf; payload is its id.
+    DeleteShelf(u64),
+    /// Confirmation modal before bulk-soft-deleting fics; payload is
+    /// the list of ids the user selected.
+    DeleteFics(Vec<u64>),
+    /// Add-fic dialog; payload is the in-progress URL/ID buffer.
+    AddFic(AddFicState),
+}
+
 /// Explicit wiring for `FicflowApp`. The production binary derives
 /// this from the environment via `FicflowConfig::default()`; embedders
 /// and integration tests construct it directly so they can point the
@@ -106,7 +126,7 @@ pub struct FicflowConfig {
 
 impl Default for FicflowConfig {
     fn default() -> Self {
-        let (ao3_urls, max_retry_cycles) = ao3_config_from_env();
+        let (ao3_urls, max_retry_cycles) = ao3_urls_from_env();
         Self {
             db_path: None,
             ao3_urls,
@@ -161,10 +181,7 @@ impl FicflowApp {
             selection: Selection::default(),
             last_clicked_id: None,
             current_view: View::default(),
-            create_shelf_modal: CreateState::new(),
-            delete_shelf_pending: None,
-            delete_fics_pending: None,
-            add_fic_modal: AddFicState::new(),
+            active_modal: ActiveModal::None,
             task_executor,
             task_filter: TaskFilter::default(),
             focus_search_pending: false,
@@ -251,6 +268,23 @@ impl FicflowApp {
     // drive the app from outside `eframe`, and integration tests. They
     // route through the same internal state transitions and the same
     // application-layer entry points as their pointer-driven cousins.
+    //
+    // Important: these methods bypass the *widget* code path that
+    // dispatches the application call (combo box → string payload,
+    // drag-value → u32, star widget → Option<UserRating>). A test
+    // that exercises `set_status(id, ReadingStatus::Read)` proves
+    // that `update_reading_status` lands in the DB; it does NOT
+    // prove that the status combo's selection-to-payload mapping is
+    // correct. We accept that gap on purpose: the per-widget glue is
+    // small enough that human verification suffices, and a real
+    // event-injection test harness would require either bumping to
+    // egui_kittest 0.30+ (incompatible with the pinned 0.29 chrome
+    // work) or a from-scratch raw-pointer-event simulator.
+    //
+    // If you find yourself wanting more confidence in widget glue,
+    // the right intervention is a pin-down test on the specific
+    // mapping (`status_payload(ReadingStatus::Read) == "read"`),
+    // not a wrapper around this surface.
 
     /// Enqueue a background fetch to add a new fanfiction by URL or
     /// numeric ID. The worker thread runs the AO3 fetch + DB insert;
@@ -317,19 +351,17 @@ impl FicflowApp {
             Selection::Single(id) => vec![*id],
             Selection::Multi(ids) => ids.clone(),
         };
-        let repo = SqliteRepository::new(&self.connection);
-        for id in &ids {
-            if delete_fic::delete_fic(&repo, *id).is_ok() {
-                self.fics.retain(|f| f.id != *id);
-            }
-        }
+        let surviving: Vec<u64> = self.mutate(|repo| {
+            ids.iter()
+                .filter_map(|id| match delete_fic::delete_fic(repo, *id) {
+                    Ok(()) => Some(*id),
+                    Err(_) => None,
+                })
+                .collect()
+        });
+        self.fics.retain(|f| !surviving.contains(&f.id));
         self.selection = Selection::None;
         self.last_clicked_id = None;
-        self.refresh_selection_shelf_ids();
-        self.refresh_shelf_counts();
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
-        }
     }
 
     /// Create a new shelf and refresh the in-memory caches. Mirrors the
@@ -337,7 +369,7 @@ impl FicflowApp {
     /// or whitespace-only names; toasts are surfaced either way for
     /// parity with the GUI flow.
     pub fn create_shelf(&mut self, name: impl AsRef<str>) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         match create_shelf(&repo, name.as_ref()) {
             Ok(shelf) => {
                 self.toasts
@@ -357,7 +389,7 @@ impl FicflowApp {
     /// back to All Fanfictions so the user isn't left staring at a
     /// stale shelf-only filter.
     pub fn delete_shelf(&mut self, shelf_id: u64) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         match delete_shelf::delete_shelf(&repo, shelf_id) {
             Ok(()) => {
                 self.toasts.success("Shelf deleted");
@@ -379,14 +411,7 @@ impl FicflowApp {
     /// Add a fic to a shelf. Mirrors checking the shelf's box in the
     /// details-panel multi-select dropdown.
     pub fn add_fic_to_shelf(&mut self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
-        add_to_shelf(&repo, fic_id, shelf_id)?;
-        self.refresh_selection_shelf_ids();
-        self.refresh_shelf_counts();
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
-        }
-        Ok(())
+        self.mutate(|repo| add_to_shelf(repo, fic_id, shelf_id))
     }
 
     /// Remove a fic from a shelf. Mirrors clicking the × on a shelf
@@ -396,14 +421,7 @@ impl FicflowApp {
         fic_id: u64,
         shelf_id: u64,
     ) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
-        remove_from_shelf::remove_from_shelf(&repo, fic_id, shelf_id)?;
-        self.refresh_selection_shelf_ids();
-        self.refresh_shelf_counts();
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
-        }
-        Ok(())
+        self.mutate(|repo| remove_from_shelf::remove_from_shelf(repo, fic_id, shelf_id))
     }
 
     /// Set the search query. Mirrors typing into the search bar.
@@ -414,7 +432,7 @@ impl FicflowApp {
     /// Update the reading status of a fic. Mirrors the Status combo
     /// in the Your Info section.
     pub fn set_status(&mut self, fic_id: u64, status: ReadingStatus) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         let updated = update_status::update_reading_status(&repo, fic_id, status_payload(status))?;
         replace_in_cache(&mut self.fics, updated);
         Ok(())
@@ -424,7 +442,7 @@ impl FicflowApp {
     /// clamps to `chapters_total` and may auto-bump status / read_count
     /// when the final chapter is hit — mirrors the chapter DragValue.
     pub fn set_last_chapter(&mut self, fic_id: u64, chapter: u32) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         let updated = update_chapters::update_last_chapter_read(&repo, fic_id, chapter)?;
         replace_in_cache(&mut self.fics, updated);
         Ok(())
@@ -432,7 +450,7 @@ impl FicflowApp {
 
     /// Update the read counter. Mirrors the Reads DragValue.
     pub fn set_read_count(&mut self, fic_id: u64, count: u32) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         let updated = update_read_count::update_read_count(&repo, fic_id, count)?;
         replace_in_cache(&mut self.fics, updated);
         Ok(())
@@ -445,7 +463,7 @@ impl FicflowApp {
         fic_id: u64,
         rating: Option<UserRating>,
     ) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         let updated = update_rating::update_user_rating(&repo, fic_id, rating_payload(rating))?;
         replace_in_cache(&mut self.fics, updated);
         Ok(())
@@ -454,7 +472,7 @@ impl FicflowApp {
     /// Update the personal note. `None` removes it. Mirrors the Notes
     /// TextEdit's commit-on-focus-loss behaviour.
     pub fn set_note(&mut self, fic_id: u64, note: Option<&str>) -> Result<(), FicflowError> {
-        let repo = SqliteRepository::new(&self.connection);
+        let repo = self.repo();
         let updated = update_note::update_personal_note(&repo, fic_id, note)?;
         replace_in_cache(&mut self.fics, updated);
         Ok(())
@@ -464,6 +482,33 @@ impl FicflowApp {
         if let Err(err) = self.config.save() {
             log::warn!("Failed to save config: {}", err);
         }
+    }
+
+    /// Cheap repo accessor. The previous code repeated
+    /// `let repo = self.repo();` at ~20
+    /// sites — this collapses that to `self.repo()`.
+    fn repo(&self) -> SqliteRepository<'_> {
+        SqliteRepository::new(&self.connection)
+    }
+
+    /// Mutation funnel that runs `op` against the repo and then
+    /// refreshes every cache that could be affected by a fic-shelf
+    /// link change (`selection_shelf_ids`, `shelf_counts`, plus
+    /// `shelf_members` if the active view is a shelf). Used by every
+    /// mutation that can change shelf membership — `add_fic_to_shelf`,
+    /// `remove_fic_from_shelf`, `delete_selected`, `handle_bulk_delete`,
+    /// `handle_drop_on_shelf`. Over-refreshing is intentional: a
+    /// single funnel that always invalidates everything is the
+    /// hardest-to-break shape, and at a few-thousand-fic scale the
+    /// extra COUNT queries are imperceptible.
+    fn mutate<R>(&mut self, op: impl FnOnce(&SqliteRepository<'_>) -> R) -> R {
+        let result = op(&self.repo());
+        self.refresh_selection_shelf_ids();
+        self.refresh_shelf_counts();
+        if matches!(self.current_view, View::Shelf(_)) {
+            self.refresh_shelf_members();
+        }
+        result
     }
 
     /// First frame: re-apply the maximized/fullscreen state we saw last
@@ -499,7 +544,7 @@ impl FicflowApp {
     fn refresh_shelf_members(&mut self) {
         self.shelf_members = match self.current_view {
             View::Shelf(id) => {
-                let repo = SqliteRepository::new(&self.connection);
+                let repo = self.repo();
                 match list_shelf_fics::list_shelf_fics(&repo, id) {
                     Ok(fics) => fics.into_iter().map(|f| f.id).collect(),
                     Err(err) => {
@@ -569,7 +614,7 @@ impl FicflowApp {
     fn refresh_selection_shelf_ids(&mut self) {
         self.selection_shelf_ids = match self.selection {
             Selection::Single(id) => {
-                let repo = SqliteRepository::new(&self.connection);
+                let repo = self.repo();
                 match list_shelves_for_fic::list_shelves_for_fic(&repo, id) {
                     Ok(shelves) => shelves.into_iter().map(|s| s.id).collect(),
                     Err(err) => {
@@ -581,23 +626,6 @@ impl FicflowApp {
             }
             _ => HashSet::new(),
         };
-    }
-}
-
-/// AO3 URL list + retry-cycle count, identical to the CLI's logic in main.rs.
-/// `AO3_BASE_URL` pins to a single URL with extra cycles (used by integration
-/// tests); otherwise we round-robin the primary, alt, and proxy URLs.
-fn ao3_config_from_env() -> (Vec<String>, u32) {
-    match std::env::var("AO3_BASE_URL") {
-        Ok(url) => (vec![url], 3),
-        Err(_) => (
-            vec![
-                PRIMARY_AO3_URL.to_string(),
-                ALT_AO3_URL.to_string(),
-                PROXY_AO3_URL.to_string(),
-            ],
-            2,
-        ),
     }
 }
 
@@ -641,30 +669,6 @@ fn compute_shelf_counts(connection: &Connection, shelves: &[Shelf]) -> HashMap<u
 fn replace_in_cache(fics: &mut [Fanfiction], updated: Fanfiction) {
     if let Some(slot) = fics.iter_mut().find(|f| f.id == updated.id) {
         *slot = updated;
-    }
-}
-
-/// Canonical CLI/application-layer payload string for a status. The
-/// application functions accept a string for parity with the CLI and
-/// JSON config; this helper keeps the conversion in one place.
-fn status_payload(status: ReadingStatus) -> &'static str {
-    match status {
-        ReadingStatus::InProgress => "inprogress",
-        ReadingStatus::Read => "read",
-        ReadingStatus::PlanToRead => "plantoread",
-        ReadingStatus::Paused => "paused",
-        ReadingStatus::Abandoned => "abandoned",
-    }
-}
-
-fn rating_payload(rating: Option<UserRating>) -> &'static str {
-    match rating {
-        Some(UserRating::One) => "1",
-        Some(UserRating::Two) => "2",
-        Some(UserRating::Three) => "3",
-        Some(UserRating::Four) => "4",
-        Some(UserRating::Five) => "5",
-        None => "none",
     }
 }
 
@@ -715,8 +719,11 @@ impl FicflowApp {
             ui.add_space(4.0);
         });
 
-        // Sidebar.
+        // Sidebar. Sub-view fills `*_request` locals; the main render
+        // translates them into `ActiveModal::*` afterwards so the
+        // sub-view doesn't have to know about the modal-state enum.
         let mut create_request = false;
+        let mut delete_shelf_request: Option<u64> = None;
         let mut drop_on_shelf: Option<(u64, Vec<u64>)> = None;
         let prev_view = self.current_view.clone();
         let library_counts = compute_library_counts(&self.fics);
@@ -734,13 +741,16 @@ impl FicflowApp {
                         shelf_counts: &self.shelf_counts,
                         running_tasks: self.task_executor.running_count(),
                         create_shelf_request: &mut create_request,
-                        delete_shelf_request: &mut self.delete_shelf_pending,
+                        delete_shelf_request: &mut delete_shelf_request,
                         drop_on_shelf: &mut drop_on_shelf,
                     },
                 );
             });
         if create_request {
-            self.create_shelf_modal.request_open();
+            self.active_modal = ActiveModal::CreateShelf(CreateState::new());
+        }
+        if let Some(id) = delete_shelf_request {
+            self.active_modal = ActiveModal::DeleteShelf(id);
         }
         if let Some((shelf_id, fic_ids)) = drop_on_shelf {
             self.handle_drop_on_shelf(shelf_id, &fic_ids);
@@ -789,6 +799,7 @@ impl FicflowApp {
         // an active selection — both single and multi — so the user can act
         // on the selection without forcing a multi-select first.
         let mut bulk_shelves_changed = false;
+        let mut delete_fics_request: Option<Vec<u64>> = None;
         if !matches!(self.selection, Selection::None) && self.current_view.shows_library() {
             egui::TopBottomPanel::bottom("ficflow-selection-bar")
                 .resizable(false)
@@ -802,10 +813,13 @@ impl FicflowApp {
                             toasts: &mut self.toasts,
                             current_view: &self.current_view,
                             all_shelves: &self.shelves,
-                            delete_pending: &mut self.delete_fics_pending,
+                            delete_pending: &mut delete_fics_request,
                         },
                     );
                 });
+        }
+        if let Some(ids) = delete_fics_request {
+            self.active_modal = ActiveModal::DeleteFics(ids);
         }
 
         // Center.
@@ -876,31 +890,64 @@ impl FicflowApp {
             &mut self.show_column_picker,
             &mut self.config.visible_columns,
         );
-        match shelf_modals::draw_create(ctx, &mut self.create_shelf_modal) {
-            shelf_modals::Outcome::Submit(name) => {
+        // Modal dispatch — exactly one variant of `active_modal` runs
+        // per frame. Outcomes are extracted into a local `Action`
+        // before dispatch so the action handler (which takes `&mut
+        // self`) doesn't fight the modal-borrow over `self.active_modal`.
+        enum ModalAction {
+            None,
+            Close,
+            CreateShelf(String),
+            DeleteShelf(u64),
+            DeleteFics(Vec<u64>),
+            AddFic(String),
+        }
+        let action = match &mut self.active_modal {
+            ActiveModal::None => ModalAction::None,
+            ActiveModal::CreateShelf(state) => match shelf_modals::draw_create(ctx, state) {
+                shelf_modals::Outcome::Submit(name) => ModalAction::CreateShelf(name),
+                shelf_modals::Outcome::Cancel => ModalAction::Close,
+                shelf_modals::Outcome::None => ModalAction::None,
+            },
+            ActiveModal::DeleteShelf(id) => {
+                match shelf_modals::draw_delete_confirm(ctx, *id, &self.shelves) {
+                    shelf_modals::DeleteOutcome::Confirm(id) => ModalAction::DeleteShelf(id),
+                    shelf_modals::DeleteOutcome::Cancel => ModalAction::Close,
+                    shelf_modals::DeleteOutcome::None => ModalAction::None,
+                }
+            }
+            ActiveModal::DeleteFics(ids) => {
+                match bulk_modals::draw_delete_confirm(ctx, ids, &self.fics) {
+                    bulk_modals::DeleteOutcome::Confirm(ids) => ModalAction::DeleteFics(ids),
+                    bulk_modals::DeleteOutcome::Cancel => ModalAction::Close,
+                    bulk_modals::DeleteOutcome::None => ModalAction::None,
+                }
+            }
+            ActiveModal::AddFic(state) => match add_fic_dialog::draw(ctx, state) {
+                add_fic_dialog::Outcome::Submit(input) => ModalAction::AddFic(input),
+                add_fic_dialog::Outcome::Cancel => ModalAction::Close,
+                add_fic_dialog::Outcome::None => ModalAction::None,
+            },
+        };
+        match action {
+            ModalAction::None => {}
+            ModalAction::Close => self.active_modal = ActiveModal::None,
+            ModalAction::CreateShelf(name) => {
                 let _ = self.create_shelf(name);
+                self.active_modal = ActiveModal::None;
             }
-            shelf_modals::Outcome::Cancel | shelf_modals::Outcome::None => {}
-        }
-        match shelf_modals::draw_delete_confirm(ctx, &mut self.delete_shelf_pending, &self.shelves)
-        {
-            shelf_modals::DeleteOutcome::Confirm(id) => {
+            ModalAction::DeleteShelf(id) => {
                 let _ = self.delete_shelf(id);
+                self.active_modal = ActiveModal::None;
             }
-            shelf_modals::DeleteOutcome::Cancel | shelf_modals::DeleteOutcome::None => {}
-        }
-        match bulk_modals::draw_delete_confirm(ctx, &mut self.delete_fics_pending, &self.fics) {
-            bulk_modals::DeleteOutcome::Confirm(ids) => self.handle_bulk_delete(&ids),
-            bulk_modals::DeleteOutcome::Cancel | bulk_modals::DeleteOutcome::None => {}
-        }
-        match add_fic_dialog::draw(ctx, &mut self.add_fic_modal) {
-            add_fic_dialog::Outcome::Submit(input) => {
+            ModalAction::DeleteFics(ids) => {
+                self.handle_bulk_delete(&ids);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::AddFic(input) => {
                 self.task_executor.enqueue_add(input);
-                // Stay on the user's current view — the toast on success
-                // (or "Failed" tab in Tasks) tells them the result; jumping
-                // away is jarring.
+                self.active_modal = ActiveModal::None;
             }
-            add_fic_dialog::Outcome::Cancel | add_fic_dialog::Outcome::None => {}
         }
 
         // Pull in newly-added fics from the worker and toast each completion.
@@ -977,7 +1024,7 @@ impl FicflowApp {
                     self.show_column_picker = !self.show_column_picker;
                 }
                 if ui.button("+ Add Fic").clicked() {
-                    self.add_fic_modal.request_open();
+                    self.active_modal = ActiveModal::AddFic(AddFicState::new());
                 }
                 let search_w = 300.0;
                 let pad = ((ui.available_width() - search_w) / 2.0).max(0.0);
@@ -1069,14 +1116,13 @@ impl FicflowApp {
 
 impl FicflowApp {
     fn handle_drop_on_shelf(&mut self, shelf_id: u64, fic_ids: &[u64]) {
-        let repo = SqliteRepository::new(&self.connection);
-        let mut errors = 0usize;
-        for id in fic_ids {
-            if add_to_shelf(&repo, *id, shelf_id).is_err() {
-                errors += 1;
-            }
-        }
         let attempted = fic_ids.len();
+        let errors = self.mutate(|repo| {
+            fic_ids
+                .iter()
+                .filter(|id| add_to_shelf(repo, **id, shelf_id).is_err())
+                .count()
+        });
         if errors == 0 {
             self.toasts
                 .success(format!("Added {} fanfiction(s) to shelf", attempted));
@@ -1086,39 +1132,29 @@ impl FicflowApp {
             self.toasts
                 .error(format!("{}/{} drops failed", errors, attempted));
         }
-        self.refresh_selection_shelf_ids();
-        self.refresh_shelf_counts();
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
-        }
     }
 
     fn handle_bulk_delete(&mut self, ids: &[u64]) {
-        let repo = SqliteRepository::new(&self.connection);
-        let mut errors = 0usize;
-        for id in ids {
-            if delete_fic::delete_fic(&repo, *id).is_err() {
-                errors += 1;
-            } else {
-                self.fics.retain(|f| f.id != *id);
-            }
-        }
+        let total = ids.len();
+        let surviving: Vec<u64> = self.mutate(|repo| {
+            ids.iter()
+                .filter_map(|id| match delete_fic::delete_fic(repo, *id) {
+                    Ok(()) => Some(*id),
+                    Err(_) => None,
+                })
+                .collect()
+        });
+        let errors = total - surviving.len();
+        self.fics.retain(|f| !surviving.contains(&f.id));
         if errors == 0 {
             self.toasts
-                .success(format!("Deleted {} fanfictions", ids.len()));
+                .success(format!("Deleted {} fanfictions", total));
         } else {
             self.toasts
-                .error(format!("{}/{} deletions failed", errors, ids.len()));
+                .error(format!("{}/{} deletions failed", errors, total));
         }
-        // Clear selection now that the underlying fics are gone, and refresh
-        // shelf caches because deletes cascade through `fic_shelf`.
         self.selection = Selection::None;
         self.last_clicked_id = None;
-        self.refresh_selection_shelf_ids();
-        self.refresh_shelf_counts();
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
-        }
     }
 }
 
@@ -1163,7 +1199,7 @@ impl FicflowApp {
                 Selection::None => Vec::new(),
             };
             if !ids.is_empty() {
-                self.delete_fics_pending = Some(ids);
+                self.active_modal = ActiveModal::DeleteFics(ids);
             }
         }
 
@@ -1184,7 +1220,7 @@ impl FicflowApp {
         }
 
         if ctrl_n {
-            self.create_shelf_modal.request_open();
+            self.active_modal = ActiveModal::CreateShelf(CreateState::new());
         }
 
         if ctrl_f && self.current_view.shows_library() {

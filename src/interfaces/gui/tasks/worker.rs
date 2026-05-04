@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -46,7 +47,15 @@ pub fn run(
     while let Ok(cmd) = rx.recv() {
         match cmd {
             WorkerCommand::AddFic { task_id, input } => {
-                let outcome = process_add(&fetcher, &repo, &input);
+                // Catch panics inside the AO3 scraper / DB save so a
+                // bug in HTML parsing (e.g. an unwrap in a malformed-
+                // page edge case) doesn't kill the worker thread —
+                // which would leave THIS task stuck on Running and
+                // every subsequent command silently dropped.
+                let outcome =
+                    catch_unwind(AssertUnwindSafe(|| process_add(&fetcher, &repo, &input)))
+                        .unwrap_or_else(|payload| Err(panic_to_error(payload)));
+
                 let mut tasks = inbox.tasks.lock().unwrap();
                 if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
                     match &outcome {
@@ -65,7 +74,11 @@ pub fn run(
                 }
             }
             WorkerCommand::RefreshFic { task_id, fic_id } => {
-                let outcome = check_fic_updates(&fetcher, &repo, fic_id);
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    check_fic_updates(&fetcher, &repo, fic_id)
+                }))
+                .unwrap_or_else(|payload| Err(panic_to_error(payload)));
+
                 let mut tasks = inbox.tasks.lock().unwrap();
                 if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
                     match &outcome {
@@ -85,6 +98,21 @@ pub fn run(
             }
         }
     }
+}
+
+/// Convert a `Box<dyn Any>` panic payload into a `FicflowError` we can
+/// surface to the user via `TaskStatus::Failed`. Most panics carry a
+/// `&str` or `String` message (from `panic!` / `unwrap` / `expect`);
+/// anything else gets a generic placeholder.
+fn panic_to_error(payload: Box<dyn std::any::Any + Send>) -> FicflowError {
+    let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "panic with non-string payload".to_string()
+    };
+    FicflowError::Other(format!("internal error: {}", msg))
 }
 
 fn process_add(

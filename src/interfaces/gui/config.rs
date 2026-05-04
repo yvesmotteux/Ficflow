@@ -1,7 +1,12 @@
-//! Persistent app preferences stored as TOML at the platform's config dir
-//! (`~/.config/ficflow/config.toml` on Linux). Holds visible columns and the
-//! default sort for the library table — read at startup, written when the
-//! user changes them.
+//! Persistent GUI preferences stored as TOML at the platform's config
+//! dir (`~/.config/ficflow/config.toml` on Linux). Holds visible
+//! columns, the default sort for the library table, and the
+//! maximized/fullscreen window state — read at startup, written when
+//! the user changes them.
+//!
+//! Lives under `interfaces/gui/` because every field here is a GUI
+//! concern: column visibility, sort direction, and window state have
+//! no meaning to the CLI.
 
 use std::io;
 use std::path::PathBuf;

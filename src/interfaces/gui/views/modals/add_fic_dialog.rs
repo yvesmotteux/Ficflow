@@ -1,21 +1,23 @@
 use egui::{Context, Window};
 
+/// Buffer for the in-progress AO3 URL or fic id. The "is the modal
+/// open?" answer lives in the parent `ActiveModal` enum — when this
+/// struct exists at all, the modal is open.
 pub struct AddFicState {
-    pub open: bool,
     pub input: String,
 }
 
 impl AddFicState {
     pub fn new() -> Self {
         Self {
-            open: false,
             input: String::new(),
         }
     }
+}
 
-    pub fn request_open(&mut self) {
-        self.open = true;
-        self.input.clear();
+impl Default for AddFicState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -25,10 +27,9 @@ pub enum Outcome {
     Cancel,
 }
 
+/// Draws the add-fic modal. Caller is responsible for only invoking
+/// this when `ActiveModal::AddFic(_)` is the current modal.
 pub fn draw(ctx: &Context, state: &mut AddFicState) -> Outcome {
-    if !state.open {
-        return Outcome::None;
-    }
     let mut still_open = true;
     let mut outcome = Outcome::None;
     Window::new("Add fanfiction")
@@ -61,10 +62,6 @@ pub fn draw(ctx: &Context, state: &mut AddFicState) -> Outcome {
         });
     if !still_open {
         outcome = Outcome::Cancel;
-    }
-    if matches!(outcome, Outcome::Submit(_) | Outcome::Cancel) {
-        state.open = false;
-        state.input.clear();
     }
     outcome
 }
