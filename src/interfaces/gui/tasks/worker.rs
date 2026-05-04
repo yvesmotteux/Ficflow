@@ -103,7 +103,9 @@ pub fn run(
 /// Convert a `Box<dyn Any>` panic payload into a `FicflowError` we can
 /// surface to the user via `TaskStatus::Failed`. Most panics carry a
 /// `&str` or `String` message (from `panic!` / `unwrap` / `expect`);
-/// anything else gets a generic placeholder.
+/// anything else gets a generic placeholder. The user is already
+/// looking at a failed-task row, so the message just carries the panic
+/// text — an `"internal error: "` prefix would be redundant context.
 fn panic_to_error(payload: Box<dyn std::any::Any + Send>) -> FicflowError {
     let msg = if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_string()
@@ -112,7 +114,7 @@ fn panic_to_error(payload: Box<dyn std::any::Any + Send>) -> FicflowError {
     } else {
         "panic with non-string payload".to_string()
     };
-    FicflowError::Other(format!("internal error: {}", msg))
+    FicflowError::Other(msg)
 }
 
 fn process_add(

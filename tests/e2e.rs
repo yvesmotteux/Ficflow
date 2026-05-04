@@ -264,4 +264,50 @@ mod tests {
 
         Ok(())
     }
+
+    /// CLI parser accepts numeric forms ("1"-"5"), word forms
+    /// ("one"-"five"), and several "remove the rating" sentinels
+    /// ("0", "none", "clear", "remove"). Same shape as
+    /// `test_cli_status_aliases` — the GUI passes typed values so this
+    /// is the only test that prevents an alias removal from breaking
+    /// users' shell scripts. Also exercises the rejection branch of
+    /// `parse_user_rating`, which the GUI never reaches.
+    #[test]
+    fn test_cli_rating_aliases() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], &test_db.db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+
+        for alias in [
+            "1", "2", "3", "4", "5", "one", "two", "three", "four", "five", "0", "none", "clear",
+            "remove",
+        ] {
+            let (_, err, status) = run_cli_command(
+                &["rating", &fic_id.to_string(), alias],
+                &test_db.db_path,
+                &base,
+                None,
+            );
+            assert_eq!(
+                status, 0,
+                "alias {:?} should be accepted; stderr was: {}",
+                alias, err
+            );
+        }
+
+        // Garbage strings should still be rejected.
+        let (_, _, bad_status) = run_cli_command(
+            &["rating", &fic_id.to_string(), "definitelynotarating"],
+            &test_db.db_path,
+            &base,
+            None,
+        );
+        assert_ne!(bad_status, 0, "unknown rating should be rejected");
+
+        Ok(())
+    }
 }

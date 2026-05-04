@@ -49,10 +49,12 @@ pub enum Outcome {
     SetNote(Option<String>),
     AddToShelf(u64),
     RemoveFromShelf(u64),
-    /// Click on the red Delete-Fic button.
-    Delete,
+    /// Click on the red Delete-Fic button. Caller decides what to do
+    /// (typically open the bulk-delete confirm modal).
+    RequestDelete,
     /// Click on the ↻ refresh glyph in the AO3 metadata header.
-    Refresh,
+    /// Caller decides what to do (typically enqueue a worker refresh).
+    RequestRefresh,
 }
 
 pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
@@ -203,7 +205,7 @@ fn draw_your_info(
             egui::Button::new(RichText::new("\u{1F5D1}  Delete Fic").color(Color32::WHITE))
                 .fill(Color32::from_rgb(150, 35, 35));
         if ui.add(delete_btn).clicked() {
-            outcome = Outcome::Delete;
+            outcome = Outcome::RequestDelete;
         }
     });
 
@@ -335,7 +337,7 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
                 .small_button(RichText::new("\u{21BB}").size(14.0))
                 .on_hover_text("Refresh from AO3");
             if resp.clicked() {
-                outcome = Outcome::Refresh;
+                outcome = Outcome::RequestRefresh;
             }
             ui.label(
                 RichText::new(format!("Updated {}", relative_time(fic.last_checked_date)))

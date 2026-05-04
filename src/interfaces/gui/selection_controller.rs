@@ -62,12 +62,8 @@ impl SelectionController {
     /// (empty → None, one → Single, more → Multi). Used by Ctrl+A
     /// (select-all-visible) and the test harness.
     pub fn select_many(&mut self, ids: &[u64]) {
-        self.selection = match ids {
-            [] => Selection::None,
-            [single] => Selection::Single(*single),
-            many => Selection::Multi(many.to_vec()),
-        };
         self.last_clicked_id = ids.last().copied();
+        self.selection = ids.to_vec().into();
     }
 
     /// Drop the selection and the shift-click anchor.
@@ -101,10 +97,7 @@ impl SelectionController {
                 (clicked_idx, anchor_idx)
             };
             let ids: Vec<u64> = visible[start..=end].iter().map(|f| f.id).collect();
-            self.selection = match ids.len() {
-                1 => Selection::Single(ids[0]),
-                _ => Selection::Multi(ids),
-            };
+            self.selection = ids.into();
             // Anchor stays put across consecutive shift-clicks.
         } else if mods.command {
             let mut current = self.ids_vec();
@@ -113,11 +106,7 @@ impl SelectionController {
             } else {
                 current.push(clicked_id);
             }
-            self.selection = match current.len() {
-                0 => Selection::None,
-                1 => Selection::Single(current[0]),
-                _ => Selection::Multi(current),
-            };
+            self.selection = current.into();
             self.last_clicked_id = Some(clicked_id);
         } else {
             self.selection = Selection::Single(clicked_id);
@@ -160,11 +149,7 @@ impl SelectionController {
                     })
                     .collect(),
             };
-            self.selection = match visible_ids.len() {
-                0 => Selection::None,
-                1 => Selection::Single(visible_ids[0]),
-                _ => Selection::Multi(visible_ids),
-            };
+            self.selection = visible_ids.into();
             if matches!(self.selection, Selection::None) {
                 self.last_clicked_id = None;
             }

@@ -141,12 +141,15 @@ impl LibraryCache {
 
     /// Mutation funnel: run `op` against a fresh `SqliteRepository`,
     /// then refresh every cache that a fic-shelf-link change could
-    /// invalidate. The op's return value is forwarded; refresh
-    /// failures (which are rare and recover-on-next-call) are
-    /// returned alongside so the caller can toast them. Over-
-    /// refreshing is intentional — a single funnel that always
-    /// invalidates everything is the hardest-to-break shape, and at
-    /// a few-thousand-fic scale the extra queries are imperceptible.
+    /// invalidate. Returns `(op_result, refresh_errors)` — the op's
+    /// own success/failure is buried in the first slot; the second
+    /// slot is *only* errors raised while re-reading caches after
+    /// the op (rare and recover-on-next-call), separated out so the
+    /// caller can toast them without conflating them with the op's
+    /// own outcome. Over-refreshing is intentional — a single funnel
+    /// that always invalidates everything is the hardest-to-break
+    /// shape, and at a few-thousand-fic scale the extra queries are
+    /// imperceptible.
     pub fn mutate<R>(
         &mut self,
         connection: &Connection,
@@ -156,17 +159,17 @@ impl LibraryCache {
     ) -> (R, Vec<FicflowError>) {
         let repo = SqliteRepository::new(connection);
         let result = op(&repo);
-        let mut errors = Vec::new();
+        let mut refresh_errors = Vec::new();
         if let Err(e) = self.refresh_selection_shelf_ids(connection, selection) {
-            errors.push(e);
+            refresh_errors.push(e);
         }
         self.refresh_shelf_counts(connection);
         if matches!(view, View::Shelf(_)) {
             if let Err(e) = self.refresh_shelf_members(connection, view) {
-                errors.push(e);
+                refresh_errors.push(e);
             }
         }
-        (result, errors)
+        (result, refresh_errors)
     }
 }
 

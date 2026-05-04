@@ -499,73 +499,63 @@ impl FicflowApp {
     }
 
     /// Apply a single `details_panel::Outcome` for the fic with id
-    /// `fic_id`. Returns true when a fic-shelf link changed (caller
-    /// uses this to decide whether the post-render shelf-cache
-    /// refresh has work to do). Single home for the toast-on-error
-    /// behavior every widget used to inline.
-    fn dispatch_details_outcome(&mut self, fic_id: u64, outcome: details_panel::Outcome) -> bool {
+    /// `fic_id`. Single home for the toast-on-error behavior every
+    /// widget used to inline. Mutating outcomes that change shelf
+    /// membership (`AddToShelf`, `RemoveFromShelf`, `RequestDelete`)
+    /// route through `self.mutate()` / `delete_selected()`, which
+    /// already invalidates every dependent cache via the `LibraryCache`
+    /// funnel — so this dispatch doesn't need to signal "refresh" back
+    /// to the caller.
+    fn dispatch_details_outcome(&mut self, fic_id: u64, outcome: details_panel::Outcome) {
         use details_panel::Outcome;
         match outcome {
-            Outcome::None => false,
+            Outcome::None => {}
             Outcome::SetStatus(status) => {
                 if let Err(err) = self.set_status(fic_id, status) {
                     self.toasts
                         .error(format!("Couldn't update status: {}", err));
                 }
-                false
             }
             Outcome::SetLastChapter(n) => {
                 if let Err(err) = self.set_last_chapter(fic_id, n) {
                     self.toasts
                         .error(format!("Couldn't update chapter: {}", err));
                 }
-                false
             }
             Outcome::SetReadCount(n) => {
                 if let Err(err) = self.set_read_count(fic_id, n) {
                     self.toasts
                         .error(format!("Couldn't update read count: {}", err));
                 }
-                false
             }
             Outcome::SetUserRating(rating) => {
                 if let Err(err) = self.set_user_rating(fic_id, rating) {
                     self.toasts
                         .error(format!("Couldn't update rating: {}", err));
                 }
-                false
             }
             Outcome::SetNote(value) => {
                 if let Err(err) = self.set_note(fic_id, value.as_deref()) {
                     self.toasts.error(format!("Couldn't update note: {}", err));
                 }
-                false
             }
             Outcome::AddToShelf(shelf_id) => {
                 if let Err(err) = self.add_fic_to_shelf(fic_id, shelf_id) {
                     self.toasts.error(format!("Couldn't add to shelf: {}", err));
-                    false
-                } else {
-                    true
                 }
             }
             Outcome::RemoveFromShelf(shelf_id) => {
                 if let Err(err) = self.remove_fic_from_shelf(fic_id, shelf_id) {
                     self.toasts
                         .error(format!("Couldn't remove from shelf: {}", err));
-                    false
-                } else {
-                    true
                 }
             }
-            Outcome::Delete => {
+            Outcome::RequestDelete => {
                 self.delete_selected();
                 self.toasts.success("Fanfiction deleted");
-                true
             }
-            Outcome::Refresh => {
+            Outcome::RequestRefresh => {
                 self.refresh_selected();
-                false
             }
         }
     }
@@ -600,13 +590,13 @@ impl FicflowApp {
     /// post-op invalidation of `selection_shelf_ids`, `shelf_counts`,
     /// and (when on a shelf view) `shelf_members`.
     fn mutate<R>(&mut self, op: impl FnOnce(&SqliteRepository<'_>) -> R) -> R {
-        let (result, errors) = self.cache.mutate(
+        let (result, refresh_errors) = self.cache.mutate(
             &self.connection,
             &self.current_view,
             self.selection.current(),
             op,
         );
-        for err in errors {
+        for err in refresh_errors {
             self.toasts
                 .error(format!("Couldn't refresh after change: {}", err));
         }
@@ -713,17 +703,35 @@ impl FicflowApp {
     /// here so tests can drive the app without an `eframe::Frame` (which
     /// can't be constructed outside the eframe runtime). The eframe
     /// `App::update` impl above is a thin delegate.
+    ///
+    /// Each `paint_*` helper is responsible for one screen region and
+    /// every side effect that originates from it (toasts, modal-state
+    /// transitions, cache invalidation). Keeping render() as just a
+    /// dispatch list lets a reader skim the per-frame timeline without
+    /// having to read every paint body.
     pub fn render(&mut self, ctx: &egui::Context) {
         self.sync_window_state(ctx);
-
         // Keyboard shortcuts run before the rest of the UI so reactions
         // (focus changes, modal opens, selection mutation) take effect this
         // same frame.
         self.handle_shortcuts(ctx);
+        self.paint_header(ctx);
+        // Sidebar can change `current_view`; paint_sidebar handles the
+        // post-change cache refresh + selection prune internally.
+        self.paint_sidebar(ctx);
+        self.paint_details_panel(ctx);
+        self.paint_selection_bar(ctx);
+        self.paint_central(ctx);
+        self.paint_modals(ctx);
+        self.drain_worker_events(ctx);
+        self.draw_drag_preview(ctx);
+        self.toasts.show(ctx);
+    }
 
-        // Brand header. The view title used to live here too but it now sits
-        // inside the central panel (closer to the search bar / action buttons
-        // it relates to), so this row is just the wordmark.
+    /// Brand header. The view title used to live here too but it now sits
+    /// inside the central panel (closer to the search bar / action buttons
+    /// it relates to), so this row is just the wordmark.
+    fn paint_header(&self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("ficflow-header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -731,10 +739,15 @@ impl FicflowApp {
             });
             ui.add_space(4.0);
         });
+    }
 
-        // Sidebar. Sub-view fills `*_request` locals; the main render
-        // translates them into `ActiveModal::*` afterwards so the
-        // sub-view doesn't have to know about the modal-state enum.
+    /// Left sidebar. Library counts + shelf list + Tasks/Settings stubs.
+    /// The sub-view fills `*_request` locals; we translate those into
+    /// `ActiveModal::*` afterwards so the sub-view doesn't need to know
+    /// about the modal-state enum. Also handles the view-change side
+    /// effects (refresh shelf-members, prune the selection) here, since
+    /// this is the only paint that can mutate `current_view`.
+    fn paint_sidebar(&mut self, ctx: &egui::Context) {
         let mut create_request = false;
         let mut delete_shelf_request: Option<u64> = None;
         let mut drop_on_shelf: Option<(u64, Vec<u64>)> = None;
@@ -768,9 +781,6 @@ impl FicflowApp {
         if let Some((shelf_id, fic_ids)) = drop_on_shelf {
             self.handle_drop_on_shelf(shelf_id, &fic_ids);
         }
-        // If the view changed: refresh the shelf-membership cache (if needed)
-        // and prune the selection so the details panel doesn't keep showing
-        // a fic that's no longer visible.
         if self.current_view != prev_view {
             if matches!(self.current_view, View::Shelf(_)) {
                 self.refresh_shelf_members();
@@ -779,70 +789,71 @@ impl FicflowApp {
             }
             self.prune_selection_to_view();
         }
+    }
 
-        // Details panel (right). Shown only when exactly one fic is
-        // selected in a library view — multi-select doesn't make sense
-        // here (no single fic to detail) and Tasks/Settings views have
-        // their own central content. ~2x the sidebar's default width.
-        //
-        // Pure presentation: panel returns an `Outcome` we dispatch
-        // through the control surface below. This is the path that
-        // used to fork — widgets calling `update_*` directly versus
-        // tests calling `app.set_*` — collapsed into one.
-        let mut shelves_changed = false;
-        let mut details_outcome = details_panel::Outcome::None;
-        let mut details_fic_id: Option<u64> = None;
-        if let Selection::Single(id) = *self.selection.current() {
-            if self.current_view.shows_library() {
-                // Clone the fic so the immutable borrow on `self.cache.fics`
-                // releases before we dispatch outcomes through `&mut self`.
-                // Cheap: a few Vec<String> + small primitives.
-                if let Some(fic) = self.cache.fics.iter().find(|f| f.id == id).cloned() {
-                    details_fic_id = Some(id);
-                    egui::SidePanel::right("ficflow-details")
-                        .default_width(320.0)
-                        .width_range(280.0..=900.0)
-                        .resizable(true)
-                        .show(ctx, |ui| {
-                            details_outcome = details_panel::draw(
-                                ui,
-                                DetailsState {
-                                    fic: &fic,
-                                    all_shelves: &self.cache.shelves,
-                                    selection_shelf_ids: &self.cache.selection_shelf_ids,
-                                },
-                            );
-                        });
-                }
-            }
+    /// Right details panel. Shown only when exactly one fic is selected
+    /// in a library view — multi-select doesn't make sense here (no
+    /// single fic to detail) and Tasks/Settings views have their own
+    /// central content. ~2x the sidebar's default width.
+    ///
+    /// Pure presentation: panel returns an `Outcome` we dispatch
+    /// through the control surface. This is the path that used to fork
+    /// — widgets calling `update_*` directly versus tests calling
+    /// `app.set_*` — collapsed into one.
+    fn paint_details_panel(&mut self, ctx: &egui::Context) {
+        let Selection::Single(id) = *self.selection.current() else {
+            return;
+        };
+        if !self.current_view.shows_library() {
+            return;
         }
-        if let Some(fic_id) = details_fic_id {
-            shelves_changed = self.dispatch_details_outcome(fic_id, details_outcome);
-        }
+        // Clone the fic so the immutable borrow on `self.cache.fics`
+        // releases before we dispatch outcomes through `&mut self`.
+        // Cheap: a few Vec<String> + small primitives.
+        let Some(fic) = self.cache.fics.iter().find(|f| f.id == id).cloned() else {
+            return;
+        };
+        let mut outcome = details_panel::Outcome::None;
+        egui::SidePanel::right("ficflow-details")
+            .default_width(320.0)
+            .width_range(280.0..=900.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                outcome = details_panel::draw(
+                    ui,
+                    DetailsState {
+                        fic: &fic,
+                        all_shelves: &self.cache.shelves,
+                        selection_shelf_ids: &self.cache.selection_shelf_ids,
+                    },
+                );
+            });
+        self.dispatch_details_outcome(id, outcome);
+    }
 
-        // Selection bar (bottom of the central area). Shown whenever there's
-        // an active selection — both single and multi — so the user can act
-        // on the selection without forcing a multi-select first. Pure
-        // presentation: returns an `Outcome` we dispatch through the
-        // control surface below.
-        let mut bulk_shelves_changed = false;
-        let mut bulk_outcome = selection_bar::Outcome::None;
+    /// Bottom selection bar. Shown whenever there's an active selection
+    /// — both single and multi — so the user can act on the selection
+    /// without forcing a multi-select first. Pure presentation: returns
+    /// an `Outcome` we dispatch through the control surface.
+    fn paint_selection_bar(&mut self, ctx: &egui::Context) {
         let selection_ids = self.selection.ids_vec();
-        if !selection_ids.is_empty() && self.current_view.shows_library() {
-            egui::TopBottomPanel::bottom("ficflow-selection-bar")
-                .resizable(false)
-                .show(ctx, |ui| {
-                    bulk_outcome = selection_bar::draw(
-                        ui,
-                        SelectionBarState {
-                            selection_ids: &selection_ids,
-                            current_view: &self.current_view,
-                            all_shelves: &self.cache.shelves,
-                        },
-                    );
-                });
+        if selection_ids.is_empty() || !self.current_view.shows_library() {
+            return;
         }
-        match bulk_outcome {
+        let mut outcome = selection_bar::Outcome::None;
+        egui::TopBottomPanel::bottom("ficflow-selection-bar")
+            .resizable(false)
+            .show(ctx, |ui| {
+                outcome = selection_bar::draw(
+                    ui,
+                    SelectionBarState {
+                        selection_ids: &selection_ids,
+                        current_view: &self.current_view,
+                        all_shelves: &self.cache.shelves,
+                    },
+                );
+            });
+        match outcome {
             selection_bar::Outcome::None => {}
             selection_bar::Outcome::SetStatus(status) => {
                 let (succeeded, failed) = self.bulk_set_status(&selection_ids, status);
@@ -851,22 +862,26 @@ impl FicflowApp {
             selection_bar::Outcome::AddToShelf(shelf_id) => {
                 let (succeeded, failed) = self.bulk_add_to_shelf(&selection_ids, shelf_id);
                 self.toast_bulk_result("Added to shelf", succeeded, failed);
-                bulk_shelves_changed = true;
             }
             selection_bar::Outcome::RemoveFromShelf(shelf_id) => {
                 let (succeeded, failed) = self.bulk_remove_from_shelf(&selection_ids, shelf_id);
                 self.toast_bulk_result("Removed from shelf", succeeded, failed);
-                bulk_shelves_changed = true;
             }
             selection_bar::Outcome::RequestDelete => {
-                self.active_modal = ActiveModal::DeleteFics(selection_ids.clone());
+                self.active_modal = ActiveModal::DeleteFics(selection_ids);
             }
             selection_bar::Outcome::ClearSelection => {
                 self.clear_selection();
             }
         }
+    }
 
-        // Center.
+    /// Central panel: header row + library/tasks/settings content.
+    /// Also handles the empty-area click (clear selection), the
+    /// post-render selection-shelf refresh, the orphan-selection
+    /// cleanup (selected fic was deleted), and saves the sort pref
+    /// when a header click changes it.
+    fn paint_central(&mut self, ctx: &egui::Context) {
         let mut sort_changed = false;
         let prev_selection = self.selection.current().clone();
         let view_title = self.current_view.header_title(&self.cache.shelves);
@@ -906,17 +921,6 @@ impl FicflowApp {
         if *self.selection.current() != prev_selection {
             self.refresh_selection_shelf_ids();
         }
-        if shelves_changed || bulk_shelves_changed {
-            // Refresh fic-shelf link cache, plus the shelf-view membership
-            // cache if the affected shelf happens to be the active view.
-            // Sidebar counts also depend on shelf membership.
-            self.refresh_selection_shelf_ids();
-            self.refresh_shelf_counts();
-            if matches!(self.current_view, View::Shelf(_)) {
-                self.refresh_shelf_members();
-            }
-        }
-
         // If the fic that was selected got deleted (e.g. via the details
         // panel's "Delete Fic" button), drop the now-invalid selection so
         // the panel doesn't render a "not found" state next frame.
@@ -925,15 +929,26 @@ impl FicflowApp {
                 self.selection.clear();
             }
         }
+        if sort_changed {
+            self.config.default_sort = self.sort;
+            self.save_config();
+        }
+    }
 
-        // Modals (run after the rest of the UI so they overlay correctly).
+    /// Modal dispatch + the column picker. Modals run after the rest
+    /// of the UI so they overlay correctly. Column-picker writes happen
+    /// only when a column actually toggled this frame (previously this
+    /// saved every frame the picker was open — at egui's 60 Hz that
+    /// meant ~60 disk writes/second while the user was just *looking*
+    /// at the picker).
+    fn paint_modals(&mut self, ctx: &egui::Context) {
         let columns_changed = column_picker::show(
             ctx,
             &mut self.show_column_picker,
             &mut self.config.visible_columns,
         );
         // Modal dispatch — exactly one variant of `active_modal` runs
-        // per frame. Outcomes are extracted into a local `Action`
+        // per frame. Outcomes are extracted into a local `ModalAction`
         // before dispatch so the action handler (which takes `&mut
         // self`) doesn't fight the modal-borrow over `self.active_modal`.
         enum ModalAction {
@@ -991,8 +1006,16 @@ impl FicflowApp {
                 self.active_modal = ActiveModal::None;
             }
         }
+        if columns_changed {
+            self.save_config();
+        }
+    }
 
-        // Pull in newly-added fics from the worker and toast each completion.
+    /// Drains worker completions + refreshes from the background
+    /// thread, reloads the in-memory caches, and schedules a repaint
+    /// while any task is still running so spinner animations + task
+    /// age strings tick over without requiring user input.
+    fn drain_worker_events(&mut self, ctx: &egui::Context) {
         let completions = self.task_executor.take_completions();
         if !completions.is_empty() {
             for title in &completions {
@@ -1005,9 +1028,6 @@ impl FicflowApp {
             }
             self.refresh_selection_shelf_ids();
         }
-
-        // Same drill for refreshes — reload so the new metadata and the
-        // bumped `last_checked_date` show in the details panel.
         let refreshes = self.task_executor.take_refreshes();
         if !refreshes.is_empty() {
             self.toasts
@@ -1017,26 +1037,9 @@ impl FicflowApp {
                 self.refresh_shelf_members();
             }
         }
-        // Keep painting while a task is running so the spinner animates and
-        // task age strings tick over without requiring user input.
         if self.task_executor.has_running() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
-
-        if sort_changed {
-            self.config.default_sort = self.sort;
-            self.save_config();
-        }
-        // Save only when the picker actually toggled a column this
-        // frame. Previously this saved every frame the picker was
-        // open — at egui's 60 Hz that meant ~60 disk writes/second
-        // while the user was just *looking* at the picker.
-        if columns_changed {
-            self.save_config();
-        }
-
-        self.draw_drag_preview(ctx);
-        self.toasts.show(ctx);
     }
 }
 
