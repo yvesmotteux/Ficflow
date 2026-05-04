@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use egui_notify::Toasts;
 use rusqlite::Connection;
@@ -13,7 +14,9 @@ use crate::domain::shelf::Shelf;
 use crate::error::FicflowError;
 use crate::infrastructure::config::{AppConfig, SortPref};
 use crate::infrastructure::external::ao3::fetcher::{ALT_AO3_URL, PRIMARY_AO3_URL, PROXY_AO3_URL};
-use crate::infrastructure::persistence::database::connection::establish_connection;
+use crate::infrastructure::persistence::database::connection::{
+    establish_connection, open_configured_db,
+};
 use crate::infrastructure::SqliteRepository;
 
 use super::fonts;
@@ -82,16 +85,65 @@ impl std::fmt::Display for InitError {
 
 impl std::error::Error for InitError {}
 
+/// Wiring that the production binary derives from the environment but
+/// tests construct explicitly. Lets the kittest harness point the GUI
+/// at a per-test SQLite file and a mocked AO3 server without touching
+/// process-global env vars (which aren't safe across parallel tests).
+#[derive(Clone)]
+pub struct FicflowConfig {
+    /// Override for the SQLite DB. If `None`, falls back to
+    /// `establish_connection()` (which checks `FICFLOW_DB_PATH` then
+    /// the platform data dir). Tests always set this to a tempfile so
+    /// they're isolated from each other and from the user's real DB.
+    pub db_path: Option<PathBuf>,
+    /// AO3 base URLs to round-robin during fetches.
+    pub ao3_urls: Vec<String>,
+    /// How many full URL-rotation cycles to attempt before giving up
+    /// on a fetch. Tests use 1 for fail-fast behaviour.
+    pub max_retry_cycles: u32,
+}
+
+impl Default for FicflowConfig {
+    fn default() -> Self {
+        let (ao3_urls, max_retry_cycles) = ao3_config_from_env();
+        Self {
+            db_path: None,
+            ao3_urls,
+            max_retry_cycles,
+        }
+    }
+}
+
 impl FicflowApp {
+    /// Production entry point: derives config from the environment and
+    /// the platform data dir.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, InitError> {
+        Self::with_config(cc, FicflowConfig::default())
+    }
+
+    /// Test/embedding entry point: every dependency the app talks to
+    /// (DB path, AO3 base URLs) comes through `config`. The worker
+    /// thread inside `TaskExecutor` is told the same `db_path` so it
+    /// opens the same SQLite file, otherwise the GUI and the worker
+    /// would be looking at different stores.
+    pub fn with_config(
+        cc: &eframe::CreationContext<'_>,
+        config: FicflowConfig,
+    ) -> Result<Self, InitError> {
         fonts::install_system_fallback(&cc.egui_ctx);
-        let connection = establish_connection().map_err(InitError::Database)?;
+        let connection = match &config.db_path {
+            Some(path) => open_configured_db(path).map_err(InitError::Database)?,
+            None => establish_connection().map_err(InitError::Database)?,
+        };
         let fics = load_fics(&connection);
         let shelves = load_shelves(&connection);
-        let config = AppConfig::load();
-        let sort = config.default_sort;
-        let (urls, max_cycles) = ao3_config_from_env();
-        let task_executor = TaskExecutor::spawn(urls, max_cycles);
+        let app_config = AppConfig::load();
+        let sort = app_config.default_sort;
+        let task_executor = TaskExecutor::spawn(
+            config.ao3_urls,
+            config.max_retry_cycles,
+            config.db_path.clone(),
+        );
         let shelf_counts = compute_shelf_counts(&connection, &shelves);
         Ok(Self {
             connection,
@@ -100,7 +152,7 @@ impl FicflowApp {
             shelf_members: HashSet::new(),
             selection_shelf_ids: HashSet::new(),
             shelf_counts,
-            config,
+            config: app_config,
             initial_window_state_applied: false,
             sort,
             search_query: String::new(),

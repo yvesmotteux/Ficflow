@@ -6,6 +6,7 @@
 pub mod worker;
 
 use std::mem;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -74,13 +75,18 @@ pub struct TaskExecutor {
 }
 
 impl TaskExecutor {
-    pub fn spawn(urls: Vec<String>, max_cycles: u32) -> Self {
+    /// Spawns the worker thread. `db_path` matches the GUI's connection
+    /// override (see `FicflowConfig::db_path`) — the worker opens its
+    /// OWN connection (Connection isn't `Send`) but it must point at
+    /// the same SQLite file so writes from the worker show up in the
+    /// GUI's reads. `None` falls through to `establish_connection()`.
+    pub fn spawn(urls: Vec<String>, max_cycles: u32, db_path: Option<PathBuf>) -> Self {
         let inbox = Arc::new(WorkerInbox::new());
         let (tx, rx) = mpsc::channel();
         let worker_inbox = Arc::clone(&inbox);
         let worker = thread::Builder::new()
             .name("ficflow-tasks".into())
-            .spawn(move || worker::run(rx, worker_inbox, urls, max_cycles))
+            .spawn(move || worker::run(rx, worker_inbox, urls, max_cycles, db_path))
             .expect("failed to spawn task-worker thread");
         Self {
             inbox,

@@ -1,4 +1,4 @@
-mod app;
+pub mod app;
 mod fonts;
 mod selection;
 mod tasks;
@@ -7,6 +7,8 @@ mod views;
 mod widgets;
 
 use std::process::ExitCode;
+
+pub use app::{FicflowApp, FicflowConfig, InitError};
 
 use crate::domain::fanfiction::FanfictionFetcher;
 use crate::domain::repository::Repository;
@@ -28,7 +30,7 @@ pub fn run_gui(_fetcher: &dyn FanfictionFetcher, _repository: &dyn Repository) -
         "Ficflow",
         native_options,
         Box::new(|cc| {
-            let app = app::FicflowApp::new(cc).map_err(|e| {
+            let app = FicflowApp::new(cc).map_err(|e| {
                 log::error!("Failed to initialise GUI: {}", e);
                 Box::new(e) as Box<dyn std::error::Error + Send + Sync>
             })?;

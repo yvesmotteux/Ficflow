@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
@@ -5,7 +6,9 @@ use crate::application::add_fic::add_fanfiction;
 use crate::application::check_updates::check_fic_updates;
 use crate::error::FicflowError;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
-use crate::infrastructure::persistence::database::connection::establish_connection;
+use crate::infrastructure::persistence::database::connection::{
+    establish_connection, open_configured_db,
+};
 use crate::infrastructure::SqliteRepository;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
@@ -16,8 +19,15 @@ pub fn run(
     inbox: Arc<WorkerInbox>,
     urls: Vec<String>,
     max_cycles: u32,
+    db_path: Option<PathBuf>,
 ) {
-    let conn = match establish_connection() {
+    // Mirror the GUI's connection override so the worker writes land in
+    // the same SQLite file the GUI reads from.
+    let conn_result = match db_path {
+        Some(ref path) => open_configured_db(path),
+        None => establish_connection(),
+    };
+    let conn = match conn_result {
         Ok(c) => c,
         Err(err) => {
             log::error!("task worker couldn't open DB: {}", err);
