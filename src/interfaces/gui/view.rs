@@ -5,19 +5,14 @@ use crate::domain::shelf::Shelf;
 
 /// Which view the user is looking at — drives the header title and the
 /// center panel's content + filtering.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum View {
+    #[default]
     AllFics,
     ByStatus(ReadingStatus),
     Shelf(u64),
     Tasks,
     Settings,
-}
-
-impl Default for View {
-    fn default() -> Self {
-        Self::AllFics
-    }
 }
 
 impl View {

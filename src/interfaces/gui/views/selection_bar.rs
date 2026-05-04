@@ -105,7 +105,7 @@ pub fn draw(ui: &mut Ui, state: SelectionBarState<'_>) -> bool {
 }
 
 fn bulk_update_status(
-    fics: &mut Vec<Fanfiction>,
+    fics: &mut [Fanfiction],
     ids: &[u64],
     new_status: ReadingStatus,
     conn: &Connection,

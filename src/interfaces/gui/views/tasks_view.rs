@@ -3,18 +3,13 @@ use egui::{Align, Layout, RichText, ScrollArea, Ui};
 
 use super::super::tasks::{TaskExecutor, TaskKind, TaskState, TaskStatus};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum TaskFilter {
+    #[default]
     All,
     Running,
     Completed,
     Failed,
-}
-
-impl Default for TaskFilter {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 pub struct TasksViewState<'a> {

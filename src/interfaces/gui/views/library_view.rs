@@ -84,6 +84,7 @@ pub fn visible_count(
         .count()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_table(
     ui: &mut Ui,
     all_fics: &[Fanfiction],
@@ -429,7 +430,7 @@ fn format_thousands(n: u32) -> String {
     for (i, b) in bytes.iter().enumerate() {
         out.push(*b as char);
         let remaining = len - i - 1;
-        if remaining > 0 && remaining % 3 == 0 {
+        if remaining > 0 && remaining.is_multiple_of(3) {
             out.push(',');
         }
     }
@@ -560,15 +561,15 @@ fn matches_search(fic: &Fanfiction, query: &str) -> bool {
         || fic
             .characters
             .as_deref()
-            .map_or(false, |v| v.iter().any(|s| needle(s)))
+            .is_some_and(|v| v.iter().any(|s| needle(s)))
         || fic
             .relationships
             .as_deref()
-            .map_or(false, |v| v.iter().any(|s| needle(s)))
+            .is_some_and(|v| v.iter().any(|s| needle(s)))
         || fic
             .tags
             .as_deref()
-            .map_or(false, |v| v.iter().any(|s| needle(s)))
+            .is_some_and(|v| v.iter().any(|s| needle(s)))
 }
 
 fn compare(a: &Fanfiction, b: &Fanfiction, column: ColumnKey) -> Ordering {
