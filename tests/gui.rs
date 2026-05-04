@@ -18,3 +18,21 @@ mod harness;
 
 #[path = "gui/smoke.rs"]
 mod smoke;
+
+#[path = "gui/library.rs"]
+mod library;
+
+#[path = "gui/field_updates.rs"]
+mod field_updates;
+
+#[path = "gui/shelves.rs"]
+mod shelves;
+
+#[path = "gui/bulk.rs"]
+mod bulk;
+
+#[path = "gui/soft_delete.rs"]
+mod soft_delete;
+
+#[path = "gui/view_state.rs"]
+mod view_state;

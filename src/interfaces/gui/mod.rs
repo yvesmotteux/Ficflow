@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 pub use app::{FicflowApp, FicflowConfig, InitError};
 pub use selection::Selection;
+pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
 
 use crate::domain::fanfiction::FanfictionFetcher;
