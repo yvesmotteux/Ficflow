@@ -270,4 +270,20 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         )?;
         Ok(count as usize)
     }
+
+    fn count_fics_per_shelf(&self) -> Result<std::collections::HashMap<u64, usize>, FicflowError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT fs.shelf_id, COUNT(*) FROM fic_shelf fs \
+             JOIN fanfiction f ON f.id = fs.fic_id \
+             WHERE f.deleted_at IS NULL \
+             GROUP BY fs.shelf_id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let shelf_id: i64 = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            Ok((shelf_id as u64, count as usize))
+        })?;
+        rows.collect::<Result<_, _>>()
+            .map_err(FicflowError::Database)
+    }
 }

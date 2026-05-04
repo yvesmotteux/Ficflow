@@ -9,7 +9,7 @@ use super::super::config::{ColumnKey, SortDirection, SortPref};
 use crate::domain::fanfiction::{ArchiveWarnings, Fanfiction, Rating, ReadingStatus};
 
 use super::super::format::{format_status, format_thousands};
-use super::super::selection::Selection;
+use super::super::selection_controller::SelectionController;
 use super::super::view::View;
 
 const HEADER_HEIGHT: f32 = 22.0;
@@ -20,13 +20,9 @@ pub struct LibraryViewState<'a> {
     pub sort: &'a mut SortPref,
     pub search_query: &'a str,
     pub visible_columns: &'a [ColumnKey],
-    pub selection: &'a mut Selection,
+    pub selection: &'a mut SelectionController,
     pub view: &'a View,
     pub shelf_members: &'a HashSet<u64>,
-    /// Anchor row id for shift-click range selection. Updated on plain and
-    /// ctrl-clicks; preserved across shift-click extensions so successive
-    /// shift-clicks all anchor to the same row.
-    pub last_clicked_id: &'a mut Option<u64>,
 }
 
 /// Returns true if `sort` was mutated by a header click — caller persists.
@@ -39,7 +35,6 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
         selection,
         view,
         shelf_members,
-        last_clicked_id,
     } = state;
 
     let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort, view, shelf_members);
@@ -50,7 +45,6 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
         sort,
         visible_columns,
         selection,
-        last_clicked_id,
         search_query,
     )
 }
@@ -85,15 +79,13 @@ pub fn visible_count(
         .count()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_table(
     ui: &mut Ui,
     all_fics: &[Fanfiction],
     fics: &[&Fanfiction],
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
-    selection: &mut Selection,
-    last_clicked_id: &mut Option<u64>,
+    selection: &mut SelectionController,
     search_query: &str,
 ) -> bool {
     if visible_columns.is_empty() {
@@ -124,16 +116,7 @@ fn draw_table(
     let auto_fit = natural.iter().sum::<f32>() <= outer_avail;
 
     if auto_fit {
-        build_table(
-            ui,
-            fics,
-            sort,
-            visible_columns,
-            selection,
-            last_clicked_id,
-            &natural,
-            true,
-        )
+        build_table(ui, fics, sort, visible_columns, selection, &natural, true)
     } else {
         // Doesn't fit — wrap in a horizontal ScrollArea so the user can
         // pan to overflowed columns. Fixed-width columns only inside,
@@ -141,16 +124,7 @@ fn draw_table(
         // unbounded inner width.
         egui::ScrollArea::horizontal()
             .show(ui, |ui| {
-                build_table(
-                    ui,
-                    fics,
-                    sort,
-                    visible_columns,
-                    selection,
-                    last_clicked_id,
-                    &natural,
-                    false,
-                )
+                build_table(ui, fics, sort, visible_columns, selection, &natural, false)
             })
             .inner
     }
@@ -160,14 +134,12 @@ fn draw_table(
 /// table fills the available width) and once inside a horizontal
 /// ScrollArea for the overflow case (where the table extends past the
 /// viewport and the user pans to see the rest).
-#[allow(clippy::too_many_arguments)]
 fn build_table(
     ui: &mut Ui,
     fics: &[&Fanfiction],
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
-    selection: &mut Selection,
-    last_clicked_id: &mut Option<u64>,
+    selection: &mut SelectionController,
     natural: &[f32],
     auto_fit: bool,
 ) -> bool {
@@ -217,7 +189,7 @@ fn build_table(
                 let resp = row.response();
                 if resp.clicked() {
                     let mods = resp.ctx.input(|i| i.modifiers);
-                    handle_row_click(selection, last_clicked_id, fics, row_idx, mods);
+                    selection.handle_row_click(fics, row_idx, mods);
                 }
                 if resp.drag_started() {
                     // If the user starts dragging a row that's already part
@@ -225,7 +197,7 @@ fn build_table(
                     // drag just that row (without changing the selection,
                     // which would feel surprising).
                     let drag_ids: Vec<u64> = if selection.contains(fic.id) {
-                        selection_to_vec(selection)
+                        selection.ids_vec()
                     } else {
                         vec![fic.id]
                     };
@@ -234,63 +206,6 @@ fn build_table(
             });
         });
     sort_changed
-}
-
-/// Resolve a row click into a new selection. `mods` come from the click
-/// itself so we honour ctrl/shift correctly across platforms (egui's
-/// `Modifiers::command` already maps to Cmd on macOS and Ctrl elsewhere).
-fn handle_row_click(
-    selection: &mut Selection,
-    last_clicked_id: &mut Option<u64>,
-    visible: &[&Fanfiction],
-    clicked_idx: usize,
-    mods: egui::Modifiers,
-) {
-    let clicked_id = visible[clicked_idx].id;
-
-    if mods.shift {
-        // Range select between anchor and clicked row.
-        let anchor_id = last_clicked_id.unwrap_or(clicked_id);
-        let anchor_idx = visible
-            .iter()
-            .position(|f| f.id == anchor_id)
-            .unwrap_or(clicked_idx);
-        let (start, end) = if anchor_idx <= clicked_idx {
-            (anchor_idx, clicked_idx)
-        } else {
-            (clicked_idx, anchor_idx)
-        };
-        let ids: Vec<u64> = visible[start..=end].iter().map(|f| f.id).collect();
-        *selection = match ids.len() {
-            1 => Selection::Single(ids[0]),
-            _ => Selection::Multi(ids),
-        };
-        // Anchor stays put across consecutive shift-clicks.
-    } else if mods.command {
-        let mut current = selection_to_vec(selection);
-        if let Some(pos) = current.iter().position(|&id| id == clicked_id) {
-            current.remove(pos);
-        } else {
-            current.push(clicked_id);
-        }
-        *selection = match current.len() {
-            0 => Selection::None,
-            1 => Selection::Single(current[0]),
-            _ => Selection::Multi(current),
-        };
-        *last_clicked_id = Some(clicked_id);
-    } else {
-        *selection = Selection::Single(clicked_id);
-        *last_clicked_id = Some(clicked_id);
-    }
-}
-
-fn selection_to_vec(selection: &Selection) -> Vec<u64> {
-    match selection {
-        Selection::None => Vec::new(),
-        Selection::Single(id) => vec![*id],
-        Selection::Multi(ids) => ids.clone(),
-    }
 }
 
 fn default_initial_width(col: ColumnKey) -> f32 {

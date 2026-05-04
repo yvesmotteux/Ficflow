@@ -10,7 +10,7 @@ pub enum UserRating {
     Five = 5,
 }
 
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display, PartialEq)]
 pub enum Rating {
     NotRated,
     General,
@@ -19,7 +19,7 @@ pub enum Rating {
     Explicit,
 }
 
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display, PartialEq)]
 pub enum ArchiveWarnings {
     ChooseNotToUse,
     GraphicDepictionsOfViolence,
@@ -29,7 +29,7 @@ pub enum ArchiveWarnings {
     Underage,
 }
 
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display, PartialEq)]
 pub enum Categories {
     FF,
     FM,

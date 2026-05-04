@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use egui_notify::Toasts;
@@ -6,10 +5,9 @@ use rusqlite::Connection;
 
 use super::config::{AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
-    add_to_shelf::add_to_shelf, count_fics_in_shelf::count_fics_in_shelf,
-    create_shelf::create_shelf, delete_fic, delete_shelf, list_fics, list_shelf_fics, list_shelves,
-    list_shelves_for_fic, remove_from_shelf, update_chapters, update_note, update_rating,
-    update_read_count, update_status,
+    add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf,
+    remove_from_shelf, update_chapters, update_note, update_rating, update_read_count,
+    update_status,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
 use crate::domain::shelf::Shelf;
@@ -21,8 +19,9 @@ use crate::infrastructure::persistence::database::connection::{
 use crate::infrastructure::SqliteRepository;
 
 use super::fonts;
-use super::format::{rating_payload, status_payload};
+use super::library_cache::LibraryCache;
 use super::selection::Selection;
+use super::selection_controller::SelectionController;
 use super::tasks::TaskExecutor;
 use super::view::View;
 use super::views::details_panel::DetailsState;
@@ -38,17 +37,11 @@ use super::views::{
 
 pub struct FicflowApp {
     connection: Connection,
-    fics: Vec<Fanfiction>,
-    shelves: Vec<Shelf>,
-    /// Cached fic-id membership for the currently-selected shelf view. Empty
-    /// (and unused) when `current_view` is anything other than `View::Shelf(_)`.
-    shelf_members: HashSet<u64>,
-    /// Cached shelf-ids that the currently-selected fic belongs to. Empty
-    /// when `selection` is not `Single(_)`.
-    selection_shelf_ids: HashSet<u64>,
-    /// Cached per-shelf fic counts shown in the sidebar. Refreshed on app
-    /// init and after any operation that can change shelf membership.
-    shelf_counts: HashMap<u64, usize>,
+    /// All in-memory caches (`fics`, `shelves`, `shelf_members`,
+    /// `selection_shelf_ids`, `shelf_counts`) plus the `mutate()`
+    /// funnel that keeps them coherent. See `LibraryCache` for the
+    /// invariants each field upholds.
+    cache: LibraryCache,
     config: AppConfig,
     /// Set after the first `update()` applies the persisted maximized /
     /// fullscreen state via `ViewportCommand`. Without this gate the
@@ -57,9 +50,9 @@ pub struct FicflowApp {
     sort: SortPref,
     search_query: String,
     show_column_picker: bool,
-    selection: Selection,
-    /// Anchor row id for shift-click range selection in the library table.
-    last_clicked_id: Option<u64>,
+    /// Library-table selection state + the row-click resolver. See
+    /// `SelectionController` for how clicks/modifiers map to deltas.
+    selection: SelectionController,
     current_view: View,
     /// Which (at most one) modal window is currently displayed. The
     /// enum guarantees exclusivity at the type level — opening any
@@ -156,8 +149,7 @@ impl FicflowApp {
             Some(path) => open_configured_db(path).map_err(InitError::Database)?,
             None => establish_connection().map_err(InitError::Database)?,
         };
-        let fics = load_fics(&connection);
-        let shelves = load_shelves(&connection);
+        let cache = LibraryCache::load(&connection);
         let app_config = AppConfig::load();
         let sort = app_config.default_sort;
         let task_executor = TaskExecutor::spawn(
@@ -165,21 +157,15 @@ impl FicflowApp {
             config.max_retry_cycles,
             config.db_path.clone(),
         );
-        let shelf_counts = compute_shelf_counts(&connection, &shelves);
         Ok(Self {
             connection,
-            fics,
-            shelves,
-            shelf_members: HashSet::new(),
-            selection_shelf_ids: HashSet::new(),
-            shelf_counts,
+            cache,
             config: app_config,
             initial_window_state_applied: false,
             sort,
             search_query: String::new(),
             show_column_picker: false,
-            selection: Selection::default(),
-            last_clicked_id: None,
+            selection: SelectionController::new(),
             current_view: View::default(),
             active_modal: ActiveModal::None,
             task_executor,
@@ -198,16 +184,16 @@ impl FicflowApp {
     /// In-memory cache of all non-deleted fics, in the order
     /// `list_fics` returned them.
     pub fn fics(&self) -> &[Fanfiction] {
-        &self.fics
+        &self.cache.fics
     }
 
     /// In-memory cache of all non-deleted shelves.
     pub fn shelves(&self) -> &[Shelf] {
-        &self.shelves
+        &self.cache.shelves
     }
 
     pub fn selection(&self) -> &Selection {
-        &self.selection
+        self.selection.current()
     }
 
     pub fn current_view(&self) -> &View {
@@ -235,9 +221,9 @@ impl FicflowApp {
     /// renders (and that `Ctrl+A` selects).
     pub fn visible_ids(&self) -> Vec<u64> {
         library_view::visible_ids(
-            &self.fics,
+            &self.cache.fics,
             &self.current_view,
-            &self.shelf_members,
+            &self.cache.shelf_members,
             &self.search_query,
             self.sort,
         )
@@ -247,7 +233,8 @@ impl FicflowApp {
     /// Mirrors the gating in `update()` — only on a single-fic
     /// selection inside a library view.
     pub fn details_panel_visible(&self) -> bool {
-        matches!(self.selection, Selection::Single(_)) && self.current_view.shows_library()
+        matches!(self.selection.current(), Selection::Single(_))
+            && self.current_view.shows_library()
     }
 
     /// True while at least one background task (Add or Refresh) is
@@ -270,21 +257,16 @@ impl FicflowApp {
     // application-layer entry points as their pointer-driven cousins.
     //
     // Important: these methods bypass the *widget* code path that
-    // dispatches the application call (combo box → string payload,
+    // dispatches the application call (combo box → ReadingStatus,
     // drag-value → u32, star widget → Option<UserRating>). A test
     // that exercises `set_status(id, ReadingStatus::Read)` proves
     // that `update_reading_status` lands in the DB; it does NOT
-    // prove that the status combo's selection-to-payload mapping is
-    // correct. We accept that gap on purpose: the per-widget glue is
-    // small enough that human verification suffices, and a real
+    // prove that the status combo's selection mapping is correct.
+    // We accept that gap on purpose: the per-widget glue is small
+    // enough that human verification suffices, and a real
     // event-injection test harness would require either bumping to
     // egui_kittest 0.30+ (incompatible with the pinned 0.29 chrome
     // work) or a from-scratch raw-pointer-event simulator.
-    //
-    // If you find yourself wanting more confidence in widget glue,
-    // the right intervention is a pin-down test on the specific
-    // mapping (`status_payload(ReadingStatus::Read) == "read"`),
-    // not a wrapper around this surface.
 
     /// Enqueue a background fetch to add a new fanfiction by URL or
     /// numeric ID. The worker thread runs the AO3 fetch + DB insert;
@@ -297,8 +279,7 @@ impl FicflowApp {
     /// Mark a single fic as the current selection. Mirrors a plain
     /// (non-modifier) row click in the library table.
     pub fn select_fic(&mut self, fic_id: u64) {
-        self.selection = Selection::Single(fic_id);
-        self.last_clicked_id = Some(fic_id);
+        self.selection.select_single(fic_id);
         self.refresh_selection_shelf_ids();
     }
 
@@ -307,20 +288,14 @@ impl FicflowApp {
     /// Multi. Equivalent to the result of a shift-click range or a
     /// series of ctrl-click toggles.
     pub fn select_fics(&mut self, ids: &[u64]) {
-        self.selection = match ids {
-            [] => Selection::None,
-            [single] => Selection::Single(*single),
-            many => Selection::Multi(many.to_vec()),
-        };
-        self.last_clicked_id = ids.last().copied();
+        self.selection.select_many(ids);
         self.refresh_selection_shelf_ids();
     }
 
     /// Drop the current selection.
     pub fn clear_selection(&mut self) {
-        self.selection = Selection::None;
-        self.last_clicked_id = None;
-        self.selection_shelf_ids.clear();
+        self.selection.clear();
+        self.cache.selection_shelf_ids.clear();
     }
 
     /// Switch to a different view. Equivalent to clicking a sidebar
@@ -333,8 +308,8 @@ impl FicflowApp {
     /// Enqueue a background re-fetch of the currently-selected fic.
     /// No-op if the selection isn't a single fic.
     pub fn refresh_selected(&self) {
-        if let Selection::Single(id) = self.selection {
-            if let Some(fic) = self.fics.iter().find(|f| f.id == id) {
+        if let Selection::Single(id) = *self.selection.current() {
+            if let Some(fic) = self.cache.fics.iter().find(|f| f.id == id) {
                 self.task_executor.enqueue_refresh(id, fic.title.clone());
             }
         }
@@ -346,11 +321,10 @@ impl FicflowApp {
     /// immediately — every member just got deleted, so keeping it
     /// pointing at stale ids would be confusing.
     pub fn delete_selected(&mut self) {
-        let ids: Vec<u64> = match &self.selection {
-            Selection::None => return,
-            Selection::Single(id) => vec![*id],
-            Selection::Multi(ids) => ids.clone(),
-        };
+        let ids = self.selection.ids_vec();
+        if ids.is_empty() {
+            return;
+        }
         let surviving: Vec<u64> = self.mutate(|repo| {
             ids.iter()
                 .filter_map(|id| match delete_fic::delete_fic(repo, *id) {
@@ -359,9 +333,8 @@ impl FicflowApp {
                 })
                 .collect()
         });
-        self.fics.retain(|f| !surviving.contains(&f.id));
-        self.selection = Selection::None;
-        self.last_clicked_id = None;
+        self.cache.remove_fics(&surviving);
+        self.selection.clear();
     }
 
     /// Create a new shelf and refresh the in-memory caches. Mirrors the
@@ -374,7 +347,7 @@ impl FicflowApp {
             Ok(shelf) => {
                 self.toasts
                     .success(format!("Created shelf \u{201C}{}\u{201D}", shelf.name));
-                self.shelves = load_shelves(&self.connection);
+                self.cache.reload_shelves(&self.connection);
                 self.refresh_shelf_counts();
                 Ok(())
             }
@@ -395,9 +368,9 @@ impl FicflowApp {
                 self.toasts.success("Shelf deleted");
                 if self.current_view == View::Shelf(shelf_id) {
                     self.current_view = View::AllFics;
-                    self.shelf_members.clear();
+                    self.cache.shelf_members.clear();
                 }
-                self.shelves = load_shelves(&self.connection);
+                self.cache.reload_shelves(&self.connection);
                 self.refresh_shelf_counts();
                 Ok(())
             }
@@ -424,6 +397,47 @@ impl FicflowApp {
         self.mutate(|repo| remove_from_shelf::remove_from_shelf(repo, fic_id, shelf_id))
     }
 
+    /// Bulk set status across many fics. Mirrors the "Change status"
+    /// menu in the selection bar. Returns `(succeeded, failed)`.
+    pub fn bulk_set_status(&mut self, ids: &[u64], status: ReadingStatus) -> (usize, usize) {
+        let mut errors = 0usize;
+        let mut updated_fics: Vec<Fanfiction> = Vec::with_capacity(ids.len());
+        let repo = self.repo();
+        for id in ids {
+            match update_status::update_reading_status(&repo, *id, status) {
+                Ok(updated) => updated_fics.push(updated),
+                Err(_) => errors += 1,
+            }
+        }
+        for fic in updated_fics {
+            self.cache.replace_fic(fic);
+        }
+        (ids.len() - errors, errors)
+    }
+
+    /// Bulk add many fics to one shelf. Mirrors the "Add to shelf"
+    /// menu in the selection bar. Returns `(succeeded, failed)`.
+    pub fn bulk_add_to_shelf(&mut self, ids: &[u64], shelf_id: u64) -> (usize, usize) {
+        let errors = self.mutate(|repo| {
+            ids.iter()
+                .filter(|id| add_to_shelf(repo, **id, shelf_id).is_err())
+                .count()
+        });
+        (ids.len() - errors, errors)
+    }
+
+    /// Bulk remove many fics from one shelf. Mirrors the "Remove from
+    /// shelf" button (only shown inside a shelf view). Returns
+    /// `(succeeded, failed)`.
+    pub fn bulk_remove_from_shelf(&mut self, ids: &[u64], shelf_id: u64) -> (usize, usize) {
+        let errors = self.mutate(|repo| {
+            ids.iter()
+                .filter(|id| remove_from_shelf::remove_from_shelf(repo, **id, shelf_id).is_err())
+                .count()
+        });
+        (ids.len() - errors, errors)
+    }
+
     /// Set the search query. Mirrors typing into the search bar.
     pub fn set_search(&mut self, query: impl Into<String>) {
         self.search_query = query.into();
@@ -433,8 +447,8 @@ impl FicflowApp {
     /// in the Your Info section.
     pub fn set_status(&mut self, fic_id: u64, status: ReadingStatus) -> Result<(), FicflowError> {
         let repo = self.repo();
-        let updated = update_status::update_reading_status(&repo, fic_id, status_payload(status))?;
-        replace_in_cache(&mut self.fics, updated);
+        let updated = update_status::update_reading_status(&repo, fic_id, status)?;
+        self.cache.replace_fic(updated);
         Ok(())
     }
 
@@ -444,7 +458,7 @@ impl FicflowApp {
     pub fn set_last_chapter(&mut self, fic_id: u64, chapter: u32) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_chapters::update_last_chapter_read(&repo, fic_id, chapter)?;
-        replace_in_cache(&mut self.fics, updated);
+        self.cache.replace_fic(updated);
         Ok(())
     }
 
@@ -452,7 +466,7 @@ impl FicflowApp {
     pub fn set_read_count(&mut self, fic_id: u64, count: u32) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_read_count::update_read_count(&repo, fic_id, count)?;
-        replace_in_cache(&mut self.fics, updated);
+        self.cache.replace_fic(updated);
         Ok(())
     }
 
@@ -464,8 +478,8 @@ impl FicflowApp {
         rating: Option<UserRating>,
     ) -> Result<(), FicflowError> {
         let repo = self.repo();
-        let updated = update_rating::update_user_rating(&repo, fic_id, rating_payload(rating))?;
-        replace_in_cache(&mut self.fics, updated);
+        let updated = update_rating::update_user_rating(&repo, fic_id, rating)?;
+        self.cache.replace_fic(updated);
         Ok(())
     }
 
@@ -474,13 +488,102 @@ impl FicflowApp {
     pub fn set_note(&mut self, fic_id: u64, note: Option<&str>) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_note::update_personal_note(&repo, fic_id, note)?;
-        replace_in_cache(&mut self.fics, updated);
+        self.cache.replace_fic(updated);
         Ok(())
     }
 
     fn save_config(&self) {
         if let Err(err) = self.config.save() {
             log::warn!("Failed to save config: {}", err);
+        }
+    }
+
+    /// Apply a single `details_panel::Outcome` for the fic with id
+    /// `fic_id`. Returns true when a fic-shelf link changed (caller
+    /// uses this to decide whether the post-render shelf-cache
+    /// refresh has work to do). Single home for the toast-on-error
+    /// behavior every widget used to inline.
+    fn dispatch_details_outcome(&mut self, fic_id: u64, outcome: details_panel::Outcome) -> bool {
+        use details_panel::Outcome;
+        match outcome {
+            Outcome::None => false,
+            Outcome::SetStatus(status) => {
+                if let Err(err) = self.set_status(fic_id, status) {
+                    self.toasts
+                        .error(format!("Couldn't update status: {}", err));
+                }
+                false
+            }
+            Outcome::SetLastChapter(n) => {
+                if let Err(err) = self.set_last_chapter(fic_id, n) {
+                    self.toasts
+                        .error(format!("Couldn't update chapter: {}", err));
+                }
+                false
+            }
+            Outcome::SetReadCount(n) => {
+                if let Err(err) = self.set_read_count(fic_id, n) {
+                    self.toasts
+                        .error(format!("Couldn't update read count: {}", err));
+                }
+                false
+            }
+            Outcome::SetUserRating(rating) => {
+                if let Err(err) = self.set_user_rating(fic_id, rating) {
+                    self.toasts
+                        .error(format!("Couldn't update rating: {}", err));
+                }
+                false
+            }
+            Outcome::SetNote(value) => {
+                if let Err(err) = self.set_note(fic_id, value.as_deref()) {
+                    self.toasts.error(format!("Couldn't update note: {}", err));
+                }
+                false
+            }
+            Outcome::AddToShelf(shelf_id) => {
+                if let Err(err) = self.add_fic_to_shelf(fic_id, shelf_id) {
+                    self.toasts.error(format!("Couldn't add to shelf: {}", err));
+                    false
+                } else {
+                    true
+                }
+            }
+            Outcome::RemoveFromShelf(shelf_id) => {
+                if let Err(err) = self.remove_fic_from_shelf(fic_id, shelf_id) {
+                    self.toasts
+                        .error(format!("Couldn't remove from shelf: {}", err));
+                    false
+                } else {
+                    true
+                }
+            }
+            Outcome::Delete => {
+                self.delete_selected();
+                self.toasts.success("Fanfiction deleted");
+                true
+            }
+            Outcome::Refresh => {
+                self.refresh_selected();
+                false
+            }
+        }
+    }
+
+    /// Toast helper for bulk-action results. Aggregates per-fic
+    /// outcomes into one of three messages: all-succeeded ("X
+    /// fanfictions"), all-failed ("All N updates failed"), or partial
+    /// ("F/N updates failed"). Used by the selection-bar dispatcher
+    /// and any future bulk caller.
+    fn toast_bulk_result(&mut self, action: &str, succeeded: usize, failed: usize) {
+        if failed == 0 {
+            self.toasts
+                .success(format!("{}: {} fanfictions", action, succeeded));
+        } else if succeeded == 0 {
+            self.toasts.error(format!("All {} updates failed", failed));
+        } else {
+            self.toasts
+                .error(format!("{}/{} updates failed", failed, succeeded + failed));
         }
     }
 
@@ -491,22 +594,21 @@ impl FicflowApp {
         SqliteRepository::new(&self.connection)
     }
 
-    /// Mutation funnel that runs `op` against the repo and then
-    /// refreshes every cache that could be affected by a fic-shelf
-    /// link change (`selection_shelf_ids`, `shelf_counts`, plus
-    /// `shelf_members` if the active view is a shelf). Used by every
-    /// mutation that can change shelf membership — `add_fic_to_shelf`,
-    /// `remove_fic_from_shelf`, `delete_selected`, `handle_bulk_delete`,
-    /// `handle_drop_on_shelf`. Over-refreshing is intentional: a
-    /// single funnel that always invalidates everything is the
-    /// hardest-to-break shape, and at a few-thousand-fic scale the
-    /// extra COUNT queries are imperceptible.
+    /// Thin wrapper around `LibraryCache::mutate` that toasts any
+    /// refresh errors. `op` is called with a fresh `SqliteRepository`
+    /// and its return value is forwarded; the cache handles the
+    /// post-op invalidation of `selection_shelf_ids`, `shelf_counts`,
+    /// and (when on a shelf view) `shelf_members`.
     fn mutate<R>(&mut self, op: impl FnOnce(&SqliteRepository<'_>) -> R) -> R {
-        let result = op(&self.repo());
-        self.refresh_selection_shelf_ids();
-        self.refresh_shelf_counts();
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
+        let (result, errors) = self.cache.mutate(
+            &self.connection,
+            &self.current_view,
+            self.selection.current(),
+            op,
+        );
+        for err in errors {
+            self.toasts
+                .error(format!("Couldn't refresh after change: {}", err));
         }
         result
     }
@@ -542,133 +644,44 @@ impl FicflowApp {
     }
 
     fn refresh_shelf_members(&mut self) {
-        self.shelf_members = match self.current_view {
-            View::Shelf(id) => {
-                let repo = self.repo();
-                match list_shelf_fics::list_shelf_fics(&repo, id) {
-                    Ok(fics) => fics.into_iter().map(|f| f.id).collect(),
-                    Err(err) => {
-                        self.toasts
-                            .error(format!("Couldn't load shelf contents: {}", err));
-                        HashSet::new()
-                    }
-                }
-            }
-            _ => HashSet::new(),
-        };
+        if let Err(err) = self
+            .cache
+            .refresh_shelf_members(&self.connection, &self.current_view)
+        {
+            self.toasts
+                .error(format!("Couldn't load shelf contents: {}", err));
+        }
     }
 
     /// Drop selected fic ids that aren't visible in the current view, so the
     /// details panel never shows a fic the user can't see in the table.
     /// On non-library views (Tasks/Settings) the selection is cleared entirely.
     fn prune_selection_to_view(&mut self) {
-        let before = self.selection.clone();
-
-        if !self.current_view.shows_library() {
-            self.selection = Selection::None;
-            self.last_clicked_id = None;
-        } else {
-            let visible_ids: Vec<u64> = match &self.selection {
-                Selection::None => Vec::new(),
-                Selection::Single(id) => self
-                    .fics
-                    .iter()
-                    .find(|f| f.id == *id)
-                    .filter(|f| self.current_view.includes(f, &self.shelf_members))
-                    .map(|f| f.id)
-                    .into_iter()
-                    .collect(),
-                Selection::Multi(ids) => ids
-                    .iter()
-                    .filter_map(|id| {
-                        self.fics
-                            .iter()
-                            .find(|f| f.id == *id)
-                            .filter(|f| self.current_view.includes(f, &self.shelf_members))
-                            .map(|f| f.id)
-                    })
-                    .collect(),
-            };
-            self.selection = match visible_ids.len() {
-                0 => Selection::None,
-                1 => Selection::Single(visible_ids[0]),
-                _ => Selection::Multi(visible_ids),
-            };
-            if matches!(self.selection, Selection::None) {
-                self.last_clicked_id = None;
-            }
-        }
-
+        let changed = self.selection.prune_to_view(
+            &self.cache.fics,
+            &self.current_view,
+            &self.cache.shelf_members,
+        );
         // Refresh the per-fic shelf-membership cache here too: the regular
         // post-library-view diff captures `prev_selection` *after* this prune
         // runs, so it won't notice changes we made above.
-        if self.selection != before {
+        if changed {
             self.refresh_selection_shelf_ids();
         }
     }
 
     fn refresh_shelf_counts(&mut self) {
-        self.shelf_counts = compute_shelf_counts(&self.connection, &self.shelves);
+        self.cache.refresh_shelf_counts(&self.connection);
     }
 
     fn refresh_selection_shelf_ids(&mut self) {
-        self.selection_shelf_ids = match self.selection {
-            Selection::Single(id) => {
-                let repo = self.repo();
-                match list_shelves_for_fic::list_shelves_for_fic(&repo, id) {
-                    Ok(shelves) => shelves.into_iter().map(|s| s.id).collect(),
-                    Err(err) => {
-                        self.toasts
-                            .error(format!("Couldn't load shelves for fic: {}", err));
-                        HashSet::new()
-                    }
-                }
-            }
-            _ => HashSet::new(),
-        };
-    }
-}
-
-fn load_fics(connection: &Connection) -> Vec<Fanfiction> {
-    let repo = SqliteRepository::new(connection);
-    match list_fics::list_fics(&repo) {
-        Ok(fics) => fics,
-        Err(err) => {
-            log::error!("Failed to load fanfictions: {}", err);
-            Vec::new()
+        if let Err(err) = self
+            .cache
+            .refresh_selection_shelf_ids(&self.connection, self.selection.current())
+        {
+            self.toasts
+                .error(format!("Couldn't load shelves for fic: {}", err));
         }
-    }
-}
-
-fn load_shelves(connection: &Connection) -> Vec<Shelf> {
-    let repo = SqliteRepository::new(connection);
-    match list_shelves::list_shelves(&repo) {
-        Ok(shelves) => shelves,
-        Err(err) => {
-            log::error!("Failed to load shelves: {}", err);
-            Vec::new()
-        }
-    }
-}
-
-/// One COUNT query per shelf — fine for the small number of shelves users
-/// actually have. Failures are silently swallowed (the row just shows 0)
-/// because a transient DB hiccup shouldn't replace the whole sidebar with
-/// an error toast on every frame.
-fn compute_shelf_counts(connection: &Connection, shelves: &[Shelf]) -> HashMap<u64, usize> {
-    let repo = SqliteRepository::new(connection);
-    shelves
-        .iter()
-        .filter_map(|s| count_fics_in_shelf(&repo, s.id).ok().map(|n| (s.id, n)))
-        .collect()
-}
-
-/// Replace the entry with the same `id` in `fics` with `updated`. No-op
-/// if no entry matches (which would mean the cache is out of sync with
-/// the DB — a harmless transient).
-fn replace_in_cache(fics: &mut [Fanfiction], updated: Fanfiction) {
-    if let Some(slot) = fics.iter_mut().find(|f| f.id == updated.id) {
-        *slot = updated;
     }
 }
 
@@ -726,7 +739,7 @@ impl FicflowApp {
         let mut delete_shelf_request: Option<u64> = None;
         let mut drop_on_shelf: Option<(u64, Vec<u64>)> = None;
         let prev_view = self.current_view.clone();
-        let library_counts = compute_library_counts(&self.fics);
+        let library_counts = compute_library_counts(&self.cache.fics);
         egui::SidePanel::left("ficflow-sidebar")
             .default_width(160.0)
             .width_range(140.0..=600.0)
@@ -736,9 +749,9 @@ impl FicflowApp {
                     ui,
                     SidebarState {
                         current_view: &mut self.current_view,
-                        shelves: &self.shelves,
+                        shelves: &self.cache.shelves,
                         library_counts: &library_counts,
-                        shelf_counts: &self.shelf_counts,
+                        shelf_counts: &self.cache.shelf_counts,
                         running_tasks: self.task_executor.running_count(),
                         create_shelf_request: &mut create_request,
                         delete_shelf_request: &mut delete_shelf_request,
@@ -762,7 +775,7 @@ impl FicflowApp {
             if matches!(self.current_view, View::Shelf(_)) {
                 self.refresh_shelf_members();
             } else {
-                self.shelf_members.clear();
+                self.cache.shelf_members.clear();
             }
             self.prune_selection_to_view();
         }
@@ -771,61 +784,92 @@ impl FicflowApp {
         // selected in a library view — multi-select doesn't make sense
         // here (no single fic to detail) and Tasks/Settings views have
         // their own central content. ~2x the sidebar's default width.
+        //
+        // Pure presentation: panel returns an `Outcome` we dispatch
+        // through the control surface below. This is the path that
+        // used to fork — widgets calling `update_*` directly versus
+        // tests calling `app.set_*` — collapsed into one.
         let mut shelves_changed = false;
-        let show_details =
-            matches!(self.selection, Selection::Single(_)) && self.current_view.shows_library();
-        if show_details {
-            egui::SidePanel::right("ficflow-details")
-                .default_width(320.0)
-                .width_range(280.0..=900.0)
-                .resizable(true)
-                .show(ctx, |ui| {
-                    shelves_changed = details_panel::draw(
-                        ui,
-                        DetailsState {
-                            selection: &self.selection,
-                            fics: &mut self.fics,
-                            conn: &self.connection,
-                            toasts: &mut self.toasts,
-                            all_shelves: &self.shelves,
-                            selection_shelf_ids: &self.selection_shelf_ids,
-                            task_executor: &self.task_executor,
-                        },
-                    );
-                });
+        let mut details_outcome = details_panel::Outcome::None;
+        let mut details_fic_id: Option<u64> = None;
+        if let Selection::Single(id) = *self.selection.current() {
+            if self.current_view.shows_library() {
+                // Clone the fic so the immutable borrow on `self.cache.fics`
+                // releases before we dispatch outcomes through `&mut self`.
+                // Cheap: a few Vec<String> + small primitives.
+                if let Some(fic) = self.cache.fics.iter().find(|f| f.id == id).cloned() {
+                    details_fic_id = Some(id);
+                    egui::SidePanel::right("ficflow-details")
+                        .default_width(320.0)
+                        .width_range(280.0..=900.0)
+                        .resizable(true)
+                        .show(ctx, |ui| {
+                            details_outcome = details_panel::draw(
+                                ui,
+                                DetailsState {
+                                    fic: &fic,
+                                    all_shelves: &self.cache.shelves,
+                                    selection_shelf_ids: &self.cache.selection_shelf_ids,
+                                },
+                            );
+                        });
+                }
+            }
+        }
+        if let Some(fic_id) = details_fic_id {
+            shelves_changed = self.dispatch_details_outcome(fic_id, details_outcome);
         }
 
         // Selection bar (bottom of the central area). Shown whenever there's
         // an active selection — both single and multi — so the user can act
-        // on the selection without forcing a multi-select first.
+        // on the selection without forcing a multi-select first. Pure
+        // presentation: returns an `Outcome` we dispatch through the
+        // control surface below.
         let mut bulk_shelves_changed = false;
-        let mut delete_fics_request: Option<Vec<u64>> = None;
-        if !matches!(self.selection, Selection::None) && self.current_view.shows_library() {
+        let mut bulk_outcome = selection_bar::Outcome::None;
+        let selection_ids = self.selection.ids_vec();
+        if !selection_ids.is_empty() && self.current_view.shows_library() {
             egui::TopBottomPanel::bottom("ficflow-selection-bar")
                 .resizable(false)
                 .show(ctx, |ui| {
-                    bulk_shelves_changed = selection_bar::draw(
+                    bulk_outcome = selection_bar::draw(
                         ui,
                         SelectionBarState {
-                            selection: &mut self.selection,
-                            fics: &mut self.fics,
-                            conn: &self.connection,
-                            toasts: &mut self.toasts,
+                            selection_ids: &selection_ids,
                             current_view: &self.current_view,
-                            all_shelves: &self.shelves,
-                            delete_pending: &mut delete_fics_request,
+                            all_shelves: &self.cache.shelves,
                         },
                     );
                 });
         }
-        if let Some(ids) = delete_fics_request {
-            self.active_modal = ActiveModal::DeleteFics(ids);
+        match bulk_outcome {
+            selection_bar::Outcome::None => {}
+            selection_bar::Outcome::SetStatus(status) => {
+                let (succeeded, failed) = self.bulk_set_status(&selection_ids, status);
+                self.toast_bulk_result("Status updated", succeeded, failed);
+            }
+            selection_bar::Outcome::AddToShelf(shelf_id) => {
+                let (succeeded, failed) = self.bulk_add_to_shelf(&selection_ids, shelf_id);
+                self.toast_bulk_result("Added to shelf", succeeded, failed);
+                bulk_shelves_changed = true;
+            }
+            selection_bar::Outcome::RemoveFromShelf(shelf_id) => {
+                let (succeeded, failed) = self.bulk_remove_from_shelf(&selection_ids, shelf_id);
+                self.toast_bulk_result("Removed from shelf", succeeded, failed);
+                bulk_shelves_changed = true;
+            }
+            selection_bar::Outcome::RequestDelete => {
+                self.active_modal = ActiveModal::DeleteFics(selection_ids.clone());
+            }
+            selection_bar::Outcome::ClearSelection => {
+                self.clear_selection();
+            }
         }
 
         // Center.
         let mut sort_changed = false;
-        let prev_selection = self.selection.clone();
-        let view_title = self.current_view.header_title(&self.shelves);
+        let prev_selection = self.selection.current().clone();
+        let view_title = self.current_view.header_title(&self.cache.shelves);
         let central = egui::CentralPanel::default().show(ctx, |ui| {
             self.draw_central_header(ui, &view_title);
             ui.add_space(6.0);
@@ -833,14 +877,13 @@ impl FicflowApp {
                 sort_changed = library_view::draw(
                     ui,
                     LibraryViewState {
-                        fics: &self.fics,
+                        fics: &self.cache.fics,
                         sort: &mut self.sort,
                         search_query: &self.search_query,
                         visible_columns: &self.config.visible_columns,
                         selection: &mut self.selection,
                         view: &self.current_view,
-                        shelf_members: &self.shelf_members,
-                        last_clicked_id: &mut self.last_clicked_id,
+                        shelf_members: &self.cache.shelf_members,
                     },
                 );
             } else if matches!(self.current_view, View::Tasks) {
@@ -858,9 +901,9 @@ impl FicflowApp {
             }
         });
         if central.response.clicked() && self.current_view.shows_library() {
-            self.selection = Selection::None;
+            self.selection.clear();
         }
-        if self.selection != prev_selection {
+        if *self.selection.current() != prev_selection {
             self.refresh_selection_shelf_ids();
         }
         if shelves_changed || bulk_shelves_changed {
@@ -877,15 +920,14 @@ impl FicflowApp {
         // If the fic that was selected got deleted (e.g. via the details
         // panel's "Delete Fic" button), drop the now-invalid selection so
         // the panel doesn't render a "not found" state next frame.
-        if let Selection::Single(id) = self.selection {
-            if !self.fics.iter().any(|f| f.id == id) {
-                self.selection = Selection::None;
-                self.last_clicked_id = None;
+        if let Selection::Single(id) = *self.selection.current() {
+            if !self.cache.fics.iter().any(|f| f.id == id) {
+                self.selection.clear();
             }
         }
 
         // Modals (run after the rest of the UI so they overlay correctly).
-        column_picker::show(
+        let columns_changed = column_picker::show(
             ctx,
             &mut self.show_column_picker,
             &mut self.config.visible_columns,
@@ -910,14 +952,14 @@ impl FicflowApp {
                 shelf_modals::Outcome::None => ModalAction::None,
             },
             ActiveModal::DeleteShelf(id) => {
-                match shelf_modals::draw_delete_confirm(ctx, *id, &self.shelves) {
+                match shelf_modals::draw_delete_confirm(ctx, *id, &self.cache.shelves) {
                     shelf_modals::DeleteOutcome::Confirm(id) => ModalAction::DeleteShelf(id),
                     shelf_modals::DeleteOutcome::Cancel => ModalAction::Close,
                     shelf_modals::DeleteOutcome::None => ModalAction::None,
                 }
             }
             ActiveModal::DeleteFics(ids) => {
-                match bulk_modals::draw_delete_confirm(ctx, ids, &self.fics) {
+                match bulk_modals::draw_delete_confirm(ctx, ids, &self.cache.fics) {
                     bulk_modals::DeleteOutcome::Confirm(ids) => ModalAction::DeleteFics(ids),
                     bulk_modals::DeleteOutcome::Cancel => ModalAction::Close,
                     bulk_modals::DeleteOutcome::None => ModalAction::None,
@@ -957,7 +999,7 @@ impl FicflowApp {
                 self.toasts
                     .success(format!("Added \u{201C}{}\u{201D}", title));
             }
-            self.fics = load_fics(&self.connection);
+            self.cache.reload_fics(&self.connection);
             if matches!(self.current_view, View::Shelf(_)) {
                 self.refresh_shelf_members();
             }
@@ -970,7 +1012,7 @@ impl FicflowApp {
         if !refreshes.is_empty() {
             self.toasts
                 .success(format!("Refreshed {} fanfiction(s)", refreshes.len()));
-            self.fics = load_fics(&self.connection);
+            self.cache.reload_fics(&self.connection);
             if matches!(self.current_view, View::Shelf(_)) {
                 self.refresh_shelf_members();
             }
@@ -985,11 +1027,11 @@ impl FicflowApp {
             self.config.default_sort = self.sort;
             self.save_config();
         }
-        // visible_columns may have changed via the picker; save unconditionally
-        // when picker output isn't tracked separately. (Picker writes to the
-        // same Vec we hand it; cheap to over-save here, but kept off the hot
-        // path by only saving when the picker is open.)
-        if self.show_column_picker {
+        // Save only when the picker actually toggled a column this
+        // frame. Previously this saved every frame the picker was
+        // open — at egui's 60 Hz that meant ~60 disk writes/second
+        // while the user was just *looking* at the picker.
+        if columns_changed {
             self.save_config();
         }
 
@@ -1009,9 +1051,9 @@ impl FicflowApp {
                 return;
             }
             let visible = library_view::visible_count(
-                &self.fics,
+                &self.cache.fics,
                 &self.current_view,
-                &self.shelf_members,
+                &self.cache.shelf_members,
                 &self.search_query,
             );
             let suffix = if visible == 1 { "fic" } else { "fics" };
@@ -1094,6 +1136,7 @@ impl FicflowApp {
         };
         let label = match payload.as_slice() {
             [single] => self
+                .cache
                 .fics
                 .iter()
                 .find(|f| f.id == *single)
@@ -1145,7 +1188,7 @@ impl FicflowApp {
                 .collect()
         });
         let errors = total - surviving.len();
-        self.fics.retain(|f| !surviving.contains(&f.id));
+        self.cache.remove_fics(&surviving);
         if errors == 0 {
             self.toasts
                 .success(format!("Deleted {} fanfictions", total));
@@ -1153,8 +1196,7 @@ impl FicflowApp {
             self.toasts
                 .error(format!("{}/{} deletions failed", errors, total));
         }
-        self.selection = Selection::None;
-        self.last_clicked_id = None;
+        self.selection.clear();
     }
 }
 
@@ -1186,18 +1228,13 @@ impl FicflowApp {
         let ctrl_f = ctx
             .input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::F)));
 
-        if pressed_esc && !matches!(self.selection, Selection::None) {
-            self.selection = Selection::None;
-            self.last_clicked_id = None;
+        if pressed_esc && !matches!(self.selection.current(), Selection::None) {
+            self.selection.clear();
             self.refresh_selection_shelf_ids();
         }
 
         if pressed_delete && self.current_view.shows_library() {
-            let ids = match &self.selection {
-                Selection::Single(id) => vec![*id],
-                Selection::Multi(ids) => ids.clone(),
-                Selection::None => Vec::new(),
-            };
+            let ids = self.selection.ids_vec();
             if !ids.is_empty() {
                 self.active_modal = ActiveModal::DeleteFics(ids);
             }
@@ -1205,17 +1242,13 @@ impl FicflowApp {
 
         if ctrl_a && self.current_view.shows_library() {
             let ids = library_view::visible_ids(
-                &self.fics,
+                &self.cache.fics,
                 &self.current_view,
-                &self.shelf_members,
+                &self.cache.shelf_members,
                 &self.search_query,
                 self.sort,
             );
-            self.selection = match ids.len() {
-                0 => Selection::None,
-                1 => Selection::Single(ids[0]),
-                _ => Selection::Multi(ids),
-            };
+            self.selection.select_many(&ids);
             self.refresh_selection_shelf_ids();
         }
 

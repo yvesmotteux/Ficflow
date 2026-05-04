@@ -337,6 +337,66 @@ mod tests {
     }
 
     #[test]
+    fn test_count_fics_per_shelf_returns_only_non_empty_shelves() -> Result<(), Box<dyn Error>> {
+        let (conn, _td) = setup_test_db();
+        let repo = SqliteRepository::new(&conn);
+
+        // Three shelves, but only two have any fics. The empty one
+        // should be absent from the returned map (callers default
+        // missing keys to 0).
+        let s_full = repo.create_shelf("Full")?;
+        let s_one = repo.create_shelf("One")?;
+        let _s_empty = repo.create_shelf("Empty")?;
+        let f1 = fixtures::given_sample_fanfiction(61, "F1");
+        let f2 = fixtures::given_sample_fanfiction(62, "F2");
+        let f3 = fixtures::given_sample_fanfiction(63, "F3");
+        fixtures::when_fanfiction_added_to_db(&conn, &f1)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &f2)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &f3)?;
+        repo.add_fic_to_shelf(f1.id, s_full.id)?;
+        repo.add_fic_to_shelf(f2.id, s_full.id)?;
+        repo.add_fic_to_shelf(f3.id, s_one.id)?;
+
+        let counts = repo.count_fics_per_shelf()?;
+
+        assert_eq!(counts.get(&s_full.id).copied(), Some(2));
+        assert_eq!(counts.get(&s_one.id).copied(), Some(1));
+        // The empty shelf doesn't appear in the map.
+        assert!(!counts.contains_key(&_s_empty.id));
+        Ok(())
+    }
+
+    #[test]
+    fn test_count_fics_per_shelf_excludes_soft_deleted_fics() -> Result<(), Box<dyn Error>> {
+        let (conn, _td) = setup_test_db();
+        let repo = SqliteRepository::new(&conn);
+
+        let shelf = repo.create_shelf("Reading")?;
+        let f1 = fixtures::given_sample_fanfiction(71, "Stays");
+        let f2 = fixtures::given_sample_fanfiction(72, "Goes");
+        fixtures::when_fanfiction_added_to_db(&conn, &f1)?;
+        fixtures::when_fanfiction_added_to_db(&conn, &f2)?;
+        repo.add_fic_to_shelf(f1.id, shelf.id)?;
+        repo.add_fic_to_shelf(f2.id, shelf.id)?;
+        repo.delete_fanfiction(f2.id)?;
+
+        let counts = repo.count_fics_per_shelf()?;
+        // Soft-deleted fic must not be counted.
+        assert_eq!(counts.get(&shelf.id).copied(), Some(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_count_fics_per_shelf_empty_db_returns_empty_map() -> Result<(), Box<dyn Error>> {
+        let (conn, _td) = setup_test_db();
+        let repo = SqliteRepository::new(&conn);
+
+        let counts = repo.count_fics_per_shelf()?;
+        assert!(counts.is_empty(), "no shelves → empty map");
+        Ok(())
+    }
+
+    #[test]
     fn test_count_fics_in_shelf_rejects_missing_shelf() {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);

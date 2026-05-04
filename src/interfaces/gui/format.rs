@@ -10,7 +10,7 @@
 //! (e.g. table-narrow "General" vs panel-long "General Audiences"),
 //! each view keeps its own local helper.
 
-use crate::domain::fanfiction::{ReadingStatus, UserRating};
+use crate::domain::fanfiction::ReadingStatus;
 
 /// Reading-status label used everywhere the user sees a status —
 /// table cell, sidebar count row, status combo, status-change menu.
@@ -38,30 +38,4 @@ pub fn format_thousands(n: u32) -> String {
         out.push(*b as char);
     }
     out
-}
-
-/// Canonical CLI/application-layer payload string for a status. The
-/// application functions accept a string for parity with the CLI and
-/// JSON config; this helper keeps the conversion in one place.
-pub fn status_payload(status: ReadingStatus) -> &'static str {
-    match status {
-        ReadingStatus::InProgress => "inprogress",
-        ReadingStatus::Read => "read",
-        ReadingStatus::PlanToRead => "plantoread",
-        ReadingStatus::Paused => "paused",
-        ReadingStatus::Abandoned => "abandoned",
-    }
-}
-
-/// Canonical CLI/application-layer payload string for a user rating.
-/// `None` is the "no rating" sentinel.
-pub fn rating_payload(rating: Option<UserRating>) -> &'static str {
-    match rating {
-        Some(UserRating::One) => "1",
-        Some(UserRating::Two) => "2",
-        Some(UserRating::Three) => "3",
-        Some(UserRating::Four) => "4",
-        Some(UserRating::Five) => "5",
-        None => "none",
-    }
 }

@@ -9,7 +9,7 @@ pub trait FanfictionFetcher {
     fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError>;
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Fanfiction {
     pub id: u64, // AO3 ID
     pub title: String,

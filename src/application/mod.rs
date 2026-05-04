@@ -23,6 +23,7 @@ pub mod add_fic;
 pub mod add_to_shelf;
 pub mod check_updates;
 pub mod count_fics_in_shelf;
+pub mod count_fics_per_shelf;
 pub mod create_shelf;
 pub mod delete_fic;
 pub mod delete_shelf;
