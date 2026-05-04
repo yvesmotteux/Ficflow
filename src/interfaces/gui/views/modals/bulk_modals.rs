@@ -29,6 +29,8 @@ pub fn draw_delete_confirm(
         .open(&mut still_open)
         .resizable(false)
         .collapsible(false)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.screen_rect().center())
         .show(ctx, |ui| {
             ui.label(format!("Delete {} fanfiction(s)?", total));
             ui.add_space(4.0);

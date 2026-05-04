@@ -2,6 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use crate::application::add_fic::add_fanfiction;
+use crate::application::check_updates::check_fic_updates;
 use crate::error::FicflowError;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
 use crate::infrastructure::persistence::database::connection::establish_connection;
@@ -51,6 +52,25 @@ pub fn run(
                 drop(tasks);
                 if let Ok(title) = outcome {
                     inbox.recent_completions.lock().unwrap().push(title);
+                }
+            }
+            WorkerCommand::RefreshFic { task_id, fic_id } => {
+                let outcome = check_fic_updates(&fetcher, &repo, fic_id);
+                let mut tasks = inbox.tasks.lock().unwrap();
+                if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+                    match &outcome {
+                        Ok((_has_new, fic)) => {
+                            task.display = fic.title.clone();
+                            task.status = TaskStatus::Done;
+                        }
+                        Err(err) => {
+                            task.status = TaskStatus::Failed(err.to_string());
+                        }
+                    }
+                }
+                drop(tasks);
+                if outcome.is_ok() {
+                    inbox.recent_refreshes.lock().unwrap().push(fic_id);
                 }
             }
         }

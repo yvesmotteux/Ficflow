@@ -257,4 +257,17 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         let shelves = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(shelves)
     }
+
+    fn count_fics_in_shelf(&self, shelf_id: u64) -> Result<usize, FicflowError> {
+        self.ensure_shelf_exists(shelf_id)?;
+
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM fic_shelf fs \
+             JOIN fanfiction f ON f.id = fs.fic_id \
+             WHERE fs.shelf_id = ?1 AND f.deleted_at IS NULL",
+            params![shelf_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
 }

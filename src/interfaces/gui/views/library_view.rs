@@ -5,7 +5,7 @@ use egui_extras::{Column, TableBuilder};
 
 use std::collections::HashSet;
 
-use crate::domain::fanfiction::{Fanfiction, ReadingStatus};
+use crate::domain::fanfiction::{ArchiveWarnings, Fanfiction, Rating, ReadingStatus};
 use crate::infrastructure::config::{ColumnKey, SortDirection, SortPref};
 
 use super::super::selection::Selection;
@@ -17,7 +17,7 @@ const ROW_HEIGHT: f32 = 22.0;
 pub struct LibraryViewState<'a> {
     pub fics: &'a [Fanfiction],
     pub sort: &'a mut SortPref,
-    pub search_query: &'a mut String,
+    pub search_query: &'a str,
     pub visible_columns: &'a [ColumnKey],
     pub selection: &'a mut Selection,
     pub view: &'a View,
@@ -41,35 +41,58 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
         last_clicked_id,
     } = state;
 
-    draw_search_bar(ui, search_query);
-    ui.add_space(6.0);
-
     let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort, view, shelf_members);
     draw_table(
         ui,
+        fics,
         &visible,
         sort,
         visible_columns,
         selection,
         last_clicked_id,
+        search_query,
     )
 }
 
-fn draw_search_bar(ui: &mut Ui, query: &mut String) {
-    ui.add(
-        egui::TextEdit::singleline(query)
-            .hint_text("Search title, author, fandom, characters, relationships, tags…")
-            .desired_width(f32::INFINITY),
-    );
+/// All fic ids that pass the current view filter + search query, in sort order.
+/// Used by `Ctrl+A` to select-all-visible without library_view re-rendering.
+pub fn visible_ids(
+    fics: &[Fanfiction],
+    view: &View,
+    shelf_members: &HashSet<u64>,
+    search_query: &str,
+    sort: SortPref,
+) -> Vec<u64> {
+    filter_and_sort(fics, search_query, sort, view, shelf_members)
+        .into_iter()
+        .map(|f| f.id)
+        .collect()
+}
+
+/// Count of fics that match the current view filter + search query. Cheaper
+/// than `visible_ids().len()` since it skips the sort + Vec allocation, but
+/// produces the same number — used by the central-panel header counter.
+pub fn visible_count(
+    fics: &[Fanfiction],
+    view: &View,
+    shelf_members: &HashSet<u64>,
+    search_query: &str,
+) -> usize {
+    fics.iter()
+        .filter(|f| view.includes(f, shelf_members))
+        .filter(|f| matches_search(f, search_query))
+        .count()
 }
 
 fn draw_table(
     ui: &mut Ui,
+    all_fics: &[Fanfiction],
     fics: &[&Fanfiction],
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
     selection: &mut Selection,
     last_clicked_id: &mut Option<u64>,
+    search_query: &str,
 ) -> bool {
     if visible_columns.is_empty() {
         ui.label(
@@ -80,14 +103,72 @@ fn draw_table(
         return false;
     }
     if fics.is_empty() {
-        ui.label(
-            RichText::new("No fanfictions match. Add one with the CLI: `ficflow add <fic_id>`.")
-                .italics()
-                .weak(),
-        );
+        let message = if all_fics.is_empty() {
+            "No fanfictions yet. Click \u{201C}+ Add Fic\u{201D} in the header to add one."
+        } else if !search_query.trim().is_empty() {
+            "No fanfictions match your search."
+        } else {
+            "No fanfictions in this view yet."
+        };
+        ui.add_space(8.0);
+        ui.label(RichText::new(message).italics().weak());
         return false;
     }
 
+    // Compute auto-fit decision against the *outer* width — before any
+    // ScrollArea wrapper expands `ui.available_width()` to infinity.
+    let outer_avail = ui.available_width();
+    let natural = natural_widths(ui, fics, visible_columns, *sort);
+    let auto_fit = natural.iter().sum::<f32>() <= outer_avail;
+
+    if auto_fit {
+        build_table(
+            ui,
+            fics,
+            sort,
+            visible_columns,
+            selection,
+            last_clicked_id,
+            &natural,
+            true,
+        )
+    } else {
+        // Doesn't fit — wrap in a horizontal ScrollArea so the user can
+        // pan to overflowed columns. Fixed-width columns only inside,
+        // because `Column::remainder()` would expand to the scroll area's
+        // unbounded inner width.
+        egui::ScrollArea::horizontal()
+            .show(ui, |ui| {
+                build_table(
+                    ui,
+                    fics,
+                    sort,
+                    visible_columns,
+                    selection,
+                    last_clicked_id,
+                    &natural,
+                    false,
+                )
+            })
+            .inner
+    }
+}
+
+/// Inner table-building. Called once for the auto-fit case (where the
+/// table fills the available width) and once inside a horizontal
+/// ScrollArea for the overflow case (where the table extends past the
+/// viewport and the user pans to see the rest).
+#[allow(clippy::too_many_arguments)]
+fn build_table(
+    ui: &mut Ui,
+    fics: &[&Fanfiction],
+    sort: &mut SortPref,
+    visible_columns: &[ColumnKey],
+    selection: &mut Selection,
+    last_clicked_id: &mut Option<u64>,
+    natural: &[f32],
+    auto_fit: bool,
+) -> bool {
     let mut sort_changed = false;
     let mut builder = TableBuilder::new(ui)
         .striped(true)
@@ -98,7 +179,22 @@ fn draw_table(
         .cell_layout(Layout::left_to_right(Align::Center));
     for (i, col) in visible_columns.iter().enumerate() {
         let is_last = i == visible_columns.len() - 1;
-        builder = builder.column(column_spec(*col, is_last));
+        let column = if auto_fit && is_last {
+            // Last column eats the leftover so the table still fills the
+            // panel — `at_least(natural)` keeps it from collapsing narrower
+            // than its content needs.
+            Column::remainder().at_least(natural[i]).clip(true)
+        } else if auto_fit {
+            Column::initial(natural[i]).at_least(20.0).clip(true)
+        } else {
+            // Overflow path: fixed initial widths for every column,
+            // including the last, so the table's total width is the sum
+            // of column widths and the wrapping ScrollArea can scroll.
+            Column::initial(default_initial_width(*col))
+                .at_least(default_at_least(*col))
+                .clip(true)
+        };
+        builder = builder.column(column);
     }
     builder
         .header(HEADER_HEIGHT, |mut header| {
@@ -195,25 +291,39 @@ fn selection_to_vec(selection: &Selection) -> Vec<u64> {
     }
 }
 
-fn column_spec(col: ColumnKey, is_last: bool) -> Column {
-    if is_last {
-        return Column::remainder().at_least(60.0).clip(true);
-    }
-    let initial = match col {
+fn default_initial_width(col: ColumnKey) -> f32 {
+    match col {
         ColumnKey::Title => 180.0,
         ColumnKey::Author => 110.0,
+        ColumnKey::Fandom => 150.0,
+        ColumnKey::Pairing => 150.0,
+        ColumnKey::AO3Rating => 100.0,
+        ColumnKey::Warnings => 130.0,
         ColumnKey::Status => 90.0,
+        ColumnKey::Complete => 70.0,
         ColumnKey::LastChapter => 60.0,
+        ColumnKey::Words => 70.0,
+        ColumnKey::Kudos => 70.0,
+        ColumnKey::Hits => 70.0,
         ColumnKey::Rating => 70.0,
         ColumnKey::Reads => 50.0,
+        ColumnKey::Language => 80.0,
+        ColumnKey::DatePublished => 90.0,
         ColumnKey::Updated => 90.0,
-    };
-    let at_least = match col {
+    }
+}
+
+fn default_at_least(col: ColumnKey) -> f32 {
+    match col {
         ColumnKey::Reads => 30.0,
-        ColumnKey::LastChapter | ColumnKey::Rating => 40.0,
+        ColumnKey::LastChapter
+        | ColumnKey::Rating
+        | ColumnKey::Words
+        | ColumnKey::Kudos
+        | ColumnKey::Hits
+        | ColumnKey::Complete => 40.0,
         _ => 60.0,
-    };
-    Column::initial(initial).at_least(at_least).clip(true)
+    }
 }
 
 fn header_cell(
@@ -221,32 +331,141 @@ fn header_cell(
     column: ColumnKey,
     sort: &mut SortPref,
 ) -> bool {
-    let mut clicked = false;
-    header.col(|ui| {
+    // Use the cell's own response (from `TableRow::col`) so clicking
+    // anywhere in the header cell — not just the label glyphs — toggles
+    // sort. `selectable(false)` keeps egui's default Label-text-selection
+    // from swallowing the click before it reaches the cell.
+    let (_rect, resp) = header.col(|ui| {
         let text = format!("{}{}", column.label(), sort_glyph(*sort, column));
-        let resp = ui.add(egui::Label::new(RichText::new(text).strong()).sense(Sense::click()));
-        if resp.clicked() {
-            toggle_sort(sort, column);
-            clicked = true;
-        }
+        ui.add(egui::Label::new(RichText::new(text).strong()).selectable(false));
     });
-    clicked
+    if resp.clicked() {
+        toggle_sort(sort, column);
+        return true;
+    }
+    false
+}
+
+/// Per-column natural widths: the longest of (header label) and the
+/// rendered text in any visible cell, padded for breathing room. Used to
+/// decide whether the table can lay out at content-fit widths or has to
+/// fall back to fixed defaults. Cheap because it's bounded by visible row
+/// count (the user-filtered set, typically ≤ a few hundred).
+fn natural_widths(
+    ui: &Ui,
+    fics: &[&Fanfiction],
+    visible_columns: &[ColumnKey],
+    sort: SortPref,
+) -> Vec<f32> {
+    let body_font = egui::TextStyle::Body.resolve(ui.style());
+    // 16 px ≈ 8 px on each side for the cell's natural left/right gutters
+    // plus a touch extra so glyphs aren't right against the column border.
+    const CELL_PADDING: f32 = 16.0;
+
+    visible_columns
+        .iter()
+        .map(|col| {
+            let header_text = format!("{}{}", col.label(), sort_glyph(sort, *col));
+            let header_w = ui
+                .painter()
+                .layout_no_wrap(header_text, body_font.clone(), egui::Color32::WHITE)
+                .size()
+                .x;
+            let content_w = fics
+                .iter()
+                .map(|f| {
+                    ui.painter()
+                        .layout_no_wrap(cell_text(f, *col), body_font.clone(), egui::Color32::WHITE)
+                        .size()
+                        .x
+                })
+                .fold(0.0f32, f32::max);
+            header_w.max(content_w) + CELL_PADDING
+        })
+        .collect()
+}
+
+fn cell_text(fic: &Fanfiction, column: ColumnKey) -> String {
+    match column {
+        ColumnKey::Title => fic.title.clone(),
+        ColumnKey::Author => fic.authors.join(", "),
+        ColumnKey::Fandom => first_or_dash(&fic.fandoms),
+        ColumnKey::Pairing => fic
+            .relationships
+            .as_deref()
+            .map(first_or_dash)
+            .unwrap_or_else(|| "\u{2014}".to_string()),
+        ColumnKey::AO3Rating => format_ao3_rating(&fic.rating).to_string(),
+        ColumnKey::Warnings => fic
+            .warnings
+            .first()
+            .map(|w| format_warning(w).to_string())
+            .unwrap_or_else(|| "\u{2014}".to_string()),
+        ColumnKey::Status => format_status(&fic.reading_status).to_string(),
+        ColumnKey::Complete => if fic.complete { "Yes" } else { "No" }.to_string(),
+        ColumnKey::LastChapter => format_last_chapter(fic),
+        ColumnKey::Words => format_thousands(fic.words),
+        ColumnKey::Kudos => format_thousands(fic.kudos),
+        ColumnKey::Hits => format_thousands(fic.hits),
+        ColumnKey::Rating => format_rating(fic),
+        ColumnKey::Reads => fic.read_count.to_string(),
+        ColumnKey::Language => fic.language.clone(),
+        ColumnKey::DatePublished => fic.date_published.format("%Y-%m-%d").to_string(),
+        ColumnKey::Updated => fic.date_updated.format("%Y-%m-%d").to_string(),
+    }
+}
+
+fn first_or_dash(v: &[String]) -> String {
+    v.first().cloned().unwrap_or_else(|| "\u{2014}".to_string())
+}
+
+/// Insert thousands separators: 12345 → "12,345". Cheaper than pulling
+/// in `num_format` for one call site.
+fn format_thousands(n: u32) -> String {
+    let s = n.to_string();
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len + len / 3);
+    for (i, b) in bytes.iter().enumerate() {
+        out.push(*b as char);
+        let remaining = len - i - 1;
+        if remaining > 0 && remaining % 3 == 0 {
+            out.push(',');
+        }
+    }
+    out
+}
+
+fn format_ao3_rating(r: &Rating) -> &'static str {
+    match r {
+        Rating::NotRated => "Not Rated",
+        Rating::General => "General",
+        Rating::TeenAndUp => "Teen And Up",
+        Rating::Mature => "Mature",
+        Rating::Explicit => "Explicit",
+    }
+}
+
+fn format_warning(w: &ArchiveWarnings) -> &'static str {
+    match w {
+        ArchiveWarnings::NoArchiveWarningsApply => "\u{2014}",
+        ArchiveWarnings::ChooseNotToUse => "Choose Not To Warn",
+        ArchiveWarnings::GraphicDepictionsOfViolence => "Graphic Violence",
+        ArchiveWarnings::MajorCharacterDeath => "Major Death",
+        ArchiveWarnings::RapeNonCon => "Rape/Non-Con",
+        ArchiveWarnings::Underage => "Underage",
+    }
 }
 
 fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
-    let text: String = match column {
-        ColumnKey::Title => fic.title.clone(),
-        ColumnKey::Author => fic.authors.join(", "),
-        ColumnKey::Status => format_status(&fic.reading_status).to_string(),
-        ColumnKey::LastChapter => format_last_chapter(fic),
-        ColumnKey::Rating => format_rating(fic),
-        ColumnKey::Reads => fic.read_count.to_string(),
-        ColumnKey::Updated => fic.date_updated.format("%Y-%m-%d").to_string(),
-    };
     // `selectable(false)` is essential: by default a `Label` consumes click
     // events for text-selection (drag-to-highlight), which swallows the row's
     // click sense and blocks selecting fics via their text.
-    ui.add(egui::Label::new(text).truncate().selectable(false));
+    ui.add(
+        egui::Label::new(cell_text(fic, column))
+            .truncate()
+            .selectable(false),
+    );
 }
 
 /// Toggle direction if same column, else switch column with default-desc.
@@ -267,8 +486,12 @@ fn sort_glyph(sort: SortPref, column: ColumnKey) -> &'static str {
         return "";
     }
     match sort.direction {
-        SortDirection::Ascending => " ^",
-        SortDirection::Descending => " v",
+        // ▲ ascending (smallest first), ▼ descending — same convention
+        // most table UIs use, just rendered with proper triangle glyphs
+        // instead of caret/v stand-ins. Both live in the BMP Geometric
+        // Shapes block so the bundled fonts cover them.
+        SortDirection::Ascending => " \u{25B2}",
+        SortDirection::Descending => " \u{25BC}",
     }
 }
 
@@ -284,16 +507,23 @@ fn format_status(status: &ReadingStatus) -> &'static str {
 
 fn format_last_chapter(fic: &Fanfiction) -> String {
     match fic.last_chapter_read {
-        Some(c) => format!("{}/{}", c, fic.chapters_published),
-        None => format!("-/{}", fic.chapters_published),
+        Some(c) => format!("{} / {}", c, fic.chapters_published),
+        None => format!("- / {}", fic.chapters_published),
     }
 }
 
 fn format_rating(fic: &Fanfiction) -> String {
-    match fic.user_rating {
-        Some(r) => "\u{2605}".repeat(r as usize),
-        None => "-".to_string(),
+    // Always render five stars: filled (★) up to the rating, empty (☆) for
+    // the rest. Conveys "rating out of 5" at a glance regardless of value.
+    let filled = fic.user_rating.map(|r| r as usize).unwrap_or(0);
+    let mut out = String::with_capacity(15);
+    for _ in 0..filled {
+        out.push('\u{2605}');
     }
+    for _ in filled..5 {
+        out.push('\u{2606}');
+    }
+    out
 }
 
 fn filter_and_sort<'a>(
@@ -349,14 +579,46 @@ fn compare(a: &Fanfiction, b: &Fanfiction, column: ColumnKey) -> Ordering {
             .first()
             .map(|s| s.to_lowercase())
             .cmp(&b.authors.first().map(|s| s.to_lowercase())),
+        ColumnKey::Fandom => first_lower(&a.fandoms).cmp(&first_lower(&b.fandoms)),
+        ColumnKey::Pairing => a
+            .relationships
+            .as_deref()
+            .map(first_lower)
+            .cmp(&b.relationships.as_deref().map(first_lower)),
+        ColumnKey::AO3Rating => ao3_rating_order(&a.rating).cmp(&ao3_rating_order(&b.rating)),
+        ColumnKey::Warnings => a
+            .warnings
+            .first()
+            .map(format_warning)
+            .cmp(&b.warnings.first().map(format_warning)),
         ColumnKey::Status => status_order(&a.reading_status).cmp(&status_order(&b.reading_status)),
+        ColumnKey::Complete => a.complete.cmp(&b.complete),
         ColumnKey::LastChapter => a.last_chapter_read.cmp(&b.last_chapter_read),
+        ColumnKey::Words => a.words.cmp(&b.words),
+        ColumnKey::Kudos => a.kudos.cmp(&b.kudos),
+        ColumnKey::Hits => a.hits.cmp(&b.hits),
         ColumnKey::Rating => a
             .user_rating
             .map(|r| r as u8)
             .cmp(&b.user_rating.map(|r| r as u8)),
         ColumnKey::Reads => a.read_count.cmp(&b.read_count),
+        ColumnKey::Language => a.language.to_lowercase().cmp(&b.language.to_lowercase()),
+        ColumnKey::DatePublished => a.date_published.cmp(&b.date_published),
         ColumnKey::Updated => a.date_updated.cmp(&b.date_updated),
+    }
+}
+
+fn first_lower(v: &[String]) -> Option<String> {
+    v.first().map(|s| s.to_lowercase())
+}
+
+fn ao3_rating_order(r: &Rating) -> u8 {
+    match r {
+        Rating::NotRated => 0,
+        Rating::General => 1,
+        Rating::TeenAndUp => 2,
+        Rating::Mature => 3,
+        Rating::Explicit => 4,
     }
 }
 

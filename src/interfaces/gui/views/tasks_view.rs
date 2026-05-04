@@ -156,6 +156,7 @@ fn matches_filter(task: &TaskState, filter: TaskFilter) -> bool {
 fn format_kind(kind: &TaskKind) -> &'static str {
     match kind {
         TaskKind::Add => "Add",
+        TaskKind::Refresh => "Refresh",
     }
 }
 

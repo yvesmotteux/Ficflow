@@ -85,7 +85,11 @@ pub fn draw(ui: &mut Ui, state: SelectionBarState<'_>) -> bool {
             }
         }
 
-        if ui.button("Delete").clicked() {
+        // 🗑 — egui's NotoEmoji subset and the system DejaVu/Noto Symbols
+        // fallback both cover U+1F5D1, so this renders without tofu on
+        // every platform we support. Hover text keeps screen-reader and
+        // discoverability behaviour intact.
+        if ui.button("\u{1F5D1}").on_hover_text("Delete").clicked() {
             *delete_pending = Some(ids.clone());
         }
 

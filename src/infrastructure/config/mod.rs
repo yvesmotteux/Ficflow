@@ -15,21 +15,45 @@ const APP_DIR: &str = "ficflow";
 pub enum ColumnKey {
     Title,
     Author,
+    Fandom,
+    Pairing,
+    AO3Rating,
+    Warnings,
     Status,
+    Complete,
     LastChapter,
+    Words,
+    Kudos,
+    Hits,
     Rating,
     Reads,
+    Language,
+    DatePublished,
     Updated,
 }
 
 impl ColumnKey {
-    pub const ALL: [ColumnKey; 7] = [
+    /// Canonical column order. Used by the picker and to keep visible
+    /// columns in a deterministic spot when toggled. The default config
+    /// only enables a subset (see `AppConfig::default`); the rest are
+    /// opt-in via the column picker.
+    pub const ALL: [ColumnKey; 17] = [
         ColumnKey::Title,
         ColumnKey::Author,
+        ColumnKey::Fandom,
+        ColumnKey::Pairing,
+        ColumnKey::AO3Rating,
+        ColumnKey::Warnings,
         ColumnKey::Status,
+        ColumnKey::Complete,
         ColumnKey::LastChapter,
+        ColumnKey::Words,
+        ColumnKey::Kudos,
+        ColumnKey::Hits,
         ColumnKey::Rating,
         ColumnKey::Reads,
+        ColumnKey::Language,
+        ColumnKey::DatePublished,
         ColumnKey::Updated,
     ];
 
@@ -37,10 +61,20 @@ impl ColumnKey {
         match self {
             ColumnKey::Title => "Title",
             ColumnKey::Author => "Author",
+            ColumnKey::Fandom => "Fandom",
+            ColumnKey::Pairing => "Pairing",
+            ColumnKey::AO3Rating => "AO3 Rating",
+            ColumnKey::Warnings => "Warnings",
             ColumnKey::Status => "Status",
+            ColumnKey::Complete => "Complete",
             ColumnKey::LastChapter => "Last Ch.",
+            ColumnKey::Words => "Words",
+            ColumnKey::Kudos => "Kudos",
+            ColumnKey::Hits => "Hits",
             ColumnKey::Rating => "Rating",
             ColumnKey::Reads => "Reads",
+            ColumnKey::Language => "Language",
+            ColumnKey::DatePublished => "Published",
             ColumnKey::Updated => "Updated",
         }
     }
@@ -71,13 +105,36 @@ impl Default for SortPref {
 pub struct AppConfig {
     pub visible_columns: Vec<ColumnKey>,
     pub default_sort: SortPref,
+    /// Tracked alongside the eframe-managed window size/position so a
+    /// maximized or fullscreen window comes back the same way next launch.
+    /// eframe 0.29 only persists fullscreen for us, not maximized — and
+    /// even fullscreen tracking is fragile across WMs — so we record both
+    /// here and re-apply on the first frame.
+    #[serde(default)]
+    pub window_maximized: bool,
+    #[serde(default)]
+    pub window_fullscreen: bool,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            visible_columns: ColumnKey::ALL.to_vec(),
+            // Curated default — the 7 most-used columns. Everything else
+            // (Fandom, Pairing, AO3 Rating, Warnings, Words, Kudos, Hits,
+            // Language, Published, …) is hidden by default and the user
+            // opts in via the column picker.
+            visible_columns: vec![
+                ColumnKey::Title,
+                ColumnKey::Author,
+                ColumnKey::Status,
+                ColumnKey::LastChapter,
+                ColumnKey::Rating,
+                ColumnKey::Reads,
+                ColumnKey::Updated,
+            ],
             default_sort: SortPref::default(),
+            window_maximized: false,
+            window_fullscreen: false,
         }
     }
 }

@@ -1,4 +1,5 @@
 mod app;
+mod fonts;
 mod selection;
 mod tasks;
 mod view;
@@ -16,9 +17,10 @@ pub fn run_gui(_fetcher: &dyn FanfictionFetcher, _repository: &dyn Repository) -
             .with_title("Ficflow")
             .with_inner_size([1100.0, 700.0])
             .with_min_inner_size([600.0, 400.0]),
-        // Persistence intentionally off: it caused window-size restore bugs
-        // last attempt and we'll re-evaluate during the styling phase.
-        persist_window: false,
+        // Persistence on: window geometry, side-panel widths, and
+        // egui_extras table column widths all live in egui's memory and are
+        // serialised to the eframe storage path between launches.
+        persist_window: true,
         ..Default::default()
     };
 
