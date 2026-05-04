@@ -9,6 +9,8 @@ mod widgets;
 use std::process::ExitCode;
 
 pub use app::{FicflowApp, FicflowConfig, InitError};
+pub use selection::Selection;
+pub use view::View;
 
 use crate::domain::fanfiction::FanfictionFetcher;
 use crate::domain::repository::Repository;

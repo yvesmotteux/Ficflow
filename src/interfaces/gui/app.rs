@@ -118,7 +118,7 @@ impl FicflowApp {
     /// Production entry point: derives config from the environment and
     /// the platform data dir.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, InitError> {
-        Self::with_config(cc, FicflowConfig::default())
+        Self::with_config(&cc.egui_ctx, FicflowConfig::default())
     }
 
     /// Test/embedding entry point: every dependency the app talks to
@@ -126,11 +126,11 @@ impl FicflowApp {
     /// thread inside `TaskExecutor` is told the same `db_path` so it
     /// opens the same SQLite file, otherwise the GUI and the worker
     /// would be looking at different stores.
-    pub fn with_config(
-        cc: &eframe::CreationContext<'_>,
-        config: FicflowConfig,
-    ) -> Result<Self, InitError> {
-        fonts::install_system_fallback(&cc.egui_ctx);
+    ///
+    /// Takes `&egui::Context` (not `&CreationContext`) so headless
+    /// tests can build the app without going through eframe runtime.
+    pub fn with_config(ctx: &egui::Context, config: FicflowConfig) -> Result<Self, InitError> {
+        fonts::install_system_fallback(ctx);
         let connection = match &config.db_path {
             Some(path) => open_configured_db(path).map_err(InitError::Database)?,
             None => establish_connection().map_err(InitError::Database)?,
@@ -169,6 +169,42 @@ impl FicflowApp {
             focus_search_pending: false,
             toasts: Toasts::default(),
         })
+    }
+
+    // ---- Test-friendly accessors --------------------------------------
+    // These are read-only views over internal state. They're kept narrow
+    // on purpose: tests should drive behaviour via the same code paths
+    // the GUI uses (modal state mutations, simulated input), not by
+    // mutating internal fields directly.
+
+    /// In-memory cache of all non-deleted fics, in the order
+    /// `list_fics` returned them.
+    pub fn fics(&self) -> &[Fanfiction] {
+        &self.fics
+    }
+
+    /// In-memory cache of all non-deleted shelves.
+    pub fn shelves(&self) -> &[Shelf] {
+        &self.shelves
+    }
+
+    pub fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    pub fn current_view(&self) -> &View {
+        &self.current_view
+    }
+
+    pub fn search_query(&self) -> &str {
+        &self.search_query
+    }
+
+    /// True while at least one background task (Add or Refresh) is
+    /// in-flight. Test harnesses poll this to decide when to stop
+    /// ticking frames after triggering a fetch.
+    pub fn has_running_tasks(&self) -> bool {
+        self.task_executor.has_running()
     }
 
     fn save_config(&self) {
@@ -365,6 +401,16 @@ fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
 
 impl eframe::App for FicflowApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.render(ctx);
+    }
+}
+
+impl FicflowApp {
+    /// Headless-friendly entry point — the actual per-frame body lives
+    /// here so tests can drive the app without an `eframe::Frame` (which
+    /// can't be constructed outside the eframe runtime). The eframe
+    /// `App::update` impl above is a thin delegate.
+    pub fn render(&mut self, ctx: &egui::Context) {
         self.sync_window_state(ctx);
 
         // Keyboard shortcuts run before the rest of the UI so reactions
