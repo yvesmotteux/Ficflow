@@ -1,5 +1,7 @@
 use egui::{RichText, ScrollArea, Ui};
 
+use crate::version::VERSION;
+
 pub fn draw(ui: &mut Ui) {
     ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -9,7 +11,7 @@ pub fn draw(ui: &mut Ui) {
             ui.add_space(12.0);
 
             ui.label(RichText::new("Application").strong());
-            info_row(ui, "Version", env!("CARGO_PKG_VERSION").to_string());
+            info_row(ui, "Version", VERSION.to_string());
 
             ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());

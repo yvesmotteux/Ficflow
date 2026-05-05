@@ -27,13 +27,28 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      
+        with:
+          fetch-depth: 0
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
-          
+
+      - name: Sync Cargo.toml version with tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting Cargo.toml version to $VERSION"
+          python -c "
+          import re
+          src = open('Cargo.toml').read()
+          new = re.sub(r'^version\s*=\s*\"[^\"]*\"', f'version = \"$VERSION\"', src, count=1, flags=re.M)
+          open('Cargo.toml', 'w').write(new)
+          "
+          grep '^version' Cargo.toml
+
       - name: Build
         uses: actions-rs/cargo@v1
         with:
