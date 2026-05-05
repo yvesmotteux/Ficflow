@@ -2,6 +2,8 @@
 
 Ficflow is a software designed to help you track your fanfiction reading list and organize them the way you want.
 
+![Ficflow GUI](assets/screenshots/gui_preview.png)
+
 ## Why Ficflow?
 
 I felt like there was a lack of ways to manage my AO3 reading list (other than having hundreds of tabs opened on my phone or saving the links in my notes), so I decided to work on a solution! It's also my first time making a project in Rust, so if you have any criticism about my approach, feel free to open an issue and teach me!
@@ -11,6 +13,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
 - [ ] Application version in the settings doesn't match the github one
 - [ ] Create a feature-complete GUI version compatible with all OS (target for v1)
+- [ ] Ability to change column order by grabbing them
 - [ ] Ability to choose the text size / zoom level in the settings
 - [ ] New feature of auto-shelves (based on ships, fandoms, relationship,...)
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config

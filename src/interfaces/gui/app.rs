@@ -18,11 +18,12 @@ use crate::infrastructure::persistence::database::connection::{
 };
 use crate::infrastructure::SqliteRepository;
 
-use super::fonts;
+use super::chrome::FrameChrome;
 use super::library_cache::LibraryCache;
 use super::selection::Selection;
 use super::selection_controller::SelectionController;
 use super::tasks::TaskExecutor;
+use super::theme;
 use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
@@ -42,6 +43,7 @@ pub struct FicflowApp {
     /// funnel that keeps them coherent. See `LibraryCache` for the
     /// invariants each field upholds.
     cache: LibraryCache,
+    chrome: FrameChrome,
     config: AppConfig,
     /// Set after the first `update()` applies the persisted maximized /
     /// fullscreen state via `ViewportCommand`. Without this gate the
@@ -69,12 +71,14 @@ pub struct FicflowApp {
 #[derive(Debug)]
 pub enum InitError {
     Database(FicflowError),
+    Chrome(resvg::usvg::Error),
 }
 
 impl std::fmt::Display for InitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InitError::Database(e) => write!(f, "database init failed: {}", e),
+            InitError::Chrome(e) => write!(f, "chrome SVG init failed: {}", e),
         }
     }
 }
@@ -144,12 +148,13 @@ impl FicflowApp {
     /// Takes `&egui::Context` (not `&CreationContext`) so headless
     /// tests can build the app without going through eframe runtime.
     pub fn with_config(ctx: &egui::Context, config: FicflowConfig) -> Result<Self, InitError> {
-        fonts::install_system_fallback(ctx);
+        theme::install(ctx);
         let connection = match &config.db_path {
             Some(path) => open_configured_db(path).map_err(InitError::Database)?,
             None => establish_connection().map_err(InitError::Database)?,
         };
         let cache = LibraryCache::load(&connection);
+        let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
         let app_config = AppConfig::load();
         let sort = app_config.default_sort;
         let task_executor = TaskExecutor::spawn(
@@ -160,6 +165,7 @@ impl FicflowApp {
         Ok(Self {
             connection,
             cache,
+            chrome,
             config: app_config,
             initial_window_state_applied: false,
             sort,
@@ -710,6 +716,14 @@ impl eframe::App for FicflowApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.render(ctx);
     }
+
+    /// Make the eframe-managed clear colour fully transparent so the
+    /// borderless undecorated window (see `mod.rs`'s NativeOptions:
+    /// `with_transparent(true)`) shows the chrome's painted edges
+    /// instead of an opaque rectangle behind them.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
 }
 
 impl FicflowApp {
@@ -723,33 +737,90 @@ impl FicflowApp {
     /// transitions, cache invalidation). Keeping render() as just a
     /// dispatch list lets a reader skim the per-frame timeline without
     /// having to read every paint body.
+    ///
+    /// Phase 12 motivation for the host-CentralPanel: the chrome's
+    /// content_rect is a sub-region of the screen, and egui's native
+    /// top-level panels (`SidePanel::*::show(ctx,...)` etc.) always
+    /// claim from `ctx.screen_rect()` — they punch right through the
+    /// chrome. Nesting every panel inside one root `CentralPanel`
+    /// (`Frame::none()`) wrapped in a `UiBuilder::max_rect` constrains
+    /// the whole layout to the chrome's content rect with a single
+    /// anchor change.
     pub fn render(&mut self, ctx: &egui::Context) {
         self.sync_window_state(ctx);
         // Keyboard shortcuts run before the rest of the UI so reactions
         // (focus changes, modal opens, selection mutation) take effect this
         // same frame.
         self.handle_shortcuts(ctx);
-        self.paint_header(ctx);
-        // Sidebar can change `current_view`; paint_sidebar handles the
-        // post-change cache refresh + selection prune internally.
-        self.paint_sidebar(ctx);
-        self.paint_details_panel(ctx);
-        self.paint_selection_bar(ctx);
-        self.paint_central(ctx);
+
+        let screen = ctx.screen_rect();
+        // Paint the Art Nouveau frame on the screen edges. Lazily
+        // rasterises the SVG atlas to a texture on the first call;
+        // subsequent frames are a 9-slice draw. `&mut self` because
+        // that texture lives on `FrameChrome`.
+        self.chrome.paint_background(ctx, screen);
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none())
+            .show(ctx, |ui| {
+                let controls_rect = self.chrome.draw_window_controls(ui, screen);
+                self.chrome.handle_interactions(ui, screen, controls_rect);
+
+                let content_rect = self.chrome.content_rect(screen);
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(content_rect), |host| {
+                    self.paint_header(host);
+                    // Sidebar can change `current_view`; paint_sidebar handles the
+                    // post-change cache refresh + selection prune internally.
+                    self.paint_sidebar(host);
+                    self.paint_details_panel(host);
+                    self.paint_selection_bar(host);
+                    self.paint_central(host);
+                });
+            });
+        // Modals, drag-preview, toasts and the worker drain stay on
+        // the raw `ctx` — `Window::show` / `Area::new` paint at the
+        // top of the layer stack regardless of any active panel.
         self.paint_modals(ctx);
         self.drain_worker_events(ctx);
         self.draw_drag_preview(ctx);
         self.toasts.show(ctx);
+
+        // Keep the UI refreshing every frame so hover/cursor state
+        // recovers after the OS takes over a move/resize drag (winit
+        // doesn't forward a pointer-enter event back, so egui's hover
+        // bookkeeping goes stale otherwise). Earlier we used
+        // `request_repaint_after(50ms)` — which is one repaint per 50ms
+        // ≈ 20fps — but that left a long enough gap that hover
+        // detection felt dead until the user moved the mouse for
+        // hundreds of milliseconds. Immediate repaint is the
+        // cheap-but-correct fix; egui will still skip GPU work when
+        // nothing visibly changed.
+        ctx.request_repaint();
     }
 
     /// Brand header. The view title used to live here too but it now sits
     /// inside the central panel (closer to the search bar / action buttons
     /// it relates to), so this row is just the wordmark.
-    fn paint_header(&self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("ficflow-header").show(ctx, |ui| {
+    ///
+    /// "FICFLOW" is rendered in the bundled `Neue` family (a single-
+    /// purpose Art Nouveau display face) — Comfortaa is the primary
+    /// Proportional family for body text but the wordmark wants the
+    /// curlier, narrower look that Neue gives at this one site.
+    /// Centred horizontally and explicitly non-selectable (a brand
+    /// wordmark you can highlight by drag-select reads as a typo).
+    fn paint_header(&self, host: &mut egui::Ui) {
+        egui::TopBottomPanel::top("ficflow-header").show_inside(host, |ui| {
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.heading("FICFLOW");
+            ui.vertical_centered(|ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new("FICFLOW")
+                            .family(egui::FontFamily::Name(theme::NEUE_FAMILY.into()))
+                            .size(20.0)
+                            .color(theme::ACCENT),
+                    )
+                    .selectable(false),
+                );
             });
             ui.add_space(4.0);
         });
@@ -762,7 +833,7 @@ impl FicflowApp {
     /// handles the view-change side effects (refresh shelf-members,
     /// prune the selection) here, since this is the only paint that
     /// can mutate `current_view`.
-    fn paint_sidebar(&mut self, ctx: &egui::Context) {
+    fn paint_sidebar(&mut self, host: &mut egui::Ui) {
         let prev_view = self.current_view.clone();
         let library_counts = compute_library_counts(&self.cache.fics);
         let mut outcome = sidebar::Outcome::None;
@@ -770,7 +841,7 @@ impl FicflowApp {
             .default_width(160.0)
             .width_range(140.0..=600.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show_inside(host, |ui| {
                 outcome = sidebar::draw(
                     ui,
                     SidebarState {
@@ -813,7 +884,7 @@ impl FicflowApp {
     /// through the control surface. This is the path that used to fork
     /// — widgets calling `update_*` directly versus tests calling
     /// `app.set_*` — collapsed into one.
-    fn paint_details_panel(&mut self, ctx: &egui::Context) {
+    fn paint_details_panel(&mut self, host: &mut egui::Ui) {
         let Selection::Single(id) = *self.selection.current() else {
             return;
         };
@@ -831,7 +902,7 @@ impl FicflowApp {
             .default_width(320.0)
             .width_range(280.0..=900.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show_inside(host, |ui| {
                 outcome = details_panel::draw(
                     ui,
                     DetailsState {
@@ -848,7 +919,7 @@ impl FicflowApp {
     /// — both single and multi — so the user can act on the selection
     /// without forcing a multi-select first. Pure presentation: returns
     /// an `Outcome` we dispatch through the control surface.
-    fn paint_selection_bar(&mut self, ctx: &egui::Context) {
+    fn paint_selection_bar(&mut self, host: &mut egui::Ui) {
         let selection_ids = self.selection.ids_vec();
         if selection_ids.is_empty() || !self.current_view.shows_library() {
             return;
@@ -856,7 +927,7 @@ impl FicflowApp {
         let mut outcome = selection_bar::Outcome::None;
         egui::TopBottomPanel::bottom("ficflow-selection-bar")
             .resizable(false)
-            .show(ctx, |ui| {
+            .show_inside(host, |ui| {
                 outcome = selection_bar::draw(
                     ui,
                     SelectionBarState {
@@ -894,11 +965,12 @@ impl FicflowApp {
     /// post-render selection-shelf refresh, the orphan-selection
     /// cleanup (selected fic was deleted), and saves the sort pref
     /// when a header click changes it.
-    fn paint_central(&mut self, ctx: &egui::Context) {
+    fn paint_central(&mut self, host: &mut egui::Ui) {
         let mut sort_changed = false;
+        let mut empty_area_clicked = false;
         let prev_selection = self.selection.current().clone();
         let view_title = self.current_view.header_title(&self.cache.shelves);
-        let central = egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(host, |ui| {
             self.draw_central_header(ui, &view_title);
             ui.add_space(6.0);
             if self.current_view.shows_library() {
@@ -927,8 +999,23 @@ impl FicflowApp {
             } else {
                 draw_stub_view(ui, &self.current_view);
             }
+            // Empty-area click-sink. The table fills the panel with
+            // click-and-drag-sensing rows that absorb every pointer
+            // event, so the panel's outer response never fires for
+            // clicks below the last row. Allocate any leftover space
+            // here as a Sense::click target so a click in the gap
+            // between the last row and the bottom of the panel (or
+            // the entire panel when the view has no rows — search
+            // miss, empty shelf) clears the selection.
+            let remaining = ui.available_size();
+            if remaining.x > 0.0 && remaining.y > 0.0 {
+                let resp = ui.allocate_response(remaining, egui::Sense::click());
+                if resp.clicked() {
+                    empty_area_clicked = true;
+                }
+            }
         });
-        if central.response.clicked() && self.current_view.shows_library() {
+        if empty_area_clicked && self.current_view.shows_library() {
             self.clear_selection();
         }
         if *self.selection.current() != prev_selection {
@@ -1058,11 +1145,36 @@ impl FicflowApp {
 
 impl FicflowApp {
     /// Header row at the top of the central panel: view title + (for library
-    /// views) a visible-fic count, the search bar, and the +Add Fic / Manage
-    /// Columns buttons. For Tasks/Settings the row collapses to just the title.
+    /// views) a visible-fic count + the +Add Fic / Manage Columns buttons.
+    /// The search bar is overlaid via a foreground `Area` centred on
+    /// the *window* axis (not the central panel) so it stays put as
+    /// the user resizes the sidebar / details panel. The buttons are
+    /// pinned to the right edge of the row, so they don't overlap the
+    /// search bar at any reasonable window width.
     fn draw_central_header(&mut self, ui: &mut egui::Ui, view_title: &str) {
-        ui.horizontal(|ui| {
-            ui.heading(view_title);
+        // Below this row width, switch the header buttons to
+        // icon-only mode (`+`, `≡`) so they don't collide with the
+        // search-bar overlay or the visible-fic count. Threshold
+        // picked roughly so a narrow window with the right details
+        // panel mounted still looks tidy. Hover text preserves
+        // discoverability of the icons.
+        let compact = ui.available_width() < 520.0;
+        // Capture the central panel's full bounds *before* drawing
+        // the row — `ui.horizontal(...)` only consumes as much width
+        // as its children, so the returned response rect is the row's
+        // content extent, not the panel's. We need the panel rect for
+        // clamping the search-bar overlay below.
+        let panel_rect = ui.available_rect_before_wrap();
+        let row_resp = ui.horizontal(|ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(view_title)
+                        .family(egui::FontFamily::Name(theme::NEUE_FAMILY.into()))
+                        .size(20.0)
+                        .color(theme::ACCENT),
+                )
+                .selectable(false),
+            );
             if !self.current_view.shows_library() {
                 return;
             }
@@ -1074,51 +1186,88 @@ impl FicflowApp {
             );
             let suffix = if visible == 1 { "fic" } else { "fics" };
             ui.label(egui::RichText::new(format!("{} {}", visible, suffix)).weak());
-            // Lay out from the right so the buttons hug the right edge,
-            // then centre the search bar in whatever horizontal space
-            // remains between the count and the leftmost button.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Manage Columns").clicked() {
+                let cols_label = if compact {
+                    "\u{2261}"
+                } else {
+                    "Manage Columns"
+                };
+                if ui
+                    .button(cols_label)
+                    .on_hover_text("Manage Columns")
+                    .clicked()
+                {
                     self.show_column_picker = !self.show_column_picker;
                 }
-                if ui.button("+ Add Fic").clicked() {
+                let add_label = if compact { "+" } else { "+ Add Fic" };
+                if ui.button(add_label).on_hover_text("Add Fic").clicked() {
                     self.active_modal = ActiveModal::AddFic(AddFicState::new());
                 }
-                let search_w = 300.0;
-                let pad = ((ui.available_width() - search_w) / 2.0).max(0.0);
-                // In right_to_left, add_space *before* the next item moves
-                // the cursor leftwards — i.e. it leaves whitespace to the
-                // RIGHT of the next item. Combined with the same-sized
-                // empty stretch that ends up on the LEFT (avail - search - pad),
-                // this centres the search bar.
-                ui.add_space(pad);
-                self.draw_search_field(ui);
             });
         });
+
+        if self.current_view.shows_library() {
+            // Static-position search bar: anchored to the window's
+            // horizontal centre by default, so it doesn't slide
+            // around as the user resizes the sidebar / details panel.
+            // The bar **shrinks** when the central panel is narrow
+            // (down to `SEARCH_W_MIN`), and is **positioned** between
+            // a left-side reserve (title + count) and a right-side
+            // reserve (buttons) so it never paints on top of either.
+            // If even the shrunken bar can't fit, skip drawing it —
+            // Ctrl+F still focuses the (hidden) field.
+            const SEARCH_W_MAX: f32 = 300.0;
+            const SEARCH_W_MIN: f32 = 120.0;
+            const SEARCH_H: f32 = 22.0;
+            const EDGE_GAP: f32 = 8.0;
+            // Approximate widths the row consumes for title+count
+            // (left edge) and the action buttons (right edge). Tuned
+            // generously so the search bar leaves comfortable
+            // breathing room rather than abutting either side; the
+            // buttons reserve drops in compact mode where labels
+            // collapse to single-glyph icons.
+            let buttons_reserve = if compact { 90.0 } else { 220.0 };
+            let title_reserve = 200.0;
+            let avail_for_search =
+                panel_rect.width() - buttons_reserve - title_reserve - 2.0 * EDGE_GAP;
+            if avail_for_search >= SEARCH_W_MIN {
+                let search_w = avail_for_search.min(SEARCH_W_MAX);
+                let screen = ui.ctx().screen_rect();
+                let row_rect = row_resp.response.rect;
+                let desired_x = screen.center().x - search_w / 2.0;
+                let max_x = panel_rect.right() - buttons_reserve - EDGE_GAP - search_w;
+                let min_x = panel_rect.left() + title_reserve + EDGE_GAP;
+                let clamped_x = desired_x.clamp(min_x, max_x);
+                let pos = egui::pos2(clamped_x, row_rect.center().y - SEARCH_H / 2.0);
+                egui::Area::new(egui::Id::new("ficflow-search-overlay"))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(pos)
+                    .show(ui.ctx(), |area_ui| {
+                        self.draw_search_field(area_ui, search_w);
+                    });
+            }
+        }
     }
 
-    /// Search field rendered as a fixed-width Frame containing a static
+    /// Search field rendered as a Frame containing a static
     /// magnifying-glass glyph followed by a borderless TextEdit, so the
     /// icon sits *inside* the apparent input boundary and stays visible
-    /// even while the user is typing (unlike a hint text).
-    fn draw_search_field(&mut self, ui: &mut egui::Ui) {
-        const WIDTH: f32 = 300.0;
+    /// even while the user is typing (unlike a hint text). The caller
+    /// passes in a width so the field can shrink when the central
+    /// panel is narrow (the static-position overlay otherwise overlaps
+    /// the right-aligned action buttons).
+    fn draw_search_field(&mut self, ui: &mut egui::Ui, width: f32) {
         let stroke = ui.visuals().widgets.inactive.bg_stroke;
         let fill = ui.visuals().extreme_bg_color;
         let weak = ui.visuals().weak_text_color();
 
-        ui.allocate_ui(egui::vec2(WIDTH, 22.0), |ui| {
+        ui.allocate_ui(egui::vec2(width, 22.0), |ui| {
             egui::Frame::default()
                 .fill(fill)
                 .stroke(stroke)
                 .rounding(2.0)
                 .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                 .show(ui, |ui| {
-                    // Force left_to_right explicitly: `ui.horizontal()`
-                    // copies the parent's "prefer_right_to_left" flag, so
-                    // when this is rendered inside the right_to_left
-                    // button row the icon would otherwise end up on the
-                    // right of the TextEdit instead of the left.
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         ui.label(egui::RichText::new("\u{1F50D}").color(weak));
@@ -1255,10 +1404,16 @@ impl FicflowApp {
             self.clear_selection();
         }
 
-        if pressed_delete && self.current_view.shows_library() {
-            let ids = self.selection.ids_vec();
-            if !ids.is_empty() {
-                self.active_modal = ActiveModal::DeleteFics(ids);
+        if pressed_delete {
+            let selected_fics = self.selection.ids_vec();
+            if !selected_fics.is_empty() && self.current_view.shows_library() {
+                self.active_modal = ActiveModal::DeleteFics(selected_fics);
+            } else if let View::Shelf(shelf_id) = &self.current_view {
+                // No fic selection but the active view is a shelf →
+                // Delete targets the shelf itself. Mirrors the
+                // sidebar's right-click → Delete menu so power users
+                // can prune shelves from the keyboard.
+                self.active_modal = ActiveModal::DeleteShelf(*shelf_id);
             }
         }
 

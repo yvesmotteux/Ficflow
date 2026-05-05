@@ -337,6 +337,11 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     ui.horizontal(|ui| {
         ui.label(RichText::new("AO3 METADATA").strong().small());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // Push the refresh glyph + age string clear of the
+            // panel's right edge — without this gap the button sits
+            // flush against the vertical scrollbar (when the section
+            // overflows) and the two read as one ambiguous control.
+            ui.add_space(10.0);
             // ↻ refresh glyph — clicking enqueues a background refresh.
             let resp = ui
                 .small_button(RichText::new("\u{21BB}").size(14.0))

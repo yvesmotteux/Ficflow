@@ -37,6 +37,7 @@ egui = "0.29"
 egui_extras = "0.29"
 egui-notify = "0.17"
 toml = "0.8"
+resvg = "0.43"
 
 [dev-dependencies]
 httpmock = "0.8.3"
