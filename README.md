@@ -44,11 +44,10 @@ sudo mv ficflow /usr/local/bin/
 
 ### macOS
 
-Two builds are published per release: `ficflow-macos-arm64` for Apple Silicon (M1/M2/M3+) and `ficflow-macos-amd64` for Intel Macs. The snippet below picks the right one automatically:
+Apple Silicon (M1/M2/M3+) only. Intel Macs aren't shipped as prebuilt binaries — build from source if you need Intel.
 
 ```sh
-ARCH=$([ "$(uname -m)" = "arm64" ] && echo arm64 || echo amd64)
-curl -L -o ficflow "https://github.com/yvesmotteux/Ficflow/releases/latest/download/ficflow-macos-$ARCH"
+curl -L -o ficflow https://github.com/yvesmotteux/Ficflow/releases/latest/download/ficflow-macos-arm64
 chmod +x ficflow
 sudo mv ficflow /usr/local/bin/
 ```

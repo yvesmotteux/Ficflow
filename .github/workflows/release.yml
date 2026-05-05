@@ -21,23 +21,17 @@ jobs:
           - os: windows-latest
             artifact_name: ficflow.exe
             asset_name: ficflow-windows-amd64.exe
-          - os: macos-13
-            artifact_name: ficflow
-            asset_name: ficflow-macos-amd64
           - os: macos-14
             artifact_name: ficflow
             asset_name: ficflow-macos-arm64
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Sync Cargo.toml version with tag
         shell: bash
@@ -53,11 +47,8 @@ jobs:
           grep '^version' Cargo.toml
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release
-          
+        run: cargo build --release
+
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
@@ -73,15 +64,12 @@ jobs:
     # desktop distros — anything newer than mid-2022. Keeps reach wide.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Sync Cargo.toml version with tag
         shell: bash
