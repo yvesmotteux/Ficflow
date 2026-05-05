@@ -1,13 +1,6 @@
-//! Right-hand details panel. Pure presentation: takes a read-only
-//! view of the selected fic + shelves, returns a single `Outcome`
-//! describing what the user clicked. The caller (`app.rs`'s render
-//! dispatcher) routes that outcome through `FicflowApp`'s
-//! control-surface methods.
-//!
-//! No `&Connection`, no `&mut Toasts`, no direct calls into
-//! `application::*`. The widget code path and the
-//! programmatic-control-surface code path are now the same — the
-//! "two parallel paths to every write" problem is gone.
+//! Pure presentation: read-only view of the fic + shelves in,
+//! single `Outcome` out. No `&Connection`, no `&mut Toasts`, no
+//! `application::*` — caller dispatches the outcome.
 
 use std::collections::HashSet;
 
@@ -26,34 +19,25 @@ use super::super::widgets::shelves_dropdown::{self, DropdownOutcome};
 use super::super::widgets::star_rating;
 
 pub struct DetailsState<'a> {
-    /// The fic this panel is showing. Caller resolves it from the
-    /// current selection — the panel only mounts when selection is
-    /// `Single(_)`.
     pub fic: &'a Fanfiction,
     pub all_shelves: &'a [Shelf],
-    /// Shelves currently containing `fic`. Caller maintains this
-    /// cache; the dropdown reads from it for its initial check states.
     pub selection_shelf_ids: &'a HashSet<u64>,
 }
 
-/// What the user clicked / typed this frame. At most one outcome —
-/// the panel's controls are mutually exclusive within a single click
-/// (and the textarea only emits `SetNote` on focus loss).
+/// At most one outcome per frame — the panel's controls are
+/// mutually exclusive within a click (the textarea emits `SetNote`
+/// on focus loss).
 pub enum Outcome {
     None,
     SetStatus(ReadingStatus),
     SetLastChapter(u32),
     SetReadCount(u32),
     SetUserRating(Option<UserRating>),
-    /// `None` means "clear the note" (NULL in DB), `Some(s)` means commit `s`.
+    /// `None` means "clear the note" (NULL in DB).
     SetNote(Option<String>),
     AddToShelf(u64),
     RemoveFromShelf(u64),
-    /// Click on the red Delete-Fic button. Caller decides what to do
-    /// (typically open the bulk-delete confirm modal).
     RequestDelete,
-    /// Click on the ↻ refresh glyph in the AO3 metadata header.
-    /// Caller decides what to do (typically enqueue a worker refresh).
     RequestRefresh,
 }
 
@@ -285,16 +269,9 @@ fn draw_rating(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<UserRating>> {
     }
 }
 
-/// Notes textarea. The buffer lives in egui temp memory keyed by
-/// `fic.id` so it persists across frames (for typing) and resets when
-/// the user switches to a different fic. Returns `Some(value)` only
-/// when the user commits via focus loss; mid-typing changes don't fire
-/// an action — the DB write is a one-per-edit-session event.
-///
-/// `fic.id` is sufficient as the namespace because at most one details
-/// panel mounts per frame (gated on `Selection::Single` in `app.rs`).
-/// If a future "compare two fics" view ever mounts two panels, this
-/// key needs a panel-instance discriminator added.
+/// Buffer in egui temp memory keyed by `fic.id` so typing persists
+/// across frames and resets when the user switches fic. Returns only
+/// on focus-loss commit — the DB write is per-edit-session.
 fn draw_note(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<String>> {
     let id = ui.id().with(("note-draft", fic.id));
     let initial = fic.personal_note.clone().unwrap_or_default();
@@ -306,15 +283,13 @@ fn draw_note(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<String>> {
             .desired_width(f32::INFINITY),
     );
 
-    // Persist the buffer in egui memory so next frame's read sees it.
     if resp.changed() {
         ui.data_mut(|d| d.insert_temp(id, buf.clone()));
     }
 
     if resp.lost_focus() {
-        // Once committed, drop the draft so a future re-open of the
-        // same fic re-initialises from the DB (otherwise stale empty
-        // drafts could shadow a fresh `personal_note`).
+        // Drop the draft on commit so a future re-open re-initialises
+        // from the DB rather than shadowing a fresh `personal_note`.
         ui.data_mut(|d| d.remove_temp::<String>(id));
         let trimmed = buf.trim();
         if trimmed.is_empty() {
@@ -337,12 +312,9 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     ui.horizontal(|ui| {
         ui.label(RichText::new("AO3 METADATA").strong().small());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // Push the refresh glyph + age string clear of the
-            // panel's right edge — without this gap the button sits
-            // flush against the vertical scrollbar (when the section
-            // overflows) and the two read as one ambiguous control.
+            // Gap so the refresh glyph isn't flush with the
+            // vertical scrollbar.
             ui.add_space(10.0);
-            // ↻ refresh glyph — clicking enqueues a background refresh.
             let resp = ui
                 .small_button(RichText::new("\u{21BB}").size(14.0))
                 .on_hover_text("Refresh from AO3");
@@ -358,8 +330,6 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     });
     ui.add_space(6.0);
 
-    // Bubble lists — each can expand to show all entries when there's
-    // more than fits in the default cap.
     if !fic.fandoms.is_empty() {
         ao3_row(ui, "Fandoms", |ui| bubble_list(ui, "fandoms", &fic.fandoms));
     }
@@ -490,21 +460,10 @@ fn bubble_list(ui: &mut Ui, salt: &str, items: &[String]) {
     ui.data_mut(|d| d.insert_temp(id, expanded));
 }
 
-/// One bubble. Rendered by hand (measure-then-allocate-then-paint) so it
-/// behaves as an atomic block in `horizontal_wrapped` — using `Frame`
-/// here caused the inner Label to inherit horizontal_wrapped's wrap
-/// mode and fracture into one character per line whenever the bubble
-/// landed in a tight remaining space.
-///
-/// **Do NOT replace this with `egui::Frame`** — the wrap-mode
-/// inheritance bug recurs the moment the inner content goes through a
-/// Frame's child UI. The hand-rolled `layout(...) → allocate_exact_size
-/// → painter.rect + painter.galley` flow is what keeps the bubble
-/// atomic to the wrapping layout.
-///
-/// Capping the text width at the row's max_rect lets the text wrap
-/// inside the bubble when it would otherwise exceed the panel's right
-/// edge — much better than overflowing.
+/// **Do NOT swap to `egui::Frame`** — the inner Label inherits
+/// `horizontal_wrapped`'s wrap mode and fractures into one character
+/// per line in tight space. The manual measure → allocate → paint
+/// flow keeps the bubble atomic.
 fn bubble(ui: &mut Ui, text: &str) {
     let font = egui::FontId::proportional(12.0);
     let text_color = ui.visuals().text_color();

@@ -1,10 +1,4 @@
-//! Bulk-action bar shown at the bottom of the central panel whenever
-//! one or more fics are selected. Pure presentation: it reads the
-//! selected fic count + view + shelf list, and emits a single
-//! `Outcome` describing what the user clicked. The caller (`app.rs`'s
-//! render dispatcher) routes that outcome through `FicflowApp`'s
-//! control-surface methods. No `&Connection`, no `&mut Toasts`, no
-//! direct calls into `application::*`.
+//! Pure presentation: state struct in, single `Outcome` out.
 
 use egui::{RichText, Ui};
 
@@ -15,21 +9,18 @@ use super::super::format::format_status;
 use super::super::view::View;
 
 pub struct SelectionBarState<'a> {
-    /// Read-only view of the selection's IDs (empty → bar isn't drawn).
     pub selection_ids: &'a [u64],
     pub current_view: &'a View,
     pub all_shelves: &'a [Shelf],
 }
 
-/// What the user clicked this frame. At most one outcome per frame —
-/// the bar's controls are mutually-exclusive within a single click.
+/// At most one variant per frame — the controls are mutually exclusive.
 pub enum Outcome {
     None,
     SetStatus(ReadingStatus),
     AddToShelf(u64),
-    /// Only emitted when the active view is a shelf view.
+    /// Only emitted on a shelf view.
     RemoveFromShelf(u64),
-    /// User clicked the trash. Caller opens the confirm modal.
     RequestDelete,
     ClearSelection,
 }
@@ -82,10 +73,6 @@ pub fn draw(ui: &mut Ui, state: SelectionBarState<'_>) -> Outcome {
             }
         }
 
-        // 🗑 — egui's NotoEmoji subset and the system DejaVu/Noto Symbols
-        // fallback both cover U+1F5D1, so this renders without tofu on
-        // every platform we support. Hover text keeps screen-reader and
-        // discoverability behaviour intact.
         if ui.button("\u{1F5D1}").on_hover_text("Delete").clicked() {
             outcome = Outcome::RequestDelete;
         }

@@ -71,23 +71,15 @@ pub struct TaskExecutor {
     inbox: Arc<WorkerInbox>,
     sender: Sender<WorkerCommand>,
     next_id: AtomicU64,
-    /// Keeps the worker thread alive for the lifetime of the
-    /// `TaskExecutor` (the leading underscore signals "we never read
-    /// it" — but it's load-bearing: dropping the handle would not stop
-    /// the thread, however the thread itself terminates when `sender`
-    /// is dropped and `rx.recv()` returns `Err`, so holding the handle
-    /// here is mostly to give the OS a name to attach to in debuggers).
-    /// No graceful shutdown — in-flight HTTP requests get torn down by
-    /// the OS when the process exits.
+    /// Worker terminates when `sender` is dropped (rx.recv returns Err);
+    /// the handle is held only so the thread has a stable identity.
     _worker: thread::JoinHandle<()>,
 }
 
 impl TaskExecutor {
-    /// Spawns the worker thread. `db_path` matches the GUI's connection
-    /// override (see `FicflowConfig::db_path`) — the worker opens its
-    /// OWN connection (Connection isn't `Send`) but it must point at
-    /// the same SQLite file so writes from the worker show up in the
-    /// GUI's reads. `None` falls through to `establish_connection()`.
+    /// Worker opens its own SQLite connection (`Connection: !Send`); it
+    /// must point at the same file as the GUI's so writes are visible
+    /// to subsequent reads. `None` falls through to `establish_connection()`.
     pub fn spawn(urls: Vec<String>, max_cycles: u32, db_path: Option<PathBuf>) -> Self {
         let inbox = Arc::new(WorkerInbox::new());
         let (tx, rx) = mpsc::channel();

@@ -14,11 +14,6 @@ use super::super::theme;
 use super::super::view::View;
 
 const HEADER_HEIGHT: f32 = 22.0;
-// 28px gives the row enough vertical room for the rounded status
-// pills (rendered via `render_status_pill`) to sit comfortably
-// without their padded `Frame` clipping into the row above/below.
-// Was 22px (just the line-height of body text); the bump pre-dates
-// the pills but reads better either way.
 const ROW_HEIGHT: f32 = 28.0;
 
 pub struct LibraryViewState<'a> {
@@ -222,16 +217,9 @@ fn default_initial_width(col: ColumnKey) -> f32 {
         ColumnKey::Pairing => 150.0,
         ColumnKey::AO3Rating => 100.0,
         ColumnKey::Warnings => 130.0,
-        // 110px (was 90) so the longest pill ("Plan to Read",
-        // "In Progress") fits comfortably with its frame stroke +
-        // inner margin without truncation in overflow mode.
         ColumnKey::Status => 110.0,
         ColumnKey::Complete => 70.0,
         ColumnKey::LastChapter => 60.0,
-        // 50px (was 70). Number formatting puts "999,999" at ~45px
-        // in body font, so 50 + the narrower padding (`cell_padding`)
-        // still fits without clipping; the saved width frees room
-        // for higher-information columns.
         ColumnKey::Words => 50.0,
         ColumnKey::Kudos => 70.0,
         ColumnKey::Hits => 70.0,
@@ -261,12 +249,8 @@ fn header_cell(
     column: ColumnKey,
     sort: &mut SortPref,
 ) -> bool {
-    // Use the cell's own response (from `TableRow::col`) so clicking
-    // anywhere in the header cell — not just the label glyphs — toggles
-    // sort. `selectable(false)` keeps egui's default Label-text-selection
-    // from swallowing the click before it reaches the cell. Headers
-    // are uniformly centred (regardless of whether the column body is
-    // centred or left-aligned) for visual consistency across the row.
+    // `selectable(false)` keeps the Label from swallowing the click
+    // before it reaches the outer cell response (used for sort toggle).
     let (_rect, resp) = header.col(|ui| {
         let text = format!("{}{}", column.label(), sort_glyph(*sort, column));
         ui.with_layout(
@@ -286,11 +270,8 @@ fn header_cell(
     false
 }
 
-/// Per-column natural widths: the longest of (header label) and the
-/// rendered text in any visible cell, padded for breathing room. Used to
-/// decide whether the table can lay out at content-fit widths or has to
-/// fall back to fixed defaults. Cheap because it's bounded by visible row
-/// count (the user-filtered set, typically ≤ a few hundred).
+/// Longest of (header text, content text) per column, plus padding —
+/// drives the auto-fit-vs-overflow decision.
 fn natural_widths(
     ui: &Ui,
     fics: &[&Fanfiction],
@@ -321,13 +302,9 @@ fn natural_widths(
         .collect()
 }
 
-/// Per-column horizontal slack added to the rendered text width when
-/// computing natural width. Defaults to 16px (8px gutters on each
-/// side); the Status column reserves extra room for its pill's
-/// `Frame` stroke + inner margin (otherwise `format_status` text
-/// width alone is too narrow and the pill truncates), and the
-/// narrow numeric columns shrink so short values like "20,000"
-/// don't waste table width on whitespace around them.
+/// Default 16px gutters; Status reserves extra for the pill's stroke +
+/// inner margin (else the badge truncates), narrow numeric columns
+/// shrink so short numbers don't waste width on whitespace.
 fn cell_padding(col: ColumnKey) -> f32 {
     match col {
         ColumnKey::Status => 16.0 + 24.0,
@@ -393,24 +370,15 @@ fn format_warning(w: &ArchiveWarnings) -> &'static str {
 
 fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
     if matches!(column, ColumnKey::Status) {
-        // Pill paints itself directly into the cell rect — no layout
-        // wrapper needed. The hand-rolled measure-and-paint approach
-        // (vs an `egui::Frame`) keeps the pill at its natural width
-        // regardless of column width, and centres it on the cell's
-        // geometric center vertically *and* horizontally.
         render_status_pill(ui, &fic.reading_status);
         return;
     }
-    // `selectable(false)` is essential: by default a `Label` consumes click
-    // events for text-selection (drag-to-highlight), which swallows the row's
-    // click sense and blocks selecting fics via their text.
+    // `selectable(false)`: a default `Label` swallows row-click events
+    // for text-selection.
     let label = egui::Label::new(cell_text(fic, column))
         .truncate()
         .selectable(false);
     if is_centered_column(column) {
-        // Justified so the label fills the cell horizontally; with
-        // `Align::Center` the text galley centres inside that
-        // stretched label rect.
         ui.with_layout(
             Layout::centered_and_justified(egui::Direction::LeftToRight),
             |ui| {
@@ -422,9 +390,6 @@ fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
     }
 }
 
-/// Numeric / status-ish columns that read better centred than
-/// left-aligned. Title / Author / Fandom / Pairing / Warnings stay
-/// left-aligned (long text reads top-down on the left edge).
 fn is_centered_column(col: ColumnKey) -> bool {
     matches!(
         col,
@@ -437,21 +402,10 @@ fn is_centered_column(col: ColumnKey) -> bool {
     )
 }
 
-/// Rounded pill for the Status column — colour-coded per status so a
-/// reader can scan a long table by hue rather than text. Fill is an
-/// **opaque** dark tint of the status's hue (must be opaque so egui's
-/// blue row-selection background can't bleed through and shift the
-/// perceived hue — Paused + selection-blue would otherwise read as
-/// green); outline and label both painted in the saturated 500-rung
-/// of the hue so they pop against the muted backdrop.
-///
-/// Painted manually (no `Frame`, no nested layout) so the pill keeps
-/// its **natural size** regardless of how wide the column is — an
-/// earlier `Frame`-based version stretched horizontally as the user
-/// resized the column. The pill rect is built from a measured text
-/// galley + fixed padding, then placed at the cell's geometric
-/// centre so it's centred both vertically and horizontally on the
-/// row regardless of the row height.
+/// Painted manually (no `Frame`) so the pill stays at natural size
+/// regardless of column width — a `Frame`-based version stretches
+/// horizontally with its content rect. Fill must be opaque so the
+/// blue row-selection background doesn't bleed through and shift hue.
 fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
     let palette = status_palette(status);
     let text = format_status(status);
@@ -476,16 +430,12 @@ fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
 }
 
 struct StatusPalette {
-    /// Opaque dark tint, painted as the pill's background fill.
+    /// Opaque dark tint for the pill background.
     fill: Color32,
-    /// Saturated hue, used for both the pill outline and its label.
+    /// Saturated hue for the outline and text.
     accent: Color32,
 }
 
-/// Per-status palette. Accent = Tailwind 500-rung saturated hue (the
-/// "sharp colour" — used for outline + text). Fill = a dark muted
-/// shade in the same family, deliberately desaturated and dim so the
-/// accent reads as the figure and the fill as the ground.
 fn status_palette(status: &ReadingStatus) -> StatusPalette {
     match status {
         ReadingStatus::InProgress => StatusPalette {

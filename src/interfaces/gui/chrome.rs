@@ -84,16 +84,11 @@ impl FrameChrome {
     pub fn paint_background(&mut self, ctx: &Context, screen: Rect) {
         let painter = ctx.layer_painter(LayerId::background());
 
-        // BG fill tucked inside the SVG frame so the transparent
-        // viewport doesn't show through behind the panel content.
-        // Painted in egui's current `window_fill` (read live, not
-        // captured at install time) so it matches the colour the
-        // nested `TopBottomPanel` / `SidePanel` / `CentralPanel` use
-        // for their own backgrounds — without that match, an
-        // 8-pixel strip of mismatched colour shows between the SVG
-        // edge and the panel edge. No corner radius for the same
-        // reason: a rounded inner corner against a square panel
-        // edge creates a visible seam at certain pixel alignments.
+        // Read `window_fill` live so the bg fill matches whatever
+        // colour the nested panels paint with — otherwise an 8px
+        // strip of mismatched colour shows between SVG and panel
+        // edges. Square corners for the same reason (rounded inner
+        // corner vs square panel edge produces a visible seam).
         let bg_rect = Rect::from_min_max(
             Pos2::new(
                 screen.left() + LEFT_INNER_X + BG_INSET,
@@ -272,13 +267,10 @@ impl FrameChrome {
         if drag_rect == Rect::NOTHING {
             return;
         }
-        // `click_and_drag` so we can disambiguate "click without
-        // movement" (potential double-click → maximize) from
-        // "press-and-drag" (hand off to the OS via StartDrag).
-        // Previously we sent `StartDrag` on `primary_pressed()`,
-        // which fires on the first half of every double-click — so
-        // the OS stole the pointer before egui could see the second
-        // press, and `double_clicked()` never fired.
+        // `click_and_drag` + `drag_started` (not `primary_pressed`)
+        // so a double-click without movement registers as such — on
+        // press alone the OS-level drag would steal the pointer
+        // before egui sees the second click.
         let resp = ui.interact(
             drag_rect,
             Id::new("ficflow-title-drag"),
@@ -289,10 +281,9 @@ impl FrameChrome {
             ui.ctx().send_viewport_cmd(cmd);
         } else if resp.drag_started() {
             ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
-            // Tell egui we're done dragging from its POV — the OS is
-            // handling the actual move. Without this, egui's
-            // `interaction` state stays latched on this rect so no
-            // other widget can claim hover after the drag ends.
+            // Clear egui's interaction latch — the OS is handling the
+            // drag now, otherwise no other widget can claim hover until
+            // the user releases.
             ui.ctx().stop_dragging();
         }
     }
@@ -321,9 +312,8 @@ impl FrameChrome {
             if resp.hovered() && ui.ctx().input(|i| i.pointer.primary_pressed()) {
                 ui.ctx()
                     .send_viewport_cmd(ViewportCommand::BeginResize(dir));
-                // Same stop_dragging dance as `handle_title_drag` —
-                // OS resize is in flight, clear egui's interaction
-                // latch so post-resize hover recovery works.
+                // See `handle_title_drag` — clear interaction latch so
+                // hover recovers after OS-managed resize.
                 ui.ctx().stop_dragging();
             }
         }
@@ -361,12 +351,9 @@ impl FrameChrome {
             },
         ];
 
-        // Paint into a foreground `Area` instead of `ui.painter()` —
-        // the host CentralPanel's child `TopBottomPanel` ("FICFLOW"
-        // header) lays its own background fill across the top of the
-        // content rect, which would otherwise paint over the buttons.
-        // `Area` with `Order::Foreground` sits above every panel so
-        // the controls always remain visible and clickable.
+        // Foreground `Area` so the FICFLOW header `TopBottomPanel`
+        // (which lays its own background across the top of the
+        // content rect) doesn't paint over the buttons.
         egui::Area::new(Id::new("ficflow-window-controls"))
             .order(egui::Order::Foreground)
             .fixed_pos(origin)
@@ -385,12 +372,6 @@ impl FrameChrome {
                     if hover {
                         area_ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                     }
-                    // Pressed / hover / idle states all derive from
-                    // `theme::ACCENT` so the controls read as "of the
-                    // chrome family" — earlier they used the leftover
-                    // brown-cream `theme::{DIM,TEXT,PANEL}` constants
-                    // from the pre-recolour palette, which clashed
-                    // with the warm-stone wordmark/border.
                     let fill = if resp.is_pointer_button_down_on() {
                         Color32::from_rgba_unmultiplied(0xC9, 0xC4, 0xBC, 80)
                     } else if hover {

@@ -20,20 +20,12 @@ pub use selection::Selection;
 pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
 
-/// Entry point for the GUI binary path. Builds its own connection,
-/// fetcher, and worker thread inside `FicflowApp::with_config` — the
-/// caller doesn't need to pre-construct anything.
 pub fn run_gui() -> ExitCode {
-    // Decode the bundled PNG into RGBA bytes once at startup and hand
-    // it to the viewport builder. eframe forwards it to winit which
-    // sets the window-list / taskbar / alt-tab icon. If decoding ever
-    // fails, fall back to no icon rather than refusing to start.
+    // Borderless + transparent so the Art Nouveau chrome paints in
+    // place of the OS title bar (`FicflowApp::clear_color` returns
+    // `[0;4]` so the alpha channel reaches the compositor).
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Ficflow")
-        // Phase 12: borderless + transparent so we can paint the
-        // Art Nouveau chrome ourselves. `clear_color` in
-        // `FicflowApp` returns `[0;4]` to keep the alpha channel
-        // through to the compositor.
         .with_decorations(false)
         .with_transparent(true)
         .with_inner_size([1100.0, 700.0])
@@ -44,9 +36,8 @@ pub fn run_gui() -> ExitCode {
     }
     let native_options = eframe::NativeOptions {
         viewport,
-        // Persistence on: window geometry, side-panel widths, and
-        // egui_extras table column widths all live in egui's memory and are
-        // serialised to the eframe storage path between launches.
+        // Window geometry, side-panel widths, and table column widths
+        // persist across launches via egui's memory.
         persist_window: true,
         ..Default::default()
     };

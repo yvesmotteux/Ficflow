@@ -1,14 +1,4 @@
-//! Library-table selection state + the row-click resolver.
-//!
-//! `SelectionController` owns the `Selection` value plus the
-//! shift-click anchor (`last_clicked_id`), and centralises every
-//! transition between selection states. Before this lived in two
-//! places: `FicflowApp` had `select_fic` / `select_fics` /
-//! `clear_selection` / `prune_selection_to_view`, and `library_view`
-//! had its own `handle_row_click` that mutated the `&mut Selection`
-//! reference passed in. Pulling the row-click resolver into the
-//! controller means there's exactly one module that knows how
-//! ctrl/shift modifiers map to selection deltas.
+//! Selection state + the ctrl/shift row-click resolver.
 
 use std::collections::HashSet;
 
@@ -20,9 +10,8 @@ use super::view::View;
 #[derive(Default)]
 pub struct SelectionController {
     selection: Selection,
-    /// Anchor row id for shift-click range selection. Set on plain
-    /// and ctrl-clicks; preserved across shift-click extensions so
-    /// successive shift-clicks all anchor to the same row.
+    /// Anchor for shift-click range selection. Preserved across
+    /// successive shift-clicks so they all anchor to the same row.
     last_clicked_id: Option<u64>,
 }
 
@@ -35,14 +24,10 @@ impl SelectionController {
         &self.selection
     }
 
-    /// True when the given fic id is part of the current selection.
     pub fn contains(&self, id: u64) -> bool {
         self.selection.contains(id)
     }
 
-    /// Flatten the selection to a `Vec<u64>` in selection order.
-    /// Used by the drag-payload code (multi-selection drags carry the
-    /// whole set) and by bulk-action dispatch (selection bar).
     pub fn ids_vec(&self) -> Vec<u64> {
         match &self.selection {
             Selection::None => Vec::new(),
@@ -51,31 +36,23 @@ impl SelectionController {
         }
     }
 
-    /// Mark a single fic as the selection. Mirrors a plain
-    /// (no-modifier) row click.
     pub fn select_single(&mut self, id: u64) {
         self.selection = Selection::Single(id);
         self.last_clicked_id = Some(id);
     }
 
-    /// Set the selection to the given list. Variant chosen by length
-    /// (empty → None, one → Single, more → Multi). Used by Ctrl+A
-    /// (select-all-visible) and the test harness.
     pub fn select_many(&mut self, ids: &[u64]) {
         self.last_clicked_id = ids.last().copied();
         self.selection = ids.to_vec().into();
     }
 
-    /// Drop the selection and the shift-click anchor.
     pub fn clear(&mut self) {
         self.selection = Selection::None;
         self.last_clicked_id = None;
     }
 
-    /// Resolve a click on a visible row into a new selection state.
-    /// `mods` come from the click itself so we honour ctrl/shift
-    /// correctly across platforms (egui's `Modifiers::command` maps
-    /// to Cmd on macOS and Ctrl elsewhere).
+    /// `mods` from the click itself so ctrl/shift work right across
+    /// platforms (`Modifiers::command` is Cmd on macOS, Ctrl elsewhere).
     pub fn handle_row_click(
         &mut self,
         visible: &[&Fanfiction],
@@ -85,7 +62,6 @@ impl SelectionController {
         let clicked_id = visible[clicked_idx].id;
 
         if mods.shift {
-            // Range select between anchor and clicked row.
             let anchor_id = self.last_clicked_id.unwrap_or(clicked_id);
             let anchor_idx = visible
                 .iter()
@@ -98,7 +74,7 @@ impl SelectionController {
             };
             let ids: Vec<u64> = visible[start..=end].iter().map(|f| f.id).collect();
             self.selection = ids.into();
-            // Anchor stays put across consecutive shift-clicks.
+            // Don't move the anchor — keeps successive shift-clicks consistent.
         } else if mods.command {
             let mut current = self.ids_vec();
             if let Some(pos) = current.iter().position(|&id| id == clicked_id) {
@@ -114,11 +90,7 @@ impl SelectionController {
         }
     }
 
-    /// Drop selected ids that aren't visible under `view` + the
-    /// associated `shelf_members` filter; on a non-library view the
-    /// selection is cleared entirely (Tasks/Settings have no rows).
-    /// Returns true when the selection actually changed — caller
-    /// uses the bool to decide whether to refresh derived caches.
+    /// Returns true when the selection actually changed.
     pub fn prune_to_view(
         &mut self,
         fics: &[Fanfiction],
