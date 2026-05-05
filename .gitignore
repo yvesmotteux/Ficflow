@@ -1,3 +1,12 @@
 /target
 .vscode
 .github/c*
+
+# makepkg build artifacts when testing the AUR package locally
+aur/pkg/
+aur/src/
+aur/*.pkg.tar.*
+aur/*.tar.gz
+aur/.SRCINFO
+aur/ficflow-*
+aur/LICENSE-*
