@@ -21,9 +21,12 @@ jobs:
           - os: windows-latest
             artifact_name: ficflow.exe
             asset_name: ficflow-windows-amd64.exe
-          - os: macos-latest
+          - os: macos-13
             artifact_name: ficflow
             asset_name: ficflow-macos-amd64
+          - os: macos-14
+            artifact_name: ficflow
+            asset_name: ficflow-macos-arm64
 
     steps:
       - uses: actions/checkout@v3
@@ -61,5 +64,68 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/${{ matrix.artifact_name }}
           asset_name: ${{ matrix.asset_name }}
+          tag: ${{ github.ref }}
+          overwrite: true
+
+  appimage:
+    name: AppImage (Linux)
+    # Built on 22.04 (glibc 2.35) so the AppImage runs on most actively-used
+    # desktop distros — anything newer than mid-2022. Keeps reach wide.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: Sync Cargo.toml version with tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting Cargo.toml version to $VERSION"
+          python -c "
+          import re
+          src = open('Cargo.toml').read()
+          new = re.sub(r'^version\s*=\s*\"[^\"]*\"', f'version = \"$VERSION\"', src, count=1, flags=re.M)
+          open('Cargo.toml', 'w').write(new)
+          "
+          grep '^version' Cargo.toml
+
+      - name: Install AppImage build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 libxkbcommon-dev libwayland-dev libfontconfig1-dev
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build AppImage
+        env:
+          OUTPUT: Ficflow-x86_64.AppImage
+        run: |
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o linuxdeploy-plugin-appimage https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-appimage
+          sudo mv linuxdeploy linuxdeploy-plugin-appimage /usr/local/bin/
+
+          linuxdeploy \
+            --appdir AppDir \
+            --executable target/release/ficflow \
+            --desktop-file aur/ficflow.desktop \
+            --icon-file assets/icon.png \
+            --icon-filename ficflow \
+            --output appimage
+
+      - name: Upload AppImage to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: Ficflow-x86_64.AppImage
+          asset_name: Ficflow-x86_64.AppImage
           tag: ${{ github.ref }}
           overwrite: true

@@ -26,6 +26,7 @@ pub fn run_gui() -> ExitCode {
     // `[0;4]` so the alpha channel reaches the compositor).
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Ficflow")
+        .with_app_id("ficflow")
         .with_decorations(false)
         .with_transparent(true)
         .with_inner_size([1100.0, 700.0])

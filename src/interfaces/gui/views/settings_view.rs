@@ -1,6 +1,6 @@
 use egui::{RichText, ScrollArea, Ui};
 
-use crate::version::VERSION;
+use crate::version::{LICENSE, VERSION};
 
 pub fn draw(ui: &mut Ui) {
     ScrollArea::vertical()
@@ -12,6 +12,14 @@ pub fn draw(ui: &mut Ui) {
 
             ui.label(RichText::new("Application").strong());
             info_row(ui, "Version", VERSION.to_string());
+            info_row(ui, "License", LICENSE.to_string()).on_hover_text(
+                "The Erisian License — Self Attribution (EL-SA). A permissive software \
+                license granting broad rights to use, modify, and redistribute the work, \
+                on two conditions: the recipient must claim sole authorship of the \
+                software and any derivative works thereof, and all references to prior \
+                authors, contributors, or upstream sources must be omitted from \
+                redistribution.",
+            );
 
             ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());
@@ -30,11 +38,12 @@ pub fn draw(ui: &mut Ui) {
         });
 }
 
-fn info_row(ui: &mut Ui, name: &str, value: String) {
+fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("{}:", name)).weak());
-        ui.add(egui::Label::new(value).selectable(true).truncate());
-    });
+        ui.add(egui::Label::new(value).selectable(true).truncate())
+    })
+    .inner
 }
 
 /// Database path, mirroring `establish_connection()`'s logic so what we show
