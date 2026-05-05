@@ -13,6 +13,7 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
 - [ ] Application version in the settings doesn't match the github one
 - [ ] Create a feature-complete GUI version compatible with all OS (target for v1)
+- [ ] Bump deps and move to edition 2024 or 2025
 - [ ] Ability to change column order by grabbing them
 - [ ] Ability to choose the text size / zoom level in the settings
 - [ ] New feature of auto-shelves (based on ships, fandoms, relationship,...)
