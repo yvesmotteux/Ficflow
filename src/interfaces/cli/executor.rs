@@ -6,12 +6,21 @@ use super::command::{CliCommand, ShelfCommand};
 use super::views::{details_view, list_view, shelf_list_view};
 use crate::{
     application::{
-        add_fic::add_fanfiction, add_to_shelf::add_to_shelf, create_shelf::create_shelf,
-        delete_fic::delete_fic, delete_shelf::delete_shelf, get_fic::get_fanfiction,
-        list_fics::list_fics, list_shelf_fics::list_shelf_fics, list_shelves::list_shelves,
-        remove_from_shelf::remove_from_shelf, update_chapters::update_last_chapter_read,
-        update_note::update_personal_note, update_rating::update_user_rating,
-        update_read_count::update_read_count, update_status::update_reading_status,
+        add_fic::add_fanfiction,
+        add_to_shelf::add_to_shelf,
+        create_shelf::create_shelf,
+        delete_fic::delete_fic,
+        delete_shelf::delete_shelf,
+        get_fic::get_fanfiction,
+        list_fics::list_fics,
+        list_shelf_fics::list_shelf_fics,
+        list_shelves::list_shelves,
+        remove_from_shelf::remove_from_shelf,
+        update_chapters::update_last_chapter_read,
+        update_note::update_personal_note,
+        update_rating::{parse_user_rating, update_user_rating},
+        update_read_count::update_read_count,
+        update_status::{parse_reading_status, update_reading_status},
         wipe_db::wipe_database,
     },
     domain::{fanfiction::FanfictionFetcher, repository::Repository},
@@ -137,7 +146,14 @@ impl<'a> CliCommandExecutor<'a> {
             "Updating reading status for fanfiction ID: {} to '{}'",
             fic_id, status
         );
-        match update_reading_status(self.repository, fic_id, status) {
+        let parsed_status = match parse_reading_status(status) {
+            Ok(s) => s,
+            Err(e) => {
+                report_error("updating reading status", &e);
+                return ExitCode::FAILURE;
+            }
+        };
+        match update_reading_status(self.repository, fic_id, parsed_status) {
             Ok(fic) => {
                 println!(
                     "Successfully updated \"{}\" (ID: {}) to status: {}.",
@@ -178,7 +194,14 @@ impl<'a> CliCommandExecutor<'a> {
             "Updating user rating for fanfiction ID: {} to '{}'",
             fic_id, rating
         );
-        match update_user_rating(self.repository, fic_id, rating) {
+        let parsed_rating = match parse_user_rating(rating) {
+            Ok(r) => r,
+            Err(e) => {
+                report_error("updating user rating", &e);
+                return ExitCode::FAILURE;
+            }
+        };
+        match update_user_rating(self.repository, fic_id, parsed_rating) {
             Ok(fic) => {
                 let rating_display = match &fic.user_rating {
                     Some(r) => format!("{}", r),

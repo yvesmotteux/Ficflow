@@ -14,6 +14,29 @@ pub const PRIMARY_AO3_URL: &str = "https://archiveofourown.org";
 pub const ALT_AO3_URL: &str = "https://archiveofourown.gay";
 pub const PROXY_AO3_URL: &str = "https://xn--iao3-lw4b.ws";
 
+/// AO3 URL list + retry-cycle count derived from the environment.
+///
+/// `AO3_BASE_URL` pins to a single URL (used by integration tests):
+/// only that URL is tried, with extra cycles as a small concession to
+/// flaky test mocks. Otherwise the production round-robin is used:
+/// primary → alt → proxy, two cycles.
+///
+/// Single source of truth for both `main.rs` (CLI) and
+/// `FicflowConfig::default()` (GUI).
+pub fn ao3_urls_from_env() -> (Vec<String>, u32) {
+    match std::env::var("AO3_BASE_URL") {
+        Ok(url) => (vec![url], 3),
+        Err(_) => (
+            vec![
+                PRIMARY_AO3_URL.to_string(),
+                ALT_AO3_URL.to_string(),
+                PROXY_AO3_URL.to_string(),
+            ],
+            2,
+        ),
+    }
+}
+
 pub struct Ao3Fetcher {
     client: Ao3Client,
     parser: Ao3Parser,

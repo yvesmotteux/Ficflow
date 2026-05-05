@@ -9,15 +9,18 @@ I felt like there was a lack of ways to manage my AO3 reading list (other than h
 ## Features (Planned, the order is approximate)
 
 - [x] Refactor to make sure both the CLI and the future GUI can work at the same time
-- [ ] Mockups for the GUI, commit assets
+- [ ] Application version in the settings doesn't match the github one
 - [ ] Create a feature-complete GUI version compatible with all OS (target for v1)
+- [ ] Ability to choose the text size / zoom level in the settings
+- [ ] New feature of auto-shelves (based on ships, fandoms, relationship,...)
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
 - [ ] Release the software on the AUR (can we make both the CLI and GUI work at the same time?)
 - [ ] Import/Export database to create backups
 - [ ] Ability to login to access restricted fics
-- [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one
+- [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one (settings, refresh every x time, + notifications for all manual and auto refreshes when a new update was found! And an inbox too)
+- [ ] add works with not only single fics, but collections, a user list of fics, a tag, a user profile,...
 - [ ] Add a search system based on tags, with an option to filter out fics already catalogued
-- [ ] Add a notification config panel that sends notifications on fic updates (remote scan? implies ficflow open)
+- [ ] Setting to make it start in the background on computer start-up, and stay on background when closing (opt-in, different settings or same? SHould add a proper, cleaner "quit" option if so)
 - [ ] Create a mobile phone app (target for v2)
 
 ## Usage

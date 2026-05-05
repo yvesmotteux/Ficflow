@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::Display;
 
-#[derive(Debug, Serialize, Deserialize, Display, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Display, PartialEq, Eq)]
 pub enum ReadingStatus {
     InProgress,
     Read,

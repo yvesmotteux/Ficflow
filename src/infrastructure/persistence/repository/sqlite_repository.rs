@@ -243,4 +243,47 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         let fics = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(fics)
     }
+
+    fn list_shelves_for_fic(&self, fic_id: u64) -> Result<Vec<Shelf>, FicflowError> {
+        self.ensure_fanfiction_exists(fic_id)?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.name, s.created_at FROM shelf s \
+             JOIN fic_shelf fs ON fs.shelf_id = s.id \
+             WHERE fs.fic_id = ?1 AND s.deleted_at IS NULL \
+             ORDER BY s.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map(params![fic_id], row_to_shelf)?;
+        let shelves = rows.collect::<Result<Vec<_>, _>>()?;
+        Ok(shelves)
+    }
+
+    fn count_fics_in_shelf(&self, shelf_id: u64) -> Result<usize, FicflowError> {
+        self.ensure_shelf_exists(shelf_id)?;
+
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM fic_shelf fs \
+             JOIN fanfiction f ON f.id = fs.fic_id \
+             WHERE fs.shelf_id = ?1 AND f.deleted_at IS NULL",
+            params![shelf_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    fn count_fics_per_shelf(&self) -> Result<std::collections::HashMap<u64, usize>, FicflowError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT fs.shelf_id, COUNT(*) FROM fic_shelf fs \
+             JOIN fanfiction f ON f.id = fs.fic_id \
+             WHERE f.deleted_at IS NULL \
+             GROUP BY fs.shelf_id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let shelf_id: i64 = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            Ok((shelf_id as u64, count as usize))
+        })?;
+        rows.collect::<Result<_, _>>()
+            .map_err(FicflowError::Database)
+    }
 }

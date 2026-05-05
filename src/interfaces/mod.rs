@@ -1,3 +1,3 @@
 pub mod cli;
-pub mod interface;
+pub mod gui;
 pub mod utils;

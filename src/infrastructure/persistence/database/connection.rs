@@ -22,11 +22,19 @@ pub fn establish_connection() -> Result<Connection, FicflowError> {
 }
 
 // Single canonical path to obtain a ready-to-use Connection: open, migrate,
-// then enable FK enforcement. SQLite FKs are off by default per-connection,
-// so production and test code must go through here to keep cascades working.
+// then enable FK enforcement and WAL journaling. SQLite FKs are off by
+// default per-connection, so production and test code must go through here
+// to keep cascades working. WAL mode lets the GUI thread's reads and the
+// task-worker thread's writes proceed concurrently — without it, the
+// worker can busy-wait for several seconds while the GUI keeps grabbing
+// SHARED locks during render(), which manifests as tasks stuck on the
+// `Running` state.
 pub fn open_configured_db(path: &Path) -> Result<Connection, FicflowError> {
     let mut conn = Connection::open(path)?;
     run_migrations(&mut conn)?;
-    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;\
+         PRAGMA foreign_keys = ON;",
+    )?;
     Ok(conn)
 }

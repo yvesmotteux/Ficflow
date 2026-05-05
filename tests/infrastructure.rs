@@ -7,5 +7,7 @@ mod ao3;
 mod ao3_real;
 #[path = "infrastructure/db.rs"]
 mod db;
+#[path = "infrastructure/shelf.rs"]
+mod shelf;
 #[path = "infrastructure/url_parser.rs"]
 mod url_parser;
