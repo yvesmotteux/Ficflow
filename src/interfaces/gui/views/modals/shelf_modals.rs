@@ -2,27 +2,13 @@ use egui::{Context, Window};
 
 use crate::domain::shelf::Shelf;
 
-/// State for the create-shelf modal. `name_buf` holds the in-progress text;
-/// when the user submits we hand it back to the caller via `Outcome::Submit`.
 /// Buffer for the in-progress shelf name. The "is the modal open?"
 /// answer lives in the parent `ActiveModal` enum — when this struct
-/// exists at all, the modal is open.
+/// exists at all, the modal is open. Caller starts a fresh dialog
+/// with `CreateState::default()`.
+#[derive(Default)]
 pub struct CreateState {
     pub name: String,
-}
-
-impl CreateState {
-    pub fn new() -> Self {
-        Self {
-            name: String::new(),
-        }
-    }
-}
-
-impl Default for CreateState {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 pub enum Outcome {

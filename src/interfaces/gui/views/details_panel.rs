@@ -290,6 +290,11 @@ fn draw_rating(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<UserRating>> {
 /// the user switches to a different fic. Returns `Some(value)` only
 /// when the user commits via focus loss; mid-typing changes don't fire
 /// an action — the DB write is a one-per-edit-session event.
+///
+/// `fic.id` is sufficient as the namespace because at most one details
+/// panel mounts per frame (gated on `Selection::Single` in `app.rs`).
+/// If a future "compare two fics" view ever mounts two panels, this
+/// key needs a panel-instance discriminator added.
 fn draw_note(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<String>> {
     let id = ui.id().with(("note-draft", fic.id));
     let initial = fic.personal_note.clone().unwrap_or_default();
@@ -481,10 +486,16 @@ fn bubble_list(ui: &mut Ui, salt: &str, items: &[String]) {
 }
 
 /// One bubble. Rendered by hand (measure-then-allocate-then-paint) so it
-/// behaves as an atomic block in `horizontal_wrapped` — using `Frame` here
-/// caused the inner Label to inherit horizontal_wrapped's wrap mode and
-/// fracture into one character per line whenever the bubble landed in a
-/// tight remaining space.
+/// behaves as an atomic block in `horizontal_wrapped` — using `Frame`
+/// here caused the inner Label to inherit horizontal_wrapped's wrap
+/// mode and fracture into one character per line whenever the bubble
+/// landed in a tight remaining space.
+///
+/// **Do NOT replace this with `egui::Frame`** — the wrap-mode
+/// inheritance bug recurs the moment the inner content goes through a
+/// Frame's child UI. The hand-rolled `layout(...) → allocate_exact_size
+/// → painter.rect + painter.galley` flow is what keeps the bubble
+/// atomic to the wrapping layout.
 ///
 /// Capping the text width at the row's max_rect lets the text wrap
 /// inside the bubble when it would otherwise exceed the panel's right

@@ -20,6 +20,11 @@ pub struct LibraryCounts {
 }
 
 pub struct SidebarState<'a> {
+    /// In-place — sidebar row clicks just set this to the target view;
+    /// the caller diffs against `prev_view` to know whether to refresh
+    /// derived caches. (Not folded into `Outcome` because every row
+    /// would otherwise have to thread a return value back up the
+    /// loop, and the prev/post diff is the simpler shape.)
     pub current_view: &'a mut View,
     pub shelves: &'a [Shelf],
     pub library_counts: &'a LibraryCounts,
@@ -30,24 +35,34 @@ pub struct SidebarState<'a> {
     /// Tasks row (including 0) so the user has a stable place to watch
     /// without flipping into the Tasks view.
     pub running_tasks: usize,
-    pub create_shelf_request: &'a mut bool,
-    pub delete_shelf_request: &'a mut Option<u64>,
-    /// Set when a drag-and-drop drop lands on a shelf row: `(shelf_id, fic_ids)`.
-    /// Caller bulk-adds the fics to the shelf and refreshes its caches.
-    pub drop_on_shelf: &'a mut Option<(u64, Vec<u64>)>,
 }
 
-pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
+/// What the user did this frame, beyond the implicit view change. At
+/// most one variant fires per frame — "+" / right-click-delete / drop
+/// are mutually-exclusive mouse interactions.
+pub enum Outcome {
+    None,
+    /// User clicked the "+" button next to the SHELVES heading.
+    OpenCreateShelfModal,
+    /// User picked "Delete shelf" from a shelf row's right-click menu.
+    OpenDeleteShelfConfirm(u64),
+    /// A drag-and-drop release landed on a shelf row. Caller bulk-adds
+    /// the carried fics to the shelf and refreshes derived caches.
+    DropOnShelf {
+        shelf_id: u64,
+        fic_ids: Vec<u64>,
+    },
+}
+
+pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
     let SidebarState {
         current_view,
         shelves,
         library_counts,
         shelf_counts,
         running_tasks,
-        create_shelf_request,
-        delete_shelf_request,
-        drop_on_shelf,
     } = state;
+    let mut outcome = Outcome::None;
 
     // Pin Tasks/Settings to the bottom.
     // `Frame::none()` because the panel's default inner_margin (~8px each
@@ -140,7 +155,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
             ui.separator();
             ui.add_space(4.0);
             if shelves_header(ui) {
-                *create_shelf_request = true;
+                outcome = Outcome::OpenCreateShelfModal;
             }
             ui.add_space(2.0);
         });
@@ -186,12 +201,15 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
                                 );
                             }
                             if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
-                                *drop_on_shelf = Some((shelf.id, (*payload).clone()));
+                                outcome = Outcome::DropOnShelf {
+                                    shelf_id: shelf.id,
+                                    fic_ids: (*payload).clone(),
+                                };
                             }
 
                             resp.context_menu(|ui| {
                                 if ui.button("Delete shelf").clicked() {
-                                    *delete_shelf_request = Some(shelf.id);
+                                    outcome = Outcome::OpenDeleteShelfConfirm(shelf.id);
                                     ui.close_menu();
                                 }
                             });
@@ -199,6 +217,8 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) {
                     }
                 });
         });
+
+    outcome
 }
 
 // BMP-only Unicode glyphs that render in egui's default font stack (Noto

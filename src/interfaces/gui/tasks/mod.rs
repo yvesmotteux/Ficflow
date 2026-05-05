@@ -71,6 +71,14 @@ pub struct TaskExecutor {
     inbox: Arc<WorkerInbox>,
     sender: Sender<WorkerCommand>,
     next_id: AtomicU64,
+    /// Keeps the worker thread alive for the lifetime of the
+    /// `TaskExecutor` (the leading underscore signals "we never read
+    /// it" — but it's load-bearing: dropping the handle would not stop
+    /// the thread, however the thread itself terminates when `sender`
+    /// is dropped and `rx.recv()` returns `Err`, so holding the handle
+    /// here is mostly to give the OS a name to attach to in debuggers).
+    /// No graceful shutdown — in-flight HTTP requests get torn down by
+    /// the OS when the process exits.
     _worker: thread::JoinHandle<()>,
 }
 

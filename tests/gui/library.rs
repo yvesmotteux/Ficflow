@@ -143,6 +143,46 @@ mod tests {
         assert!(repo.list_fanfictions().unwrap().is_empty());
     }
 
+    /// A5b — regression: deleting a fic that belongs to a shelf must
+    /// also clear the cached `selection_shelf_ids` set, not just the
+    /// selection itself. Previously `delete_selected` called
+    /// `self.selection.clear()` directly, bypassing the cache reset
+    /// inside `clear_selection()`. Result: the dropdown's
+    /// shelf-membership cache held the deleted fic's old shelf set
+    /// until the next selection happened.
+    #[test]
+    fn delete_fic_clears_selection_shelves_cache() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let fic = fixtures::given_sample_fanfiction(303, "Cached-Shelves Doomed Fic");
+        fixtures::when_fanfiction_added_to_db(&conn, &fic).unwrap();
+
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+
+        // Put the fic on a shelf so `selection_shelf_ids` would
+        // populate to `{shelf_id}` once the fic is selected — without
+        // this the assertion below would pass even with the bug.
+        h.app.create_shelf("Pinned").unwrap();
+        let shelf_id = h.app.shelves()[0].id;
+        h.app.add_fic_to_shelf(303, shelf_id).unwrap();
+
+        h.app.select_fic(303);
+        h.step();
+        assert_eq!(
+            h.app.selection_shelves().len(),
+            1,
+            "selecting a shelved fic populates the cache"
+        );
+
+        h.app.delete_selected();
+        h.step();
+
+        assert!(
+            h.app.selection_shelves().is_empty(),
+            "delete_selected must clear `selection_shelf_ids` along with the selection"
+        );
+    }
+
     /// A6 — the ↻ refresh button kicks off a `check_fic_updates`
     /// background fetch. When the worker finishes, the in-memory fic
     /// has the freshly-fetched metadata and a bumped `last_checked_date`.

@@ -196,6 +196,14 @@ impl FicflowApp {
         self.selection.current()
     }
 
+    /// Cached shelf-ids that the currently-selected single fic belongs
+    /// to. Empty unless the selection is `Single(_)`. Exposed so tests
+    /// can verify cache invariants — production callers should read
+    /// `cache.selection_shelf_ids` through the dropdown's state struct.
+    pub fn selection_shelves(&self) -> &std::collections::HashSet<u64> {
+        &self.cache.selection_shelf_ids
+    }
+
     pub fn current_view(&self) -> &View {
         &self.current_view
     }
@@ -334,7 +342,7 @@ impl FicflowApp {
                 .collect()
         });
         self.cache.remove_fics(&surviving);
-        self.selection.clear();
+        self.clear_selection();
     }
 
     /// Create a new shelf and refresh the in-memory caches. Mirrors the
@@ -399,6 +407,12 @@ impl FicflowApp {
 
     /// Bulk set status across many fics. Mirrors the "Change status"
     /// menu in the selection bar. Returns `(succeeded, failed)`.
+    ///
+    /// Unlike `bulk_add_to_shelf` / `bulk_remove_from_shelf` this does
+    /// NOT route through `mutate()` — status changes can't affect
+    /// shelf membership, so the per-call refresh of `shelf_counts` /
+    /// `shelf_members` / `selection_shelf_ids` would be wasted work.
+    /// Just patch the in-memory fics from each successful call.
     pub fn bulk_set_status(&mut self, ids: &[u64], status: ReadingStatus) -> (usize, usize) {
         let mut errors = 0usize;
         let mut updated_fics: Vec<Fanfiction> = Vec::with_capacity(ids.len());
@@ -742,23 +756,22 @@ impl FicflowApp {
     }
 
     /// Left sidebar. Library counts + shelf list + Tasks/Settings stubs.
-    /// The sub-view fills `*_request` locals; we translate those into
-    /// `ActiveModal::*` afterwards so the sub-view doesn't need to know
-    /// about the modal-state enum. Also handles the view-change side
-    /// effects (refresh shelf-members, prune the selection) here, since
-    /// this is the only paint that can mutate `current_view`.
+    /// The view returns one `Outcome` describing the user action this
+    /// frame (modal request, drop, …); view-changes happen in-place on
+    /// `current_view` and are detected via a prev/post diff. Also
+    /// handles the view-change side effects (refresh shelf-members,
+    /// prune the selection) here, since this is the only paint that
+    /// can mutate `current_view`.
     fn paint_sidebar(&mut self, ctx: &egui::Context) {
-        let mut create_request = false;
-        let mut delete_shelf_request: Option<u64> = None;
-        let mut drop_on_shelf: Option<(u64, Vec<u64>)> = None;
         let prev_view = self.current_view.clone();
         let library_counts = compute_library_counts(&self.cache.fics);
+        let mut outcome = sidebar::Outcome::None;
         egui::SidePanel::left("ficflow-sidebar")
             .default_width(160.0)
             .width_range(140.0..=600.0)
             .resizable(true)
             .show(ctx, |ui| {
-                sidebar::draw(
+                outcome = sidebar::draw(
                     ui,
                     SidebarState {
                         current_view: &mut self.current_view,
@@ -766,20 +779,20 @@ impl FicflowApp {
                         library_counts: &library_counts,
                         shelf_counts: &self.cache.shelf_counts,
                         running_tasks: self.task_executor.running_count(),
-                        create_shelf_request: &mut create_request,
-                        delete_shelf_request: &mut delete_shelf_request,
-                        drop_on_shelf: &mut drop_on_shelf,
                     },
                 );
             });
-        if create_request {
-            self.active_modal = ActiveModal::CreateShelf(CreateState::new());
-        }
-        if let Some(id) = delete_shelf_request {
-            self.active_modal = ActiveModal::DeleteShelf(id);
-        }
-        if let Some((shelf_id, fic_ids)) = drop_on_shelf {
-            self.handle_drop_on_shelf(shelf_id, &fic_ids);
+        match outcome {
+            sidebar::Outcome::None => {}
+            sidebar::Outcome::OpenCreateShelfModal => {
+                self.active_modal = ActiveModal::CreateShelf(CreateState::default());
+            }
+            sidebar::Outcome::OpenDeleteShelfConfirm(id) => {
+                self.active_modal = ActiveModal::DeleteShelf(id);
+            }
+            sidebar::Outcome::DropOnShelf { shelf_id, fic_ids } => {
+                self.handle_drop_on_shelf(shelf_id, &fic_ids);
+            }
         }
         if self.current_view != prev_view {
             if matches!(self.current_view, View::Shelf(_)) {
@@ -916,7 +929,7 @@ impl FicflowApp {
             }
         });
         if central.response.clicked() && self.current_view.shows_library() {
-            self.selection.clear();
+            self.clear_selection();
         }
         if *self.selection.current() != prev_selection {
             self.refresh_selection_shelf_ids();
@@ -926,7 +939,7 @@ impl FicflowApp {
         // the panel doesn't render a "not found" state next frame.
         if let Selection::Single(id) = *self.selection.current() {
             if !self.cache.fics.iter().any(|f| f.id == id) {
-                self.selection.clear();
+                self.clear_selection();
             }
         }
         if sort_changed {
@@ -1199,7 +1212,7 @@ impl FicflowApp {
             self.toasts
                 .error(format!("{}/{} deletions failed", errors, total));
         }
-        self.selection.clear();
+        self.clear_selection();
     }
 }
 
@@ -1217,6 +1230,13 @@ impl FicflowApp {
     /// focus so we don't fight the user's typing (Ctrl+A in a TextEdit, for
     /// instance, should select the text, not all rows).
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        // The search field only mounts in library views, so a stale
+        // pending-focus flag would grab focus retroactively when the
+        // user returned to the library — drop it the moment we're
+        // off-library to keep the request scoped to this view.
+        if !self.current_view.shows_library() {
+            self.focus_search_pending = false;
+        }
         if ctx.wants_keyboard_input() {
             return;
         }
@@ -1232,8 +1252,7 @@ impl FicflowApp {
             .input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::F)));
 
         if pressed_esc && !matches!(self.selection.current(), Selection::None) {
-            self.selection.clear();
-            self.refresh_selection_shelf_ids();
+            self.clear_selection();
         }
 
         if pressed_delete && self.current_view.shows_library() {
@@ -1256,7 +1275,7 @@ impl FicflowApp {
         }
 
         if ctrl_n {
-            self.active_modal = ActiveModal::CreateShelf(CreateState::new());
+            self.active_modal = ActiveModal::CreateShelf(CreateState::default());
         }
 
         if ctrl_f && self.current_view.shows_library() {
