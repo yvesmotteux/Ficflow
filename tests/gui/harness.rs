@@ -78,7 +78,14 @@ impl GuiHarness {
     /// Run one frame with no input. Discards `FullOutput` — tests that
     /// need it can call `Context::run` directly.
     pub fn step(&mut self) {
-        let raw_input = egui::RawInput::default();
+        // The Phase 12 chrome rasterises its SVG atlas to a 4096x5462
+        // texture; egui's `RawInput::default().max_texture_side` is
+        // 2048, which would panic the upload. Production gets a much
+        // larger limit from the wgpu adapter; mirror that in tests.
+        let raw_input = egui::RawInput {
+            max_texture_side: Some(8192),
+            ..Default::default()
+        };
         let app = &mut self.app;
         let _ = self.ctx.run(raw_input, |ctx| {
             app.render(ctx);

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use egui::{Align, Layout, RichText, Sense, Ui};
+use egui::{Align, Color32, Layout, RichText, Sense, Stroke, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use std::collections::HashSet;
@@ -10,10 +10,11 @@ use crate::domain::fanfiction::{ArchiveWarnings, Fanfiction, Rating, ReadingStat
 
 use super::super::format::{format_status, format_thousands};
 use super::super::selection_controller::SelectionController;
+use super::super::theme;
 use super::super::view::View;
 
 const HEADER_HEIGHT: f32 = 22.0;
-const ROW_HEIGHT: f32 = 22.0;
+const ROW_HEIGHT: f32 = 28.0;
 
 pub struct LibraryViewState<'a> {
     pub fics: &'a [Fanfiction],
@@ -216,10 +217,10 @@ fn default_initial_width(col: ColumnKey) -> f32 {
         ColumnKey::Pairing => 150.0,
         ColumnKey::AO3Rating => 100.0,
         ColumnKey::Warnings => 130.0,
-        ColumnKey::Status => 90.0,
+        ColumnKey::Status => 110.0,
         ColumnKey::Complete => 70.0,
         ColumnKey::LastChapter => 60.0,
-        ColumnKey::Words => 70.0,
+        ColumnKey::Words => 50.0,
         ColumnKey::Kudos => 70.0,
         ColumnKey::Hits => 70.0,
         ColumnKey::Rating => 70.0,
@@ -248,13 +249,19 @@ fn header_cell(
     column: ColumnKey,
     sort: &mut SortPref,
 ) -> bool {
-    // Use the cell's own response (from `TableRow::col`) so clicking
-    // anywhere in the header cell — not just the label glyphs — toggles
-    // sort. `selectable(false)` keeps egui's default Label-text-selection
-    // from swallowing the click before it reaches the cell.
+    // `selectable(false)` keeps the Label from swallowing the click
+    // before it reaches the outer cell response (used for sort toggle).
     let (_rect, resp) = header.col(|ui| {
         let text = format!("{}{}", column.label(), sort_glyph(*sort, column));
-        ui.add(egui::Label::new(RichText::new(text).strong()).selectable(false));
+        ui.with_layout(
+            Layout::centered_and_justified(egui::Direction::LeftToRight),
+            |ui| {
+                ui.add(
+                    egui::Label::new(RichText::new(text).strong().color(theme::ACCENT))
+                        .selectable(false),
+                );
+            },
+        );
     });
     if resp.clicked() {
         toggle_sort(sort, column);
@@ -263,11 +270,8 @@ fn header_cell(
     false
 }
 
-/// Per-column natural widths: the longest of (header label) and the
-/// rendered text in any visible cell, padded for breathing room. Used to
-/// decide whether the table can lay out at content-fit widths or has to
-/// fall back to fixed defaults. Cheap because it's bounded by visible row
-/// count (the user-filtered set, typically ≤ a few hundred).
+/// Longest of (header text, content text) per column, plus padding —
+/// drives the auto-fit-vs-overflow decision.
 fn natural_widths(
     ui: &Ui,
     fics: &[&Fanfiction],
@@ -275,10 +279,6 @@ fn natural_widths(
     sort: SortPref,
 ) -> Vec<f32> {
     let body_font = egui::TextStyle::Body.resolve(ui.style());
-    // 16 px ≈ 8 px on each side for the cell's natural left/right gutters
-    // plus a touch extra so glyphs aren't right against the column border.
-    const CELL_PADDING: f32 = 16.0;
-
     visible_columns
         .iter()
         .map(|col| {
@@ -297,9 +297,20 @@ fn natural_widths(
                         .x
                 })
                 .fold(0.0f32, f32::max);
-            header_w.max(content_w) + CELL_PADDING
+            header_w.max(content_w) + cell_padding(*col)
         })
         .collect()
+}
+
+/// Default 16px gutters; Status reserves extra for the pill's stroke +
+/// inner margin (else the badge truncates), narrow numeric columns
+/// shrink so short numbers don't waste width on whitespace.
+fn cell_padding(col: ColumnKey) -> f32 {
+    match col {
+        ColumnKey::Status => 16.0 + 24.0,
+        ColumnKey::Words | ColumnKey::Reads | ColumnKey::Hits | ColumnKey::Kudos => 8.0,
+        _ => 16.0,
+    }
 }
 
 fn cell_text(fic: &Fanfiction, column: ColumnKey) -> String {
@@ -358,14 +369,96 @@ fn format_warning(w: &ArchiveWarnings) -> &'static str {
 }
 
 fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
-    // `selectable(false)` is essential: by default a `Label` consumes click
-    // events for text-selection (drag-to-highlight), which swallows the row's
-    // click sense and blocks selecting fics via their text.
-    ui.add(
-        egui::Label::new(cell_text(fic, column))
-            .truncate()
-            .selectable(false),
+    if matches!(column, ColumnKey::Status) {
+        render_status_pill(ui, &fic.reading_status);
+        return;
+    }
+    // `selectable(false)`: a default `Label` swallows row-click events
+    // for text-selection.
+    let label = egui::Label::new(cell_text(fic, column))
+        .truncate()
+        .selectable(false);
+    if is_centered_column(column) {
+        ui.with_layout(
+            Layout::centered_and_justified(egui::Direction::LeftToRight),
+            |ui| {
+                ui.add(label);
+            },
+        );
+    } else {
+        ui.add(label);
+    }
+}
+
+fn is_centered_column(col: ColumnKey) -> bool {
+    matches!(
+        col,
+        ColumnKey::Complete
+            | ColumnKey::LastChapter
+            | ColumnKey::Words
+            | ColumnKey::Reads
+            | ColumnKey::Hits
+            | ColumnKey::Kudos
+    )
+}
+
+/// Painted manually (no `Frame`) so the pill stays at natural size
+/// regardless of column width — a `Frame`-based version stretches
+/// horizontally with its content rect. Fill must be opaque so the
+/// blue row-selection background doesn't bleed through and shift hue.
+fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
+    let palette = status_palette(status);
+    let text = format_status(status);
+    let body_font = egui::TextStyle::Body.resolve(ui.style());
+    let galley = ui.fonts(|f| f.layout_no_wrap(text.to_string(), body_font, palette.accent));
+
+    const INNER_X: f32 = 8.0;
+    const INNER_Y: f32 = 4.0;
+    let pill_size = galley.size() + egui::vec2(2.0 * INNER_X, 2.0 * INNER_Y);
+    let avail = ui.available_rect_before_wrap();
+    let pill_rect = egui::Rect::from_center_size(avail.center(), pill_size);
+
+    let painter = ui.painter();
+    painter.rect(
+        pill_rect,
+        egui::Rounding::same(10.0),
+        palette.fill,
+        Stroke::new(1.0, palette.accent),
     );
+    let text_pos = pill_rect.center() - galley.size() / 2.0;
+    painter.galley(text_pos, galley, palette.accent);
+}
+
+struct StatusPalette {
+    /// Opaque dark tint for the pill background.
+    fill: Color32,
+    /// Saturated hue for the outline and text.
+    accent: Color32,
+}
+
+fn status_palette(status: &ReadingStatus) -> StatusPalette {
+    match status {
+        ReadingStatus::InProgress => StatusPalette {
+            fill: Color32::from_rgb(20, 30, 50),
+            accent: Color32::from_rgb(59, 130, 246),
+        },
+        ReadingStatus::Read => StatusPalette {
+            fill: Color32::from_rgb(20, 35, 25),
+            accent: Color32::from_rgb(34, 197, 94),
+        },
+        ReadingStatus::PlanToRead => StatusPalette {
+            fill: Color32::from_rgb(35, 25, 50),
+            accent: Color32::from_rgb(168, 85, 247),
+        },
+        ReadingStatus::Paused => StatusPalette {
+            fill: Color32::from_rgb(40, 30, 15),
+            accent: Color32::from_rgb(245, 158, 11),
+        },
+        ReadingStatus::Abandoned => StatusPalette {
+            fill: Color32::from_rgb(45, 20, 20),
+            accent: Color32::from_rgb(239, 68, 68),
+        },
+    }
 }
 
 /// Toggle direction if same column, else switch column with default-desc.

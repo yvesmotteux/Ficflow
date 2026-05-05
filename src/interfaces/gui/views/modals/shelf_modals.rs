@@ -2,10 +2,6 @@ use egui::{Context, Window};
 
 use crate::domain::shelf::Shelf;
 
-/// Buffer for the in-progress shelf name. The "is the modal open?"
-/// answer lives in the parent `ActiveModal` enum — when this struct
-/// exists at all, the modal is open. Caller starts a fresh dialog
-/// with `CreateState::default()`.
 #[derive(Default)]
 pub struct CreateState {
     pub name: String,
@@ -17,9 +13,6 @@ pub enum Outcome {
     Cancel,
 }
 
-/// Draws the create-shelf modal. Caller is responsible for only
-/// invoking this when `ActiveModal::CreateShelf(_)` is the current
-/// modal — the early-return `if !state.open` guard is gone.
 pub fn draw_create(ctx: &Context, state: &mut CreateState) -> Outcome {
     let mut still_open = true;
     let mut outcome = Outcome::None;

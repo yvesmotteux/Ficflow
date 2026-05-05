@@ -18,11 +18,12 @@ use crate::infrastructure::persistence::database::connection::{
 };
 use crate::infrastructure::SqliteRepository;
 
-use super::fonts;
+use super::chrome::FrameChrome;
 use super::library_cache::LibraryCache;
 use super::selection::Selection;
 use super::selection_controller::SelectionController;
 use super::tasks::TaskExecutor;
+use super::theme;
 use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
@@ -37,31 +38,21 @@ use super::views::{
 
 pub struct FicflowApp {
     connection: Connection,
-    /// All in-memory caches (`fics`, `shelves`, `shelf_members`,
-    /// `selection_shelf_ids`, `shelf_counts`) plus the `mutate()`
-    /// funnel that keeps them coherent. See `LibraryCache` for the
-    /// invariants each field upholds.
     cache: LibraryCache,
+    chrome: FrameChrome,
     config: AppConfig,
-    /// Set after the first `update()` applies the persisted maximized /
-    /// fullscreen state via `ViewportCommand`. Without this gate the
-    /// command would re-fire every frame.
+    /// Gate so the persisted maximized / fullscreen state is applied
+    /// once at first frame and not re-fired every paint.
     initial_window_state_applied: bool,
     sort: SortPref,
     search_query: String,
     show_column_picker: bool,
-    /// Library-table selection state + the row-click resolver. See
-    /// `SelectionController` for how clicks/modifiers map to deltas.
     selection: SelectionController,
     current_view: View,
-    /// Which (at most one) modal window is currently displayed. The
-    /// enum guarantees exclusivity at the type level — opening any
-    /// modal first overwrites the previous one, so two stacked
-    /// windows can never happen.
     active_modal: ActiveModal,
     task_executor: TaskExecutor,
     task_filter: TaskFilter,
-    /// Set by the Ctrl+F shortcut; library_view consumes it on next paint.
+    /// Set by Ctrl+F; consumed by `draw_search_field` on next paint.
     focus_search_pending: bool,
     toasts: Toasts,
 }
@@ -69,51 +60,35 @@ pub struct FicflowApp {
 #[derive(Debug)]
 pub enum InitError {
     Database(FicflowError),
+    Chrome(resvg::usvg::Error),
 }
 
 impl std::fmt::Display for InitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InitError::Database(e) => write!(f, "database init failed: {}", e),
+            InitError::Chrome(e) => write!(f, "chrome SVG init failed: {}", e),
         }
     }
 }
 
 impl std::error::Error for InitError {}
 
-/// Mutually-exclusive set of modal windows. Replaces what used to be
-/// four independent fields (`create_shelf_modal`, `delete_shelf_pending`,
-/// `delete_fics_pending`, `add_fic_modal`) — the enum form makes "at
-/// most one modal open" a property the type system enforces, instead
-/// of an invariant the code has to maintain by convention.
+/// Mutually-exclusive set of modal windows: only one can be open at a time.
 pub enum ActiveModal {
     None,
-    /// Create-shelf dialog; payload is the in-progress name buffer.
     CreateShelf(CreateState),
-    /// Confirmation modal before soft-deleting a shelf; payload is its id.
     DeleteShelf(u64),
-    /// Confirmation modal before bulk-soft-deleting fics; payload is
-    /// the list of ids the user selected.
     DeleteFics(Vec<u64>),
-    /// Add-fic dialog; payload is the in-progress URL/ID buffer.
     AddFic(AddFicState),
 }
 
-/// Explicit wiring for `FicflowApp`. The production binary derives
-/// this from the environment via `FicflowConfig::default()`; embedders
-/// and integration tests construct it directly so they can point the
-/// app at a chosen SQLite file and AO3 endpoint without going through
-/// process-global env vars.
+/// Explicit wiring so embedders and integration tests can inject a
+/// chosen SQLite file and AO3 endpoint without process-global env vars.
 #[derive(Clone)]
 pub struct FicflowConfig {
-    /// Override for the SQLite DB. `None` falls back to
-    /// `establish_connection()` (which checks `FICFLOW_DB_PATH` then
-    /// the platform data dir).
     pub db_path: Option<PathBuf>,
-    /// AO3 base URLs to round-robin during fetches.
     pub ao3_urls: Vec<String>,
-    /// How many full URL-rotation cycles to attempt before giving up
-    /// on a fetch. Lower values fail-fast.
     pub max_retry_cycles: u32,
 }
 
@@ -129,27 +104,22 @@ impl Default for FicflowConfig {
 }
 
 impl FicflowApp {
-    /// Production entry point: derives config from the environment and
-    /// the platform data dir.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, InitError> {
         Self::with_config(&cc.egui_ctx, FicflowConfig::default())
     }
 
-    /// Test/embedding entry point: every dependency the app talks to
-    /// (DB path, AO3 base URLs) comes through `config`. The worker
-    /// thread inside `TaskExecutor` is told the same `db_path` so it
-    /// opens the same SQLite file, otherwise the GUI and the worker
-    /// would be looking at different stores.
-    ///
-    /// Takes `&egui::Context` (not `&CreationContext`) so headless
-    /// tests can build the app without going through eframe runtime.
+    /// `&egui::Context` (not `&CreationContext`) so headless tests can
+    /// build the app without an eframe runtime. The worker thread
+    /// opens its own connection to the same `db_path` since
+    /// `Connection: !Send`.
     pub fn with_config(ctx: &egui::Context, config: FicflowConfig) -> Result<Self, InitError> {
-        fonts::install_system_fallback(ctx);
+        theme::install(ctx);
         let connection = match &config.db_path {
             Some(path) => open_configured_db(path).map_err(InitError::Database)?,
             None => establish_connection().map_err(InitError::Database)?,
         };
         let cache = LibraryCache::load(&connection);
+        let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
         let app_config = AppConfig::load();
         let sort = app_config.default_sort;
         let task_executor = TaskExecutor::spawn(
@@ -160,6 +130,7 @@ impl FicflowApp {
         Ok(Self {
             connection,
             cache,
+            chrome,
             config: app_config,
             initial_window_state_applied: false,
             sort,
@@ -175,19 +146,14 @@ impl FicflowApp {
         })
     }
 
-    // ---- Test-friendly accessors --------------------------------------
-    // These are read-only views over internal state. They're kept narrow
-    // on purpose: tests should drive behaviour via the same code paths
-    // the GUI uses (modal state mutations, simulated input), not by
-    // mutating internal fields directly.
+    // ---- Read-only accessors ----
+    // Kept narrow on purpose: tests should drive behaviour via the same
+    // public methods the GUI uses, not by mutating internal fields.
 
-    /// In-memory cache of all non-deleted fics, in the order
-    /// `list_fics` returned them.
     pub fn fics(&self) -> &[Fanfiction] {
         &self.cache.fics
     }
 
-    /// In-memory cache of all non-deleted shelves.
     pub fn shelves(&self) -> &[Shelf] {
         &self.cache.shelves
     }
@@ -196,10 +162,6 @@ impl FicflowApp {
         self.selection.current()
     }
 
-    /// Cached shelf-ids that the currently-selected single fic belongs
-    /// to. Empty unless the selection is `Single(_)`. Exposed so tests
-    /// can verify cache invariants — production callers should read
-    /// `cache.selection_shelf_ids` through the dropdown's state struct.
     pub fn selection_shelves(&self) -> &std::collections::HashSet<u64> {
         &self.cache.selection_shelf_ids
     }
@@ -212,21 +174,14 @@ impl FicflowApp {
         &self.search_query
     }
 
-    /// Current sort preference (column + direction). Mirrors what the
-    /// header glyphs show.
     pub fn sort(&self) -> SortPref {
         self.sort
     }
 
-    /// Override the sort preference. Equivalent to clicking a column
-    /// header until it lands on the desired direction.
     pub fn set_sort(&mut self, column: ColumnKey, direction: SortDirection) {
         self.sort = SortPref { column, direction };
     }
 
-    /// IDs of the fics that pass the current view filter + search
-    /// query, in the active sort order. Same set the library table
-    /// renders (and that `Ctrl+A` selects).
     pub fn visible_ids(&self) -> Vec<u64> {
         library_view::visible_ids(
             &self.cache.fics,
@@ -237,84 +192,50 @@ impl FicflowApp {
         )
     }
 
-    /// Whether the right-hand details panel is currently mounted.
-    /// Mirrors the gating in `update()` — only on a single-fic
-    /// selection inside a library view.
     pub fn details_panel_visible(&self) -> bool {
         matches!(self.selection.current(), Selection::Single(_))
             && self.current_view.shows_library()
     }
 
-    /// True while at least one background task (Add or Refresh) is
-    /// in-flight.
     pub fn has_running_tasks(&self) -> bool {
         self.task_executor.has_running()
     }
 
-    /// Snapshot of every task the worker has handled this session
-    /// (Running / Done / Failed).
     pub fn task_states(&self) -> Vec<crate::interfaces::gui::tasks::TaskState> {
         self.task_executor.snapshot()
     }
 
-    // ---- Programmatic control surface ----------------------------------
-    // Equivalents of the user actions the GUI dispatches. Useful for
-    // keyboard-shortcut bindings, scripted scenarios, embedders that
-    // drive the app from outside `eframe`, and integration tests. They
-    // route through the same internal state transitions and the same
-    // application-layer entry points as their pointer-driven cousins.
-    //
-    // Important: these methods bypass the *widget* code path that
-    // dispatches the application call (combo box → ReadingStatus,
-    // drag-value → u32, star widget → Option<UserRating>). A test
-    // that exercises `set_status(id, ReadingStatus::Read)` proves
-    // that `update_reading_status` lands in the DB; it does NOT
-    // prove that the status combo's selection mapping is correct.
-    // We accept that gap on purpose: the per-widget glue is small
-    // enough that human verification suffices, and a real
-    // event-injection test harness would require either bumping to
-    // egui_kittest 0.30+ (incompatible with the pinned 0.29 chrome
-    // work) or a from-scratch raw-pointer-event simulator.
+    // ---- Control surface ----
+    // The `set_*` / `bulk_*` methods bypass widget glue (combo box,
+    // DragValue, star widget). A test calling `set_status(id, Read)`
+    // proves `update_reading_status` lands in the DB; it does not
+    // prove the status combo emits `Read` for its "Read" entry.
+    // Closing that gap needs an event-injection harness incompatible
+    // with the pinned egui 0.29.
 
-    /// Enqueue a background fetch to add a new fanfiction by URL or
-    /// numeric ID. The worker thread runs the AO3 fetch + DB insert;
-    /// the in-memory `fics()` cache reflects the result on the next
-    /// `render()` after the task completes.
     pub fn submit_add_fic(&self, input: impl Into<String>) {
         self.task_executor.enqueue_add(input.into());
     }
 
-    /// Mark a single fic as the current selection. Mirrors a plain
-    /// (non-modifier) row click in the library table.
     pub fn select_fic(&mut self, fic_id: u64) {
         self.selection.select_single(fic_id);
         self.refresh_selection_shelf_ids();
     }
 
-    /// Set the selection to a list of fic ids. The variant is chosen
-    /// from the slice length: empty → None, one → Single, more →
-    /// Multi. Equivalent to the result of a shift-click range or a
-    /// series of ctrl-click toggles.
     pub fn select_fics(&mut self, ids: &[u64]) {
         self.selection.select_many(ids);
         self.refresh_selection_shelf_ids();
     }
 
-    /// Drop the current selection.
     pub fn clear_selection(&mut self) {
         self.selection.clear();
         self.cache.selection_shelf_ids.clear();
     }
 
-    /// Switch to a different view. Equivalent to clicking a sidebar
-    /// entry — the next `render()` pass refreshes shelf-members and
-    /// prunes any selection that's no longer visible.
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
     }
 
-    /// Enqueue a background re-fetch of the currently-selected fic.
-    /// No-op if the selection isn't a single fic.
     pub fn refresh_selected(&self) {
         if let Selection::Single(id) = *self.selection.current() {
             if let Some(fic) = self.cache.fics.iter().find(|f| f.id == id) {
@@ -323,11 +244,6 @@ impl FicflowApp {
         }
     }
 
-    /// Soft-delete every fic in the current selection. Works for both
-    /// `Single` (the details-panel red-button case) and `Multi` (the
-    /// bulk-action 🗑 in the selection bar). Clears the selection
-    /// immediately — every member just got deleted, so keeping it
-    /// pointing at stale ids would be confusing.
     pub fn delete_selected(&mut self) {
         let ids = self.selection.ids_vec();
         if ids.is_empty() {
@@ -345,10 +261,6 @@ impl FicflowApp {
         self.clear_selection();
     }
 
-    /// Create a new shelf and refresh the in-memory caches. Mirrors the
-    /// Create-Shelf modal's submit. The application layer rejects empty
-    /// or whitespace-only names; toasts are surfaced either way for
-    /// parity with the GUI flow.
     pub fn create_shelf(&mut self, name: impl AsRef<str>) -> Result<(), FicflowError> {
         let repo = self.repo();
         match create_shelf(&repo, name.as_ref()) {
@@ -366,9 +278,6 @@ impl FicflowApp {
         }
     }
 
-    /// Soft-delete a shelf. If the active view is that shelf, falls
-    /// back to All Fanfictions so the user isn't left staring at a
-    /// stale shelf-only filter.
     pub fn delete_shelf(&mut self, shelf_id: u64) -> Result<(), FicflowError> {
         let repo = self.repo();
         match delete_shelf::delete_shelf(&repo, shelf_id) {
@@ -389,14 +298,10 @@ impl FicflowApp {
         }
     }
 
-    /// Add a fic to a shelf. Mirrors checking the shelf's box in the
-    /// details-panel multi-select dropdown.
     pub fn add_fic_to_shelf(&mut self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
         self.mutate(|repo| add_to_shelf(repo, fic_id, shelf_id))
     }
 
-    /// Remove a fic from a shelf. Mirrors clicking the × on a shelf
-    /// chip in the details-panel dropdown.
     pub fn remove_fic_from_shelf(
         &mut self,
         fic_id: u64,
@@ -405,14 +310,8 @@ impl FicflowApp {
         self.mutate(|repo| remove_from_shelf::remove_from_shelf(repo, fic_id, shelf_id))
     }
 
-    /// Bulk set status across many fics. Mirrors the "Change status"
-    /// menu in the selection bar. Returns `(succeeded, failed)`.
-    ///
-    /// Unlike `bulk_add_to_shelf` / `bulk_remove_from_shelf` this does
-    /// NOT route through `mutate()` — status changes can't affect
-    /// shelf membership, so the per-call refresh of `shelf_counts` /
-    /// `shelf_members` / `selection_shelf_ids` would be wasted work.
-    /// Just patch the in-memory fics from each successful call.
+    /// Status changes can't affect shelf membership, so this skips the
+    /// `mutate()` funnel that the other bulk ops use.
     pub fn bulk_set_status(&mut self, ids: &[u64], status: ReadingStatus) -> (usize, usize) {
         let mut errors = 0usize;
         let mut updated_fics: Vec<Fanfiction> = Vec::with_capacity(ids.len());
@@ -429,8 +328,6 @@ impl FicflowApp {
         (ids.len() - errors, errors)
     }
 
-    /// Bulk add many fics to one shelf. Mirrors the "Add to shelf"
-    /// menu in the selection bar. Returns `(succeeded, failed)`.
     pub fn bulk_add_to_shelf(&mut self, ids: &[u64], shelf_id: u64) -> (usize, usize) {
         let errors = self.mutate(|repo| {
             ids.iter()
@@ -440,9 +337,6 @@ impl FicflowApp {
         (ids.len() - errors, errors)
     }
 
-    /// Bulk remove many fics from one shelf. Mirrors the "Remove from
-    /// shelf" button (only shown inside a shelf view). Returns
-    /// `(succeeded, failed)`.
     pub fn bulk_remove_from_shelf(&mut self, ids: &[u64], shelf_id: u64) -> (usize, usize) {
         let errors = self.mutate(|repo| {
             ids.iter()
@@ -452,13 +346,10 @@ impl FicflowApp {
         (ids.len() - errors, errors)
     }
 
-    /// Set the search query. Mirrors typing into the search bar.
     pub fn set_search(&mut self, query: impl Into<String>) {
         self.search_query = query.into();
     }
 
-    /// Update the reading status of a fic. Mirrors the Status combo
-    /// in the Your Info section.
     pub fn set_status(&mut self, fic_id: u64, status: ReadingStatus) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_status::update_reading_status(&repo, fic_id, status)?;
@@ -466,9 +357,6 @@ impl FicflowApp {
         Ok(())
     }
 
-    /// Update the last-chapter-read marker. The application layer
-    /// clamps to `chapters_total` and may auto-bump status / read_count
-    /// when the final chapter is hit — mirrors the chapter DragValue.
     pub fn set_last_chapter(&mut self, fic_id: u64, chapter: u32) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_chapters::update_last_chapter_read(&repo, fic_id, chapter)?;
@@ -476,7 +364,6 @@ impl FicflowApp {
         Ok(())
     }
 
-    /// Update the read counter. Mirrors the Reads DragValue.
     pub fn set_read_count(&mut self, fic_id: u64, count: u32) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_read_count::update_read_count(&repo, fic_id, count)?;
@@ -484,8 +371,6 @@ impl FicflowApp {
         Ok(())
     }
 
-    /// Update the user's 5-star rating. `None` clears it. Mirrors the
-    /// star widget in the Your Info section.
     pub fn set_user_rating(
         &mut self,
         fic_id: u64,
@@ -497,8 +382,6 @@ impl FicflowApp {
         Ok(())
     }
 
-    /// Update the personal note. `None` removes it. Mirrors the Notes
-    /// TextEdit's commit-on-focus-loss behaviour.
     pub fn set_note(&mut self, fic_id: u64, note: Option<&str>) -> Result<(), FicflowError> {
         let repo = self.repo();
         let updated = update_note::update_personal_note(&repo, fic_id, note)?;
@@ -512,14 +395,6 @@ impl FicflowApp {
         }
     }
 
-    /// Apply a single `details_panel::Outcome` for the fic with id
-    /// `fic_id`. Single home for the toast-on-error behavior every
-    /// widget used to inline. Mutating outcomes that change shelf
-    /// membership (`AddToShelf`, `RemoveFromShelf`, `RequestDelete`)
-    /// route through `self.mutate()` / `delete_selected()`, which
-    /// already invalidates every dependent cache via the `LibraryCache`
-    /// funnel — so this dispatch doesn't need to signal "refresh" back
-    /// to the caller.
     fn dispatch_details_outcome(&mut self, fic_id: u64, outcome: details_panel::Outcome) {
         use details_panel::Outcome;
         match outcome {
@@ -574,11 +449,6 @@ impl FicflowApp {
         }
     }
 
-    /// Toast helper for bulk-action results. Aggregates per-fic
-    /// outcomes into one of three messages: all-succeeded ("X
-    /// fanfictions"), all-failed ("All N updates failed"), or partial
-    /// ("F/N updates failed"). Used by the selection-bar dispatcher
-    /// and any future bulk caller.
     fn toast_bulk_result(&mut self, action: &str, succeeded: usize, failed: usize) {
         if failed == 0 {
             self.toasts
@@ -591,18 +461,12 @@ impl FicflowApp {
         }
     }
 
-    /// Cheap repo accessor. The previous code repeated
-    /// `let repo = self.repo();` at ~20
-    /// sites — this collapses that to `self.repo()`.
     fn repo(&self) -> SqliteRepository<'_> {
         SqliteRepository::new(&self.connection)
     }
 
-    /// Thin wrapper around `LibraryCache::mutate` that toasts any
-    /// refresh errors. `op` is called with a fresh `SqliteRepository`
-    /// and its return value is forwarded; the cache handles the
-    /// post-op invalidation of `selection_shelf_ids`, `shelf_counts`,
-    /// and (when on a shelf view) `shelf_members`.
+    /// Surfaces refresh failures as toasts; the op's own result is
+    /// forwarded.
     fn mutate<R>(&mut self, op: impl FnOnce(&SqliteRepository<'_>) -> R) -> R {
         let (result, refresh_errors) = self.cache.mutate(
             &self.connection,
@@ -617,11 +481,8 @@ impl FicflowApp {
         result
     }
 
-    /// First frame: re-apply the maximized/fullscreen state we saw last
-    /// session via `ViewportCommand`. Subsequent frames: watch the live
-    /// viewport state and persist it when the user toggles. The saved
-    /// flags survive even when eframe's own window persistence drops them
-    /// (notably: eframe 0.29 doesn't track `maximized`).
+    /// eframe 0.29's window persistence drops `maximized` — track it
+    /// ourselves: re-apply on first frame, then persist on toggle.
     fn sync_window_state(&mut self, ctx: &egui::Context) {
         if !self.initial_window_state_applied {
             if self.config.window_fullscreen {
@@ -657,18 +518,14 @@ impl FicflowApp {
         }
     }
 
-    /// Drop selected fic ids that aren't visible in the current view, so the
-    /// details panel never shows a fic the user can't see in the table.
-    /// On non-library views (Tasks/Settings) the selection is cleared entirely.
     fn prune_selection_to_view(&mut self) {
         let changed = self.selection.prune_to_view(
             &self.cache.fics,
             &self.current_view,
             &self.cache.shelf_members,
         );
-        // Refresh the per-fic shelf-membership cache here too: the regular
-        // post-library-view diff captures `prev_selection` *after* this prune
-        // runs, so it won't notice changes we made above.
+        // The post-render diff in `paint_central` captures `prev_selection`
+        // *after* this prune, so it won't catch the change — refresh here.
         if changed {
             self.refresh_selection_shelf_ids();
         }
@@ -710,59 +567,78 @@ impl eframe::App for FicflowApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.render(ctx);
     }
+
+    /// Transparent so the chrome's painted edges show through the
+    /// borderless undecorated window (see NativeOptions in `mod.rs`).
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
 }
 
 impl FicflowApp {
-    /// Headless-friendly entry point — the actual per-frame body lives
-    /// here so tests can drive the app without an `eframe::Frame` (which
-    /// can't be constructed outside the eframe runtime). The eframe
-    /// `App::update` impl above is a thin delegate.
+    /// Headless-friendly entry point — `App::update` above is a thin
+    /// delegate so tests can drive the app without an `eframe::Frame`.
     ///
-    /// Each `paint_*` helper is responsible for one screen region and
-    /// every side effect that originates from it (toasts, modal-state
-    /// transitions, cache invalidation). Keeping render() as just a
-    /// dispatch list lets a reader skim the per-frame timeline without
-    /// having to read every paint body.
+    /// The host `CentralPanel` exists because egui's top-level panels
+    /// (`SidePanel::show(ctx, …)`) claim from `ctx.screen_rect()` and
+    /// would punch through the chrome. Nesting every panel inside a
+    /// single `UiBuilder::max_rect(content_rect)` constrains them to
+    /// the chrome's content area with a single anchor change.
     pub fn render(&mut self, ctx: &egui::Context) {
         self.sync_window_state(ctx);
-        // Keyboard shortcuts run before the rest of the UI so reactions
-        // (focus changes, modal opens, selection mutation) take effect this
-        // same frame.
         self.handle_shortcuts(ctx);
-        self.paint_header(ctx);
-        // Sidebar can change `current_view`; paint_sidebar handles the
-        // post-change cache refresh + selection prune internally.
-        self.paint_sidebar(ctx);
-        self.paint_details_panel(ctx);
-        self.paint_selection_bar(ctx);
-        self.paint_central(ctx);
+
+        let screen = ctx.screen_rect();
+        self.chrome.paint_background(ctx, screen);
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none())
+            .show(ctx, |ui| {
+                let controls_rect = self.chrome.draw_window_controls(ui, screen);
+                self.chrome.handle_interactions(ui, screen, controls_rect);
+
+                let content_rect = self.chrome.content_rect(screen);
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(content_rect), |host| {
+                    self.paint_header(host);
+                    self.paint_sidebar(host);
+                    self.paint_details_panel(host);
+                    self.paint_selection_bar(host);
+                    self.paint_central(host);
+                });
+            });
         self.paint_modals(ctx);
         self.drain_worker_events(ctx);
         self.draw_drag_preview(ctx);
         self.toasts.show(ctx);
+
+        // Force a steady repaint cadence so hover state recovers after
+        // an OS-managed move/resize — winit doesn't forward a
+        // pointer-enter event back, so egui's hover bookkeeping otherwise
+        // goes stale until the user wiggles the mouse.
+        ctx.request_repaint();
     }
 
-    /// Brand header. The view title used to live here too but it now sits
-    /// inside the central panel (closer to the search bar / action buttons
-    /// it relates to), so this row is just the wordmark.
-    fn paint_header(&self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("ficflow-header").show(ctx, |ui| {
+    fn paint_header(&self, host: &mut egui::Ui) {
+        egui::TopBottomPanel::top("ficflow-header").show_inside(host, |ui| {
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.heading("FICFLOW");
+            ui.vertical_centered(|ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new("FICFLOW")
+                            .family(egui::FontFamily::Name(theme::NEUE_FAMILY.into()))
+                            .size(20.0)
+                            .color(theme::ACCENT),
+                    )
+                    .selectable(false),
+                );
             });
             ui.add_space(4.0);
         });
     }
 
-    /// Left sidebar. Library counts + shelf list + Tasks/Settings stubs.
-    /// The view returns one `Outcome` describing the user action this
-    /// frame (modal request, drop, …); view-changes happen in-place on
-    /// `current_view` and are detected via a prev/post diff. Also
-    /// handles the view-change side effects (refresh shelf-members,
-    /// prune the selection) here, since this is the only paint that
-    /// can mutate `current_view`.
-    fn paint_sidebar(&mut self, ctx: &egui::Context) {
+    /// Sidebar can mutate `current_view`; the prev/post diff at the
+    /// end refreshes derived caches and prunes the selection.
+    fn paint_sidebar(&mut self, host: &mut egui::Ui) {
         let prev_view = self.current_view.clone();
         let library_counts = compute_library_counts(&self.cache.fics);
         let mut outcome = sidebar::Outcome::None;
@@ -770,7 +646,7 @@ impl FicflowApp {
             .default_width(160.0)
             .width_range(140.0..=600.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show_inside(host, |ui| {
                 outcome = sidebar::draw(
                     ui,
                     SidebarState {
@@ -804,25 +680,15 @@ impl FicflowApp {
         }
     }
 
-    /// Right details panel. Shown only when exactly one fic is selected
-    /// in a library view — multi-select doesn't make sense here (no
-    /// single fic to detail) and Tasks/Settings views have their own
-    /// central content. ~2x the sidebar's default width.
-    ///
-    /// Pure presentation: panel returns an `Outcome` we dispatch
-    /// through the control surface. This is the path that used to fork
-    /// — widgets calling `update_*` directly versus tests calling
-    /// `app.set_*` — collapsed into one.
-    fn paint_details_panel(&mut self, ctx: &egui::Context) {
+    fn paint_details_panel(&mut self, host: &mut egui::Ui) {
         let Selection::Single(id) = *self.selection.current() else {
             return;
         };
         if !self.current_view.shows_library() {
             return;
         }
-        // Clone the fic so the immutable borrow on `self.cache.fics`
-        // releases before we dispatch outcomes through `&mut self`.
-        // Cheap: a few Vec<String> + small primitives.
+        // Clone so the immutable borrow on `cache.fics` releases before
+        // dispatching outcomes through `&mut self`.
         let Some(fic) = self.cache.fics.iter().find(|f| f.id == id).cloned() else {
             return;
         };
@@ -831,7 +697,7 @@ impl FicflowApp {
             .default_width(320.0)
             .width_range(280.0..=900.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show_inside(host, |ui| {
                 outcome = details_panel::draw(
                     ui,
                     DetailsState {
@@ -844,11 +710,7 @@ impl FicflowApp {
         self.dispatch_details_outcome(id, outcome);
     }
 
-    /// Bottom selection bar. Shown whenever there's an active selection
-    /// — both single and multi — so the user can act on the selection
-    /// without forcing a multi-select first. Pure presentation: returns
-    /// an `Outcome` we dispatch through the control surface.
-    fn paint_selection_bar(&mut self, ctx: &egui::Context) {
+    fn paint_selection_bar(&mut self, host: &mut egui::Ui) {
         let selection_ids = self.selection.ids_vec();
         if selection_ids.is_empty() || !self.current_view.shows_library() {
             return;
@@ -856,7 +718,7 @@ impl FicflowApp {
         let mut outcome = selection_bar::Outcome::None;
         egui::TopBottomPanel::bottom("ficflow-selection-bar")
             .resizable(false)
-            .show(ctx, |ui| {
+            .show_inside(host, |ui| {
                 outcome = selection_bar::draw(
                     ui,
                     SelectionBarState {
@@ -889,16 +751,12 @@ impl FicflowApp {
         }
     }
 
-    /// Central panel: header row + library/tasks/settings content.
-    /// Also handles the empty-area click (clear selection), the
-    /// post-render selection-shelf refresh, the orphan-selection
-    /// cleanup (selected fic was deleted), and saves the sort pref
-    /// when a header click changes it.
-    fn paint_central(&mut self, ctx: &egui::Context) {
+    fn paint_central(&mut self, host: &mut egui::Ui) {
         let mut sort_changed = false;
+        let mut empty_area_clicked = false;
         let prev_selection = self.selection.current().clone();
         let view_title = self.current_view.header_title(&self.cache.shelves);
-        let central = egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(host, |ui| {
             self.draw_central_header(ui, &view_title);
             ui.add_space(6.0);
             if self.current_view.shows_library() {
@@ -927,16 +785,24 @@ impl FicflowApp {
             } else {
                 draw_stub_view(ui, &self.current_view);
             }
+            // Empty-area click-sink. Table rows have their own click
+            // sense, so the panel's outer response never fires below
+            // the last row — allocate the leftover space here.
+            let remaining = ui.available_size();
+            if remaining.x > 0.0 && remaining.y > 0.0 {
+                let resp = ui.allocate_response(remaining, egui::Sense::click());
+                if resp.clicked() {
+                    empty_area_clicked = true;
+                }
+            }
         });
-        if central.response.clicked() && self.current_view.shows_library() {
+        if empty_area_clicked && self.current_view.shows_library() {
             self.clear_selection();
         }
         if *self.selection.current() != prev_selection {
             self.refresh_selection_shelf_ids();
         }
-        // If the fic that was selected got deleted (e.g. via the details
-        // panel's "Delete Fic" button), drop the now-invalid selection so
-        // the panel doesn't render a "not found" state next frame.
+        // Selected fic got deleted this frame: drop the orphan selection.
         if let Selection::Single(id) = *self.selection.current() {
             if !self.cache.fics.iter().any(|f| f.id == id) {
                 self.clear_selection();
@@ -948,22 +814,15 @@ impl FicflowApp {
         }
     }
 
-    /// Modal dispatch + the column picker. Modals run after the rest
-    /// of the UI so they overlay correctly. Column-picker writes happen
-    /// only when a column actually toggled this frame (previously this
-    /// saved every frame the picker was open — at egui's 60 Hz that
-    /// meant ~60 disk writes/second while the user was just *looking*
-    /// at the picker).
     fn paint_modals(&mut self, ctx: &egui::Context) {
         let columns_changed = column_picker::show(
             ctx,
             &mut self.show_column_picker,
             &mut self.config.visible_columns,
         );
-        // Modal dispatch — exactly one variant of `active_modal` runs
-        // per frame. Outcomes are extracted into a local `ModalAction`
-        // before dispatch so the action handler (which takes `&mut
-        // self`) doesn't fight the modal-borrow over `self.active_modal`.
+        // Outcomes extracted into a local `ModalAction` before dispatch
+        // so the action handler (which takes `&mut self`) doesn't fight
+        // the modal-borrow over `self.active_modal`.
         enum ModalAction {
             None,
             Close,
@@ -1024,10 +883,6 @@ impl FicflowApp {
         }
     }
 
-    /// Drains worker completions + refreshes from the background
-    /// thread, reloads the in-memory caches, and schedules a repaint
-    /// while any task is still running so spinner animations + task
-    /// age strings tick over without requiring user input.
     fn drain_worker_events(&mut self, ctx: &egui::Context) {
         let completions = self.task_executor.take_completions();
         if !completions.is_empty() {
@@ -1057,12 +912,27 @@ impl FicflowApp {
 }
 
 impl FicflowApp {
-    /// Header row at the top of the central panel: view title + (for library
-    /// views) a visible-fic count, the search bar, and the +Add Fic / Manage
-    /// Columns buttons. For Tasks/Settings the row collapses to just the title.
+    /// Search bar is overlaid via an `Area` anchored to the window's
+    /// horizontal centre — so resizing the sidebar / details panel
+    /// doesn't slide it around — but clamped to the central panel's
+    /// rect so it never paints over the right panel.
     fn draw_central_header(&mut self, ui: &mut egui::Ui, view_title: &str) {
-        ui.horizontal(|ui| {
-            ui.heading(view_title);
+        // Header buttons collapse to icons (`+`, `≡`) below this
+        // width to leave room for the search-bar overlay.
+        let compact = ui.available_width() < 520.0;
+        // `ui.horizontal(...)` claims only its children's width; we
+        // need the panel's full rect to clamp the search overlay.
+        let panel_rect = ui.available_rect_before_wrap();
+        let row_resp = ui.horizontal(|ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(view_title)
+                        .family(egui::FontFamily::Name(theme::NEUE_FAMILY.into()))
+                        .size(20.0)
+                        .color(theme::ACCENT),
+                )
+                .selectable(false),
+            );
             if !self.current_view.shows_library() {
                 return;
             }
@@ -1074,51 +944,72 @@ impl FicflowApp {
             );
             let suffix = if visible == 1 { "fic" } else { "fics" };
             ui.label(egui::RichText::new(format!("{} {}", visible, suffix)).weak());
-            // Lay out from the right so the buttons hug the right edge,
-            // then centre the search bar in whatever horizontal space
-            // remains between the count and the leftmost button.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Manage Columns").clicked() {
+                let cols_label = if compact {
+                    "\u{2261}"
+                } else {
+                    "Manage Columns"
+                };
+                if ui
+                    .button(cols_label)
+                    .on_hover_text("Manage Columns")
+                    .clicked()
+                {
                     self.show_column_picker = !self.show_column_picker;
                 }
-                if ui.button("+ Add Fic").clicked() {
+                let add_label = if compact { "+" } else { "+ Add Fic" };
+                if ui.button(add_label).on_hover_text("Add Fic").clicked() {
                     self.active_modal = ActiveModal::AddFic(AddFicState::new());
                 }
-                let search_w = 300.0;
-                let pad = ((ui.available_width() - search_w) / 2.0).max(0.0);
-                // In right_to_left, add_space *before* the next item moves
-                // the cursor leftwards — i.e. it leaves whitespace to the
-                // RIGHT of the next item. Combined with the same-sized
-                // empty stretch that ends up on the LEFT (avail - search - pad),
-                // this centres the search bar.
-                ui.add_space(pad);
-                self.draw_search_field(ui);
             });
         });
+
+        if self.current_view.shows_library() {
+            const SEARCH_W_MAX: f32 = 300.0;
+            const SEARCH_W_MIN: f32 = 120.0;
+            const SEARCH_H: f32 = 22.0;
+            const EDGE_GAP: f32 = 8.0;
+            // Approximate widths the row reserves for title+count on
+            // the left and action buttons on the right; the search
+            // bar fills whatever's left.
+            let buttons_reserve = if compact { 90.0 } else { 220.0 };
+            let title_reserve = 200.0;
+            let avail_for_search =
+                panel_rect.width() - buttons_reserve - title_reserve - 2.0 * EDGE_GAP;
+            if avail_for_search >= SEARCH_W_MIN {
+                let search_w = avail_for_search.min(SEARCH_W_MAX);
+                let screen = ui.ctx().screen_rect();
+                let row_rect = row_resp.response.rect;
+                let desired_x = screen.center().x - search_w / 2.0;
+                let max_x = panel_rect.right() - buttons_reserve - EDGE_GAP - search_w;
+                let min_x = panel_rect.left() + title_reserve + EDGE_GAP;
+                let clamped_x = desired_x.clamp(min_x, max_x);
+                let pos = egui::pos2(clamped_x, row_rect.center().y - SEARCH_H / 2.0);
+                egui::Area::new(egui::Id::new("ficflow-search-overlay"))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(pos)
+                    .show(ui.ctx(), |area_ui| {
+                        self.draw_search_field(area_ui, search_w);
+                    });
+            }
+        }
     }
 
-    /// Search field rendered as a fixed-width Frame containing a static
-    /// magnifying-glass glyph followed by a borderless TextEdit, so the
-    /// icon sits *inside* the apparent input boundary and stays visible
-    /// even while the user is typing (unlike a hint text).
-    fn draw_search_field(&mut self, ui: &mut egui::Ui) {
-        const WIDTH: f32 = 300.0;
+    /// Magnifying-glass glyph + borderless TextEdit inside a Frame so
+    /// the icon sits *inside* the apparent input boundary (a hint
+    /// text would disappear once the user starts typing).
+    fn draw_search_field(&mut self, ui: &mut egui::Ui, width: f32) {
         let stroke = ui.visuals().widgets.inactive.bg_stroke;
         let fill = ui.visuals().extreme_bg_color;
         let weak = ui.visuals().weak_text_color();
 
-        ui.allocate_ui(egui::vec2(WIDTH, 22.0), |ui| {
+        ui.allocate_ui(egui::vec2(width, 22.0), |ui| {
             egui::Frame::default()
                 .fill(fill)
                 .stroke(stroke)
                 .rounding(2.0)
                 .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                 .show(ui, |ui| {
-                    // Force left_to_right explicitly: `ui.horizontal()`
-                    // copies the parent's "prefer_right_to_left" flag, so
-                    // when this is rendered inside the right_to_left
-                    // button row the icon would otherwise end up on the
-                    // right of the TextEdit instead of the left.
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         ui.label(egui::RichText::new("\u{1F50D}").color(weak));
@@ -1139,10 +1030,8 @@ impl FicflowApp {
 }
 
 impl FicflowApp {
-    /// Renders a small popup near the cursor showing what's being dragged
-    /// (the title of the single fic, or "N fanfictions" for a multi-drag).
-    /// egui's built-in dnd doesn't ship a drag-preview, so we paint one
-    /// ourselves whenever there's an active payload of our type.
+    /// egui's built-in dnd doesn't ship a drag-preview, so we paint a
+    /// label near the cursor whenever there's an active payload.
     fn draw_drag_preview(&self, ctx: &egui::Context) {
         let Some(payload) = egui::DragAndDrop::payload::<Vec<u64>>(ctx) else {
             return;
@@ -1226,14 +1115,11 @@ fn draw_stub_view(ui: &mut egui::Ui, _view: &View) {
 }
 
 impl FicflowApp {
-    /// Application-wide keyboard shortcuts. Skipped while a text edit has
-    /// focus so we don't fight the user's typing (Ctrl+A in a TextEdit, for
-    /// instance, should select the text, not all rows).
+    /// Skipped while a text edit has focus so we don't hijack the user's
+    /// typing (Ctrl+A in a TextEdit should select the text, not all rows).
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        // The search field only mounts in library views, so a stale
-        // pending-focus flag would grab focus retroactively when the
-        // user returned to the library — drop it the moment we're
-        // off-library to keep the request scoped to this view.
+        // The search field only mounts in library views; a stale
+        // pending-focus flag would retroactively grab focus on return.
         if !self.current_view.shows_library() {
             self.focus_search_pending = false;
         }
@@ -1255,10 +1141,14 @@ impl FicflowApp {
             self.clear_selection();
         }
 
-        if pressed_delete && self.current_view.shows_library() {
-            let ids = self.selection.ids_vec();
-            if !ids.is_empty() {
-                self.active_modal = ActiveModal::DeleteFics(ids);
+        if pressed_delete {
+            let selected_fics = self.selection.ids_vec();
+            if !selected_fics.is_empty() && self.current_view.shows_library() {
+                self.active_modal = ActiveModal::DeleteFics(selected_fics);
+            } else if let View::Shelf(shelf_id) = &self.current_view {
+                // No fic selection on a shelf view → Delete targets the
+                // shelf itself.
+                self.active_modal = ActiveModal::DeleteShelf(*shelf_id);
             }
         }
 

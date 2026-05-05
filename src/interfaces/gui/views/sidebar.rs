@@ -7,8 +7,6 @@ use crate::domain::shelf::Shelf;
 
 use super::super::view::View;
 
-/// Per-row counts for the Library section. Computed once per frame from the
-/// in-memory fic list (cheap; the slice is small).
 #[derive(Default)]
 pub struct LibraryCounts {
     pub all: usize,
@@ -20,38 +18,22 @@ pub struct LibraryCounts {
 }
 
 pub struct SidebarState<'a> {
-    /// In-place — sidebar row clicks just set this to the target view;
-    /// the caller diffs against `prev_view` to know whether to refresh
-    /// derived caches. (Not folded into `Outcome` because every row
-    /// would otherwise have to thread a return value back up the
-    /// loop, and the prev/post diff is the simpler shape.)
+    /// Mutated in-place by row clicks; caller diffs against `prev_view`.
     pub current_view: &'a mut View,
     pub shelves: &'a [Shelf],
     pub library_counts: &'a LibraryCounts,
-    /// Per-shelf fic counts, keyed by shelf id. Missing entries render as 0
-    /// (e.g. a freshly created shelf before the next refresh tick).
+    /// Missing shelf ids render as 0.
     pub shelf_counts: &'a HashMap<u64, usize>,
-    /// Live count of in-flight background tasks. Always shown next to the
-    /// Tasks row (including 0) so the user has a stable place to watch
-    /// without flipping into the Tasks view.
     pub running_tasks: usize,
 }
 
-/// What the user did this frame, beyond the implicit view change. At
-/// most one variant fires per frame — "+" / right-click-delete / drop
-/// are mutually-exclusive mouse interactions.
+/// At most one variant fires per frame — the three are mutually-exclusive
+/// mouse interactions.
 pub enum Outcome {
     None,
-    /// User clicked the "+" button next to the SHELVES heading.
     OpenCreateShelfModal,
-    /// User picked "Delete shelf" from a shelf row's right-click menu.
     OpenDeleteShelfConfirm(u64),
-    /// A drag-and-drop release landed on a shelf row. Caller bulk-adds
-    /// the carried fics to the shelf and refreshes derived caches.
-    DropOnShelf {
-        shelf_id: u64,
-        fic_ids: Vec<u64>,
-    },
+    DropOnShelf { shelf_id: u64, fic_ids: Vec<u64> },
 }
 
 pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {

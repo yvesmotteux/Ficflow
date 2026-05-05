@@ -1,18 +1,51 @@
-//! Best-effort system-font fallback so glyphs that egui's bundled fonts
-//! (Ubuntu-Light + a NotoEmoji subset) don't cover render cleanly instead
-//! of as tofu boxes. We don't bring in a font crate or bundle assets here
-//! (that's Phase 12 territory); we just probe a handful of well-known
-//! paths and append every one we find, so multiple gaps can be filled at
-//! once — DejaVu Sans for BMP basics, Noto Symbols 2 for ⏸ etc., Noto
-//! Sans CJK / Microsoft YaHei / PingFang for Han ideographs.
+use egui::{Color32, Context, FontData, FontDefinitions, FontFamily};
 
-use egui::{FontData, FontDefinitions, FontFamily};
+use super::assets;
 
-/// Probed in priority order. egui falls through the family list glyph by
-/// glyph, so each entry only covers what the earlier ones miss. Entries
-/// span Linux, macOS and Windows so a user opening the binary on any of
-/// the three desktop targets gets the same coverage when the relevant
-/// system font is installed.
+/// Must match the SVG fill in `assets/frame/art_nouveau.svg` — recolour
+/// the SVG and update this constant together. Used for the FICFLOW
+/// wordmark and view-title heading so decorative type reads in the
+/// same family as the frame border.
+pub const ACCENT: Color32 = Color32::from_rgb(0xC9, 0xC4, 0xBC);
+
+pub const NEUE_FAMILY: &str = "neue";
+pub const COMFORTAA_FAMILY: &str = "comfortaa";
+
+pub fn install(ctx: &Context) {
+    install_fonts(ctx);
+}
+
+fn install_fonts(ctx: &Context) {
+    let mut fonts = FontDefinitions::default();
+
+    fonts.font_data.insert(
+        NEUE_FAMILY.to_owned(),
+        FontData::from_static(assets::NEUE_FONT),
+    );
+    fonts.font_data.insert(
+        COMFORTAA_FAMILY.to_owned(),
+        FontData::from_static(assets::COMFORTAA_FONT),
+    );
+
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(0, COMFORTAA_FAMILY.to_owned());
+    fonts.families.insert(
+        FontFamily::Name(NEUE_FAMILY.into()),
+        vec![NEUE_FAMILY.to_owned()],
+    );
+
+    // Fallbacks for glyphs Comfortaa doesn't carry (sidebar icons
+    // ⏸ ◆ ▶ ✓ ○ ✗, CJK ideographs).
+    append_system_fallbacks(&mut fonts);
+
+    ctx.set_fonts(fonts);
+}
+
+/// Probed in priority order. egui falls through the family list
+/// glyph by glyph, so each entry only covers what earlier ones miss.
 const FALLBACK_FONT_PATHS: &[&str] = &[
     // Linux — broad BMP (Latin/Cyrillic/Greek + Geometric Shapes block).
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -46,10 +79,7 @@ const FALLBACK_FONT_PATHS: &[&str] = &[
     "C:/Windows/Fonts/simhei.ttf",
 ];
 
-pub fn install_system_fallback(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    let mut added = 0usize;
-
+fn append_system_fallbacks(fonts: &mut FontDefinitions) {
     for (i, path) in FALLBACK_FONT_PATHS.iter().enumerate() {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -61,10 +91,5 @@ pub fn install_system_fallback(ctx: &egui::Context) {
         for family in [FontFamily::Proportional, FontFamily::Monospace] {
             fonts.families.entry(family).or_default().push(name.clone());
         }
-        added += 1;
-    }
-
-    if added > 0 {
-        ctx.set_fonts(fonts);
     }
 }
