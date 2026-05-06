@@ -1,8 +1,8 @@
 name: Publish to AUR
 
 # Fires after the Release workflow succeeds on a v* tag.
-# Bumps pkgver in aur/PKGBUILD, commits the bump back to master,
-# then publishes the package to the AUR ficflow-bin repo.
+# Bumps pkgver in aur/PKGBUILD via an auto-merging PR (master is
+# protected by a PR-required ruleset), then publishes to AUR.
 on:
   workflow_run:
     workflows: ["Release"]
@@ -19,6 +19,7 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'v')
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout master
         uses: actions/checkout@v4
@@ -38,16 +39,6 @@ jobs:
           sed -i "s/^pkgver=.*/pkgver=${{ steps.version.outputs.version }}/" aur/PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
 
-      - name: Commit pkgver bump back to master
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet aur/PKGBUILD; then
-            git add aur/PKGBUILD
-            git commit -m ":bookmark: Bump aur/PKGBUILD to ${{ steps.version.outputs.version }}"
-            git push
-          fi
-
       - name: Publish to AUR
         uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
         with:
@@ -59,3 +50,22 @@ jobs:
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           commit_message: "ficflow-bin ${{ steps.version.outputs.version }}"
           updpkgsums: true
+
+      - name: Open PR to sync the bump on master
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: aur-bump/${{ steps.version.outputs.version }}
+          base: master
+          title: ":bookmark: Bump aur/PKGBUILD to ${{ steps.version.outputs.version }}"
+          commit-message: ":bookmark: Bump aur/PKGBUILD to ${{ steps.version.outputs.version }}"
+          body: |
+            Auto-generated after the release of v${{ steps.version.outputs.version }}.
+            Keeps the in-repo PKGBUILD in sync with what's published to AUR.
+          delete-branch: true
+
+      - name: Enable auto-merge on the bump PR
+        if: steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --merge ${{ steps.cpr.outputs.pull-request-number }}
