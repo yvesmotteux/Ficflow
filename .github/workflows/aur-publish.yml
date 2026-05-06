@@ -50,6 +50,11 @@ jobs:
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           commit_message: "ficflow-bin ${{ steps.version.outputs.version }}"
           updpkgsums: true
+          # updpkgsums downloads each `source=()` URL into the AUR clone dir.
+          # Strip those before commit — AUR rejects blobs > 488 KiB and the
+          # binary is ~30 MB. Glob excludes ficflow.desktop (no hyphen).
+          post_process: |
+            rm -f ficflow-* LICENSE-*
 
       - name: Open PR to sync the bump on master
         id: cpr
