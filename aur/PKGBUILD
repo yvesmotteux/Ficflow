@@ -1,6 +1,6 @@
 # Maintainer: Yves Motteux <yvesmotteux@gmail.com>
 pkgname=ficflow-bin
-pkgver=1.0.0
+pkgver=1.0.6
 pkgrel=1
 pkgdesc="Track and organize your fanfiction reading list"
 arch=('x86_64')
