@@ -1,0 +1,61 @@
+name: Publish to AUR
+
+# Fires after the Release workflow succeeds on a v* tag.
+# Bumps pkgver in aur/PKGBUILD, commits the bump back to master,
+# then publishes the package to the AUR ficflow-bin repo.
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
+
+jobs:
+  publish:
+    name: Publish ficflow-bin
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine version from tag
+        id: version
+        run: |
+          VERSION="${{ github.event.workflow_run.head_branch }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump pkgver in aur/PKGBUILD
+        run: |
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.version.outputs.version }}/" aur/PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
+
+      - name: Commit pkgver bump back to master
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet aur/PKGBUILD; then
+            git add aur/PKGBUILD
+            git commit -m ":bookmark: Bump aur/PKGBUILD to ${{ steps.version.outputs.version }}"
+            git push
+          fi
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        with:
+          pkgname: ficflow-bin
+          pkgbuild: ./aur/PKGBUILD
+          assets: aur/ficflow.desktop
+          commit_username: Yves Motteux
+          commit_email: yvesmotteux@gmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "ficflow-bin ${{ steps.version.outputs.version }}"
+          updpkgsums: true
