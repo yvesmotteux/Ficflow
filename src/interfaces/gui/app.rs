@@ -6,8 +6,8 @@ use rusqlite::Connection;
 use super::config::{AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf,
-    remove_from_shelf, update_chapters, update_note, update_rating, update_read_count,
-    update_status,
+    remove_from_shelf, rename_shelf::rename_shelf, update_chapters, update_note, update_rating,
+    update_read_count, update_status,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
 use crate::domain::shelf::Shelf;
@@ -27,7 +27,7 @@ use super::theme;
 use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
-use super::views::modals::shelf_modals::{self, CreateState};
+use super::views::modals::shelf_modals::{self, CreateState, RenameState};
 use super::views::modals::{bulk_modals, column_picker};
 use super::views::settings_view;
 use super::views::tasks_view;
@@ -78,6 +78,7 @@ impl std::error::Error for InitError {}
 pub enum ActiveModal {
     None,
     CreateShelf(CreateState),
+    RenameShelf(RenameState),
     DeleteShelf(u64),
     DeleteFics(Vec<u64>),
     AddFic(AddFicState),
@@ -293,6 +294,26 @@ impl FicflowApp {
             }
             Err(err) => {
                 self.toasts.error(format!("Couldn't delete shelf: {}", err));
+                Err(err)
+            }
+        }
+    }
+
+    pub fn rename_shelf(
+        &mut self,
+        shelf_id: u64,
+        new_name: impl AsRef<str>,
+    ) -> Result<(), FicflowError> {
+        let repo = self.repo();
+        match rename_shelf(&repo, shelf_id, new_name.as_ref()) {
+            Ok(shelf) => {
+                self.toasts
+                    .success(format!("Renamed shelf to \u{201C}{}\u{201D}", shelf.name));
+                self.cache.reload_shelves(&self.connection);
+                Ok(())
+            }
+            Err(err) => {
+                self.toasts.error(format!("Couldn't rename shelf: {}", err));
                 Err(err)
             }
         }
@@ -664,6 +685,11 @@ impl FicflowApp {
             sidebar::Outcome::OpenCreateShelfModal => {
                 self.active_modal = ActiveModal::CreateShelf(CreateState::default());
             }
+            sidebar::Outcome::OpenRenameShelfModal(id) => {
+                if let Some(shelf) = self.cache.shelves.iter().find(|s| s.id == id) {
+                    self.active_modal = ActiveModal::RenameShelf(RenameState::new(shelf));
+                }
+            }
             sidebar::Outcome::OpenDeleteShelfConfirm(id) => {
                 self.active_modal = ActiveModal::DeleteShelf(id);
             }
@@ -828,6 +854,7 @@ impl FicflowApp {
             None,
             Close,
             CreateShelf(String),
+            RenameShelf { shelf_id: u64, new_name: String },
             DeleteShelf(u64),
             DeleteFics(Vec<u64>),
             AddFic(String),
@@ -838,6 +865,13 @@ impl FicflowApp {
                 shelf_modals::Outcome::Submit(name) => ModalAction::CreateShelf(name),
                 shelf_modals::Outcome::Cancel => ModalAction::Close,
                 shelf_modals::Outcome::None => ModalAction::None,
+            },
+            ActiveModal::RenameShelf(state) => match shelf_modals::draw_rename(ctx, state) {
+                shelf_modals::RenameOutcome::Submit { shelf_id, new_name } => {
+                    ModalAction::RenameShelf { shelf_id, new_name }
+                }
+                shelf_modals::RenameOutcome::Cancel => ModalAction::Close,
+                shelf_modals::RenameOutcome::None => ModalAction::None,
             },
             ActiveModal::DeleteShelf(id) => {
                 match shelf_modals::draw_delete_confirm(ctx, *id, &self.cache.shelves) {
@@ -864,6 +898,10 @@ impl FicflowApp {
             ModalAction::Close => self.active_modal = ActiveModal::None,
             ModalAction::CreateShelf(name) => {
                 let _ = self.create_shelf(name);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::RenameShelf { shelf_id, new_name } => {
+                let _ = self.rename_shelf(shelf_id, new_name);
                 self.active_modal = ActiveModal::None;
             }
             ModalAction::DeleteShelf(id) => {

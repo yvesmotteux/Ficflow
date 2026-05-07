@@ -33,6 +33,7 @@ pub mod list_shelf_fics;
 pub mod list_shelves;
 pub mod list_shelves_for_fic;
 pub mod remove_from_shelf;
+pub mod rename_shelf;
 pub mod update_chapters;
 pub mod update_note;
 pub mod update_rating;

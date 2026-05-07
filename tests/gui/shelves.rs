@@ -165,6 +165,74 @@ mod tests {
         assert_eq!(h.app.fics()[0].id, 601);
     }
 
+    /// C20 — rename-shelf flow: submitting the rename modal updates
+    /// the shelf's name in the in-memory cache and on disk, while
+    /// preserving the shelf's id (so any view pointing at it stays
+    /// valid) and its fic membership.
+    #[test]
+    fn renaming_a_shelf_persists_and_keeps_membership() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let fic = fixtures::given_sample_fanfiction(801, "Stays Put");
+        fixtures::when_fanfiction_added_to_db(&conn, &fic).unwrap();
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+        h.app.create_shelf("Favorties").unwrap(); // typo on purpose
+        let id = h.app.shelves()[0].id;
+        h.app.add_fic_to_shelf(801, id).unwrap();
+        h.app.open_view(View::Shelf(id));
+        h.step();
+
+        h.app.rename_shelf(id, "Favorites").unwrap();
+
+        // Cache reflects the new name on the same id.
+        assert_eq!(h.app.shelves().len(), 1);
+        assert_eq!(h.app.shelves()[0].id, id);
+        assert_eq!(h.app.shelves()[0].name, "Favorites");
+
+        // Persisted to the DB.
+        let repo = SqliteRepository::new(&h.conn);
+        let from_db = repo.list_shelves().unwrap();
+        assert_eq!(from_db.len(), 1);
+        assert_eq!(from_db[0].name, "Favorites");
+
+        // Membership and current view both survive the rename.
+        assert_eq!(repo.count_fics_in_shelf(id).unwrap(), 1);
+        assert_eq!(h.app.current_view(), &View::Shelf(id));
+    }
+
+    /// C21 — empty-name guard on rename: blank submissions are
+    /// rejected at the application/infra layer; the cache and DB stay
+    /// untouched.
+    #[test]
+    fn renaming_a_shelf_with_blank_name_is_rejected() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Reading").unwrap();
+        let id = h.app.shelves()[0].id;
+
+        let outcome = h.app.rename_shelf(id, "   ");
+        assert!(outcome.is_err(), "blank name should not pass validation");
+        assert_eq!(h.app.shelves()[0].name, "Reading");
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(repo.list_shelves().unwrap()[0].name, "Reading");
+    }
+
+    /// C22 — renaming a non-existent shelf id surfaces ShelfNotFound
+    /// and leaves the cache untouched. Mirrors the delete_shelf
+    /// behaviour: the trait method's rows_affected check catches a
+    /// stale id from a context-menu click on a row that vanished mid-
+    /// frame.
+    #[test]
+    fn renaming_a_missing_shelf_returns_not_found() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        let outcome = h.app.rename_shelf(99999, "Whatever");
+        assert!(matches!(
+            outcome,
+            Err(ficflow::error::FicflowError::ShelfNotFound { shelf_id: 99999 })
+        ));
+    }
+
     /// C19 — drag-drop semantics: dropping a multi-fic payload on a
     /// shelf should add every fic in the payload. We don't simulate
     /// pixel-level drag (egui 0.29 makes that painful without

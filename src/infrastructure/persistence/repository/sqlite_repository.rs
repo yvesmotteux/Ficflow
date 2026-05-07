@@ -185,6 +185,23 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         Ok(())
     }
 
+    fn update_shelf_name(&self, shelf_id: u64, new_name: &str) -> Result<Shelf, FicflowError> {
+        let trimmed = new_name.trim();
+        if trimmed.is_empty() {
+            return Err(FicflowError::InvalidInput(
+                "shelf name must not be empty".into(),
+            ));
+        }
+        let rows_affected = self.conn.execute(
+            "UPDATE shelf SET name = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            params![trimmed, shelf_id],
+        )?;
+        if rows_affected == 0 {
+            return Err(FicflowError::ShelfNotFound { shelf_id });
+        }
+        self.get_shelf_by_id(shelf_id)
+    }
+
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, created_at FROM shelf \

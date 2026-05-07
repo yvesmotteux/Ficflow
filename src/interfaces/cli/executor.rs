@@ -16,6 +16,7 @@ use crate::{
         list_shelf_fics::list_shelf_fics,
         list_shelves::list_shelves,
         remove_from_shelf::remove_from_shelf,
+        rename_shelf::rename_shelf,
         update_chapters::update_last_chapter_read,
         update_note::update_personal_note,
         update_rating::{parse_user_rating, update_user_rating},
@@ -249,6 +250,19 @@ impl<'a> CliCommandExecutor<'a> {
         }
     }
 
+    fn execute_shelf_rename(&self, shelf_id: u64, new_name: &str) -> ExitCode {
+        match rename_shelf(self.repository, shelf_id, new_name) {
+            Ok(shelf) => {
+                println!("Renamed shelf {} to \"{}\".", shelf.id, shelf.name);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                report_error("renaming shelf", &e);
+                ExitCode::FAILURE
+            }
+        }
+    }
+
     fn execute_shelf_list(&self) -> ExitCode {
         match list_shelves(self.repository) {
             Ok(shelves) => {
@@ -411,6 +425,9 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             CliCommand::Shelf(sub) => match sub {
                 ShelfCommand::Create { name } => self.execute_shelf_create(&name),
                 ShelfCommand::Delete { shelf_id } => self.execute_shelf_delete(shelf_id),
+                ShelfCommand::Rename { shelf_id, new_name } => {
+                    self.execute_shelf_rename(shelf_id, &new_name)
+                }
                 ShelfCommand::List => self.execute_shelf_list(),
                 ShelfCommand::Add { fic_id, shelf_id } => self.execute_shelf_add(fic_id, shelf_id),
                 ShelfCommand::Remove { fic_id, shelf_id } => {
