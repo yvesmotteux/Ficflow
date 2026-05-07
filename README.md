@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Bump deps and move to edition 2024 or 2025
 - [ ] Rename shelf feature
 - [ ] Display bug on further right column
 - [ ] Anon fics don't work because of missing authors element!
