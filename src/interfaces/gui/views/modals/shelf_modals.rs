@@ -86,9 +86,6 @@ pub fn draw_rename(ctx: &Context, state: &mut RenameState) -> RenameOutcome {
         .show(ctx, |ui| {
             ui.label("Name:");
             let resp = ui.text_edit_singleline(&mut state.name);
-            // Auto-focus + select-all on the first frame so the user can
-            // either type a fresh name or edit a tail of the existing one
-            // without having to click first.
             if !state.focused_once {
                 resp.request_focus();
                 if let Some(mut tes) = egui::TextEdit::load_state(ctx, resp.id) {
