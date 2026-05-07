@@ -1,7 +1,7 @@
 use crate::error::FicflowError;
 use reqwest::{
     blocking::Client,
-    header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT},
+    header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderValue, USER_AGENT},
 };
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

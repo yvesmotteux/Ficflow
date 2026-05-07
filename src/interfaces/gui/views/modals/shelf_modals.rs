@@ -21,7 +21,7 @@ pub fn draw_create(ctx: &Context, state: &mut CreateState) -> Outcome {
         .resizable(false)
         .collapsible(false)
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.screen_rect().center())
+        .default_pos(ctx.content_rect().center())
         .show(ctx, |ui| {
             ui.label("Name:");
             let resp = ui.text_edit_singleline(&mut state.name);
@@ -75,7 +75,7 @@ pub fn draw_delete_confirm(ctx: &Context, shelf_id: u64, shelves: &[Shelf]) -> D
         .resizable(false)
         .collapsible(false)
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.screen_rect().center())
+        .default_pos(ctx.content_rect().center())
         .show(ctx, |ui| {
             ui.label(format!("Delete shelf \u{201C}{}\u{201D}?", shelf_name));
             ui.label(

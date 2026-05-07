@@ -116,10 +116,10 @@ impl LibraryCache {
             refresh_errors.push(e);
         }
         self.refresh_shelf_counts(connection);
-        if matches!(view, View::Shelf(_)) {
-            if let Err(e) = self.refresh_shelf_members(connection, view) {
-                refresh_errors.push(e);
-            }
+        if matches!(view, View::Shelf(_))
+            && let Err(e) = self.refresh_shelf_members(connection, view)
+        {
+            refresh_errors.push(e);
         }
         (result, refresh_errors)
     }

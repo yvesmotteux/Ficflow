@@ -303,16 +303,15 @@ impl<'a> CliCommandExecutor<'a> {
 
     fn execute_update_note(&self, fic_id: u64, note: Option<&str>) -> ExitCode {
         // If removing a note, show the current one first so the user sees what's being dropped.
-        if note.is_none() {
-            if let Ok(fic) = get_fanfiction(self.repository, fic_id) {
-                if let Some(current_note) = &fic.personal_note {
-                    println!(
-                        "Current personal note for \"{}\" (ID: {}): {}",
-                        fic.title, fic_id, current_note
-                    );
-                    println!("Removing personal note...");
-                }
-            }
+        if note.is_none()
+            && let Ok(fic) = get_fanfiction(self.repository, fic_id)
+            && let Some(current_note) = &fic.personal_note
+        {
+            println!(
+                "Current personal note for \"{}\" (ID: {}): {}",
+                fic.title, fic_id, current_note
+            );
+            println!("Removing personal note...");
         }
 
         match update_personal_note(self.repository, fic_id, note) {

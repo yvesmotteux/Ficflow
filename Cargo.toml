@@ -1,7 +1,7 @@
 [package]
 name = "ficflow"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
 license = "GPL-3.0-or-later"
 
 [lib]
@@ -27,14 +27,12 @@ log = "0.4"
 env_logger = "0.11"
 thiserror = "2.0.18"
 
-# Caret-pinned to the egui 0.29 minor line; bumping to 0.30+ wants a
-# lockstep update across the four egui crates and a panel-API pass.
-eframe = { version = "0.29", default-features = false, features = ["wgpu", "wayland", "x11", "persistence"] }
-egui = "0.29"
-egui_extras = "0.29"
-egui-notify = "0.17"
-toml = "0.8"
-resvg = "0.43"
+eframe = { version = "0.34", default-features = false, features = ["wgpu", "wayland", "x11", "persistence"] }
+egui = "0.34"
+egui_extras = "0.34"
+egui-notify = "0.22"
+toml = "1"
+resvg = "0.47"
 
 [dev-dependencies]
 httpmock = "0.8.3"

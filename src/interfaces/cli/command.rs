@@ -1,5 +1,5 @@
 use crate::interfaces::utils::url_parser;
-use clap::{value_parser, Arg, Command};
+use clap::{Arg, Command, value_parser};
 
 #[derive(Debug)]
 pub enum CliCommand {

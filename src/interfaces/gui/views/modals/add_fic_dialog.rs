@@ -37,7 +37,7 @@ pub fn draw(ctx: &Context, state: &mut AddFicState) -> Outcome {
         .resizable(false)
         .collapsible(false)
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.screen_rect().center())
+        .default_pos(ctx.content_rect().center())
         .show(ctx, |ui| {
             ui.label("AO3 URL or fic ID:");
             let resp = ui.text_edit_singleline(&mut state.input);

@@ -3,7 +3,7 @@ use crate::domain::shelf::{Shelf, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{row_to_fanfiction, row_to_shelf};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 pub struct SqliteRepository<'a> {
     conn: &'a Connection,

@@ -71,11 +71,12 @@ mod tests {
                 ReadingStatus::Read
             );
         }
-        assert!(h
-            .app
-            .fics()
-            .iter()
-            .all(|f| f.reading_status == ReadingStatus::Read));
+        assert!(
+            h.app
+                .fics()
+                .iter()
+                .all(|f| f.reading_status == ReadingStatus::Read)
+        );
     }
 
     /// D22 — bulk add-to-shelf: a multi-selection plus a target shelf

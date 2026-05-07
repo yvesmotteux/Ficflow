@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use egui::{Color32, RichText, Stroke, Ui};
+use egui::{Color32, RichText, Stroke, StrokeKind, Ui};
 
 use crate::domain::fanfiction::ReadingStatus;
 use crate::domain::shelf::Shelf;
@@ -52,10 +52,10 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
     // edge-to-edge shelf rows in the (Frame::none) central panel below.
     // With all three panels using Frame::none, the only horizontal inset
     // is INNER_MARGIN_X applied uniformly inside view_row.
-    egui::TopBottomPanel::bottom("ficflow-sidebar-bottom")
+    egui::Panel::bottom("ficflow-sidebar-bottom")
         .resizable(false)
         .show_separator_line(true)
-        .frame(egui::Frame::none())
+        .frame(egui::Frame::NONE)
         .show_inside(ui, |ui| {
             ui.add_space(6.0);
             view_row(
@@ -74,10 +74,10 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
     // never loses access to status filters or the "+ shelf" button when
     // a long shelf list scrolls. Only the shelf rows themselves go in
     // the scrollable Central area below.
-    egui::TopBottomPanel::top("ficflow-sidebar-top")
+    egui::Panel::top("ficflow-sidebar-top")
         .resizable(false)
         .show_separator_line(false)
-        .frame(egui::Frame::none())
+        .frame(egui::Frame::NONE)
         .show_inside(ui, |ui| {
             ui.add_space(6.0);
             section_label(ui, "LIBRARY");
@@ -143,7 +143,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         });
 
     egui::CentralPanel::default()
-        .frame(egui::Frame::none())
+        .frame(egui::Frame::NONE)
         .show_inside(ui, |ui| {
             // Floating scrollbar so the scrollbar overlays the content
             // instead of reserving horizontal space — without this, when
@@ -180,6 +180,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                                     inner,
                                     4.0,
                                     Stroke::new(2.0, Color32::from_rgb(120, 200, 120)),
+                                    StrokeKind::Inside,
                                 );
                             }
                             if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
@@ -192,7 +193,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                             resp.context_menu(|ui| {
                                 if ui.button("Delete shelf").clicked() {
                                     outcome = Outcome::OpenDeleteShelfConfirm(shelf.id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             });
                         }
@@ -268,8 +269,13 @@ fn view_row(
     // so this looks the same as the previous text-only selection target.
     let visuals = ui.style().interact_selectable(&resp, selected);
     if selected || resp.hovered() {
-        ui.painter()
-            .rect(inner_rect, 4.0, visuals.weak_bg_fill, visuals.bg_stroke);
+        ui.painter().rect(
+            inner_rect,
+            4.0,
+            visuals.weak_bg_fill,
+            visuals.bg_stroke,
+            StrokeKind::Inside,
+        );
     }
 
     let text_color = visuals.text_color();
@@ -328,8 +334,13 @@ fn view_row(
     // Paint the count badge on top of (the clip-stopped) label.
     if let Some((badge_rect, galley, pad)) = badge {
         let inactive = &ui.style().visuals.widgets.inactive;
-        ui.painter()
-            .rect(badge_rect, 4.0, inactive.weak_bg_fill, inactive.bg_stroke);
+        ui.painter().rect(
+            badge_rect,
+            4.0,
+            inactive.weak_bg_fill,
+            inactive.bg_stroke,
+            StrokeKind::Inside,
+        );
         ui.painter()
             .galley(badge_rect.min + pad, galley, text_color);
     }
@@ -376,8 +387,13 @@ fn shelves_header(ui: &mut Ui) -> bool {
         .interact(btn_rect, ui.id().with("shelves-add"), egui::Sense::click())
         .on_hover_text("New shelf");
     let visuals = ui.style().interact(&resp);
-    ui.painter()
-        .rect(btn_rect, 4.0, visuals.weak_bg_fill, visuals.bg_stroke);
+    ui.painter().rect(
+        btn_rect,
+        4.0,
+        visuals.weak_bg_fill,
+        visuals.bg_stroke,
+        StrokeKind::Inside,
+    );
     ui.painter().text(
         btn_rect.center(),
         egui::Align2::CENTER_CENTER,

@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use egui::{Align2, Color32, Id, RichText, Sense, Stroke, Ui, Vec2};
+use egui::{Align2, Color32, Id, Popup, RichText, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::domain::shelf::Shelf;
 
@@ -37,7 +37,8 @@ pub fn shelves_dropdown(
     let avail = ui.available_width();
     let height = 28.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(avail, height), Sense::click());
-    ui.painter().rect(rect, 4.0, fill, stroke);
+    ui.painter()
+        .rect(rect, 4.0, fill, stroke, StrokeKind::Inside);
 
     // Caret cell on the right (16 px). Click toggles the popup.
     let caret_w = 20.0;
@@ -45,7 +46,7 @@ pub fn shelves_dropdown(
         egui::pos2(rect.right() - caret_w, rect.top()),
         Vec2::new(caret_w, height),
     );
-    let popup_open = ui.memory(|m| m.is_popup_open(popup_id));
+    let popup_open = Popup::is_id_open(ui.ctx(), popup_id);
     let caret = if popup_open { "\u{25B2}" } else { "\u{25BC}" };
     ui.painter().text(
         caret_rect.center(),
@@ -57,7 +58,7 @@ pub fn shelves_dropdown(
 
     // Toggle popup on click anywhere in the field.
     if resp.clicked() {
-        ui.memory_mut(|m| m.toggle_popup(popup_id));
+        Popup::toggle_id(ui.ctx(), popup_id);
     }
 
     // Chips for each currently-selected shelf, laid out left-to-right
@@ -93,7 +94,8 @@ pub fn shelves_dropdown(
         }
 
         let chip_rect = egui::Rect::from_min_size(egui::pos2(x, chip_y), Vec2::new(chip_w, chip_h));
-        ui.painter().rect(chip_rect, 4.0, chip_fill, Stroke::NONE);
+        ui.painter()
+            .rect(chip_rect, 4.0, chip_fill, Stroke::NONE, StrokeKind::Inside);
         ui.painter().text(
             egui::pos2(chip_rect.left() + 6.0, chip_rect.center().y),
             Align2::LEFT_CENTER,
@@ -145,12 +147,13 @@ pub fn shelves_dropdown(
     }
 
     // Popup with one checkbox per shelf. Anchored below the field.
-    egui::popup_below_widget(
-        ui,
-        popup_id,
-        &resp,
-        egui::PopupCloseBehavior::CloseOnClickOutside,
-        |ui| {
+    // open_memory(None) reads the current open state from memory without
+    // toggling — the click handler above already drives state.
+    Popup::from_response(&resp)
+        .id(popup_id)
+        .open_memory(None)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
             ui.set_min_width(rect.width());
             ui.set_max_height(220.0);
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -168,8 +171,7 @@ pub fn shelves_dropdown(
                     }
                 }
             });
-        },
-    );
+        });
 
     outcome
 }

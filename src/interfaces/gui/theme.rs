@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use egui::{Color32, Context, FontData, FontDefinitions, FontFamily};
 
 use super::assets;
@@ -20,11 +22,11 @@ fn install_fonts(ctx: &Context) {
 
     fonts.font_data.insert(
         NEUE_FAMILY.to_owned(),
-        FontData::from_static(assets::NEUE_FONT),
+        Arc::new(FontData::from_static(assets::NEUE_FONT)),
     );
     fonts.font_data.insert(
         COMFORTAA_FAMILY.to_owned(),
-        FontData::from_static(assets::COMFORTAA_FONT),
+        Arc::new(FontData::from_static(assets::COMFORTAA_FONT)),
     );
 
     fonts
@@ -87,7 +89,7 @@ fn append_system_fallbacks(fonts: &mut FontDefinitions) {
         let name = format!("ficflow_fb_{}", i);
         fonts
             .font_data
-            .insert(name.clone(), FontData::from_owned(bytes));
+            .insert(name.clone(), Arc::new(FontData::from_owned(bytes)));
         for family in [FontFamily::Proportional, FontFamily::Monospace] {
             fonts.families.entry(family).or_default().push(name.clone());
         }
