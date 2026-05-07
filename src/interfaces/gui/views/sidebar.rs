@@ -32,6 +32,7 @@ pub struct SidebarState<'a> {
 pub enum Outcome {
     None,
     OpenCreateShelfModal,
+    OpenRenameShelfModal(u64),
     OpenDeleteShelfConfirm(u64),
     DropOnShelf { shelf_id: u64, fic_ids: Vec<u64> },
 }
@@ -191,6 +192,10 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                             }
 
                             resp.context_menu(|ui| {
+                                if ui.button("Rename shelf").clicked() {
+                                    outcome = Outcome::OpenRenameShelfModal(shelf.id);
+                                    ui.close();
+                                }
                                 if ui.button("Delete shelf").clicked() {
                                     outcome = Outcome::OpenDeleteShelfConfirm(shelf.id);
                                     ui.close();

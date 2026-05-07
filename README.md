@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Rename shelf feature
 - [ ] Display bug on further right column
 - [ ] Anon fics don't work because of missing authors element!
 - [ ] Retry all button next to Clear completed

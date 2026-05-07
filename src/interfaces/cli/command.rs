@@ -20,6 +20,7 @@ pub enum CliCommand {
 pub enum ShelfCommand {
     Create { name: String },
     Delete { shelf_id: u64 },
+    Rename { shelf_id: u64, new_name: String },
     List,
     Add { fic_id: u64, shelf_id: u64 },
     Remove { fic_id: u64, shelf_id: u64 },
@@ -89,6 +90,12 @@ pub fn parse_cli_commands() -> CliCommand {
                     Command::new("delete")
                         .about("Delete a shelf")
                         .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
+                )
+                .subcommand(
+                    Command::new("rename")
+                        .about("Rename an existing shelf")
+                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID"))
+                        .arg(Arg::new("new-name").required(true).index(2).help("New shelf name")),
                 )
                 .subcommand(Command::new("list").about("List all shelves"))
                 .subcommand(
@@ -196,6 +203,13 @@ fn parse_shelf_subcommand(matches: &clap::ArgMatches) -> ShelfCommand {
     } else if let Some(m) = matches.subcommand_matches("delete") {
         let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
         ShelfCommand::Delete { shelf_id }
+    } else if let Some(m) = matches.subcommand_matches("rename") {
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        let new_name = m
+            .get_one::<String>("new-name")
+            .expect("new-name is required")
+            .to_string();
+        ShelfCommand::Rename { shelf_id, new_name }
     } else if matches.subcommand_matches("list").is_some() {
         ShelfCommand::List
     } else if let Some(m) = matches.subcommand_matches("add") {

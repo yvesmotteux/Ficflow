@@ -165,6 +165,59 @@ mod tests {
         assert_eq!(h.app.fics()[0].id, 601);
     }
 
+    #[test]
+    fn renaming_a_shelf_persists_and_keeps_membership() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let fic = fixtures::given_sample_fanfiction(801, "Stays Put");
+        fixtures::when_fanfiction_added_to_db(&conn, &fic).unwrap();
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+        h.app.create_shelf("Reding").unwrap();
+        let id = h.app.shelves()[0].id;
+        h.app.add_fic_to_shelf(801, id).unwrap();
+        h.app.open_view(View::Shelf(id));
+        h.step();
+
+        h.app.rename_shelf(id, "Reading").unwrap();
+
+        assert_eq!(h.app.shelves().len(), 1);
+        assert_eq!(h.app.shelves()[0].id, id);
+        assert_eq!(h.app.shelves()[0].name, "Reading");
+
+        let repo = SqliteRepository::new(&h.conn);
+        let from_db = repo.list_shelves().unwrap();
+        assert_eq!(from_db.len(), 1);
+        assert_eq!(from_db[0].name, "Reading");
+
+        assert_eq!(repo.count_fics_in_shelf(id).unwrap(), 1);
+        assert_eq!(h.app.current_view(), &View::Shelf(id));
+    }
+
+    #[test]
+    fn renaming_a_shelf_with_blank_name_is_rejected() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Reading").unwrap();
+        let id = h.app.shelves()[0].id;
+
+        let outcome = h.app.rename_shelf(id, "   ");
+        assert!(outcome.is_err());
+        assert_eq!(h.app.shelves()[0].name, "Reading");
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(repo.list_shelves().unwrap()[0].name, "Reading");
+    }
+
+    #[test]
+    fn renaming_a_missing_shelf_returns_not_found() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        let outcome = h.app.rename_shelf(99999, "Whatever");
+        assert!(matches!(
+            outcome,
+            Err(ficflow::error::FicflowError::ShelfNotFound { shelf_id: 99999 })
+        ));
+    }
+
     /// C19 — drag-drop semantics: dropping a multi-fic payload on a
     /// shelf should add every fic in the payload. We don't simulate
     /// pixel-level drag (egui 0.29 makes that painful without
