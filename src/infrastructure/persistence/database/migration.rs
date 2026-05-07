@@ -1,6 +1,6 @@
 use crate::error::FicflowError;
 use rusqlite::Connection;
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{M, Migrations};
 
 pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
     let migrations = Migrations::new(vec![

@@ -80,6 +80,11 @@ cargo build --release
 ## Features (Planned, the order is approximate)
 
 - [ ] Bump deps and move to edition 2024 or 2025
+- [ ] Rename shelf feature
+- [ ] Display bug on further right column
+- [ ] Anon fics don't work because of missing authors element!
+- [ ] Retry all button next to Clear completed
+- [ ] closing the app clears all tasks including running : maybe at least ask confirmation, then maybe backup?
 - [ ] Ability to change column order by grabbing them
 - [ ] Ability to choose the text size / zoom level in the settings
 - [ ] New feature of auto-shelves (based on ships, fandoms, relationship,...)

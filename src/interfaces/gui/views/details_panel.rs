@@ -6,7 +6,8 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use egui::{
-    Align, Color32, ComboBox, DragValue, Layout, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui,
+    Align, Color32, ComboBox, DragValue, Layout, RichText, ScrollArea, Sense, Stroke, StrokeKind,
+    TextEdit, Ui,
 };
 
 use crate::domain::fanfiction::{
@@ -52,10 +53,10 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
 
     // Bottom-pinned: Your Info (status / chapter / reads / rating /
     // notes / shelves dropdown / Delete Fic).
-    egui::TopBottomPanel::bottom("details-your-info")
+    egui::Panel::bottom("details-your-info")
         .resizable(true)
-        .default_height(280.0)
-        .frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 6.0)))
+        .default_size(280.0)
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
         .show_inside(ui, |ui| {
             let bottom = draw_your_info(ui, fic, all_shelves, selection_shelf_ids);
             if !matches!(bottom, Outcome::None) {
@@ -64,17 +65,17 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         });
 
     // Top-pinned header (title, author with link, fic URL).
-    egui::TopBottomPanel::top("details-header")
+    egui::Panel::top("details-header")
         .resizable(false)
         .show_separator_line(true)
-        .frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 8.0)))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 8)))
         .show_inside(ui, |ui| {
             draw_header(ui, fic);
         });
 
     // Central scrollable: AO3 Metadata.
     egui::CentralPanel::default()
-        .frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 4.0)))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 4)))
         .show_inside(ui, |ui| {
             ScrollArea::vertical()
                 .auto_shrink([false; 2])
@@ -244,11 +245,7 @@ fn draw_chapter(ui: &mut Ui, fic: &Fanfiction) -> Option<u32> {
         .map(|n| n.to_string())
         .unwrap_or_else(|| "\u{2014}".into());
     ui.label(RichText::new(format!("/ {}", total_str)).weak());
-    if resp.changed() {
-        Some(chapter)
-    } else {
-        None
-    }
+    if resp.changed() { Some(chapter) } else { None }
 }
 
 fn draw_read_count(ui: &mut Ui, fic: &Fanfiction) -> Option<u32> {
@@ -475,7 +472,8 @@ fn bubble(ui: &mut Ui, text: &str) {
     let size = galley.size() + pad * 2.0;
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let fill = ui.visuals().widgets.inactive.weak_bg_fill;
-    ui.painter().rect(rect, 10.0, fill, Stroke::NONE);
+    ui.painter()
+        .rect(rect, 10.0, fill, Stroke::NONE, StrokeKind::Inside);
     ui.painter().galley(rect.min + pad, galley, text_color);
 }
 
@@ -490,8 +488,13 @@ fn bubble_clickable(ui: &mut Ui, text: &str) -> egui::Response {
     let size = galley.size() + pad * 2.0;
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let visuals = ui.style().interact(&resp);
-    ui.painter()
-        .rect(rect, 10.0, visuals.weak_bg_fill, visuals.bg_stroke);
+    ui.painter().rect(
+        rect,
+        10.0,
+        visuals.weak_bg_fill,
+        visuals.bg_stroke,
+        StrokeKind::Inside,
+    );
     ui.painter().galley(rect.min + pad, galley, color);
     resp
 }

@@ -1,16 +1,16 @@
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 
 use crate::application::add_fic::add_fanfiction;
 use crate::application::check_updates::check_fic_updates;
 use crate::error::FicflowError;
+use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
 use crate::infrastructure::persistence::database::connection::{
     establish_connection, open_configured_db,
 };
-use crate::infrastructure::SqliteRepository;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
 use super::{TaskStatus, WorkerCommand, WorkerInbox};

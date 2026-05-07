@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use ficflow::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
-use ficflow::infrastructure::{establish_connection, Ao3Fetcher, SqliteRepository};
+use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, establish_connection};
 
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

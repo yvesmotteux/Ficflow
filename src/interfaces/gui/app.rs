@@ -12,11 +12,11 @@ use crate::application::{
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
 use crate::domain::shelf::Shelf;
 use crate::error::FicflowError;
+use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
 use crate::infrastructure::persistence::database::connection::{
     establish_connection, open_configured_db,
 };
-use crate::infrastructure::SqliteRepository;
 
 use super::chrome::FrameChrome;
 use super::library_cache::LibraryCache;
@@ -32,8 +32,8 @@ use super::views::modals::{bulk_modals, column_picker};
 use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
-    details_panel, library_view, selection_bar, sidebar, LibraryCounts, LibraryViewState,
-    SelectionBarState, SidebarState, TaskFilter, TasksViewState,
+    LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TaskFilter, TasksViewState,
+    details_panel, library_view, selection_bar, sidebar,
 };
 
 pub struct FicflowApp {
@@ -237,10 +237,10 @@ impl FicflowApp {
     }
 
     pub fn refresh_selected(&self) {
-        if let Selection::Single(id) = *self.selection.current() {
-            if let Some(fic) = self.cache.fics.iter().find(|f| f.id == id) {
-                self.task_executor.enqueue_refresh(id, fic.title.clone());
-            }
+        if let Selection::Single(id) = *self.selection.current()
+            && let Some(fic) = self.cache.fics.iter().find(|f| f.id == id)
+        {
+            self.task_executor.enqueue_refresh(id, fic.title.clone());
         }
     }
 
@@ -564,8 +564,8 @@ fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
 }
 
 impl eframe::App for FicflowApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.render(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.render(ui);
     }
 
     /// Transparent so the chrome's painted edges show through the
@@ -576,29 +576,30 @@ impl eframe::App for FicflowApp {
 }
 
 impl FicflowApp {
-    /// Headless-friendly entry point — `App::update` above is a thin
-    /// delegate so tests can drive the app without an `eframe::Frame`.
+    /// Headless-friendly entry point — eframe's `App::ui` is a thin
+    /// delegate so tests can drive the app via `Context::run_ui`.
     ///
     /// The host `CentralPanel` exists because egui's top-level panels
-    /// (`SidePanel::show(ctx, …)`) claim from `ctx.screen_rect()` and
-    /// would punch through the chrome. Nesting every panel inside a
-    /// single `UiBuilder::max_rect(content_rect)` constrains them to
-    /// the chrome's content area with a single anchor change.
-    pub fn render(&mut self, ctx: &egui::Context) {
-        self.sync_window_state(ctx);
-        self.handle_shortcuts(ctx);
+    /// would otherwise claim from the full available rect and punch
+    /// through the chrome. Nesting every panel inside a single
+    /// `UiBuilder::max_rect(content_rect)` constrains them to the
+    /// chrome's content area with a single anchor change.
+    pub fn render(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        self.sync_window_state(&ctx);
+        self.handle_shortcuts(&ctx);
 
-        let screen = ctx.screen_rect();
-        self.chrome.paint_background(ctx, screen);
+        let screen = ctx.content_rect();
+        self.chrome.paint_background(&ctx, screen);
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::none())
-            .show(ctx, |ui| {
+            .frame(egui::Frame::NONE)
+            .show_inside(ui, |ui| {
                 let controls_rect = self.chrome.draw_window_controls(ui, screen);
                 self.chrome.handle_interactions(ui, screen, controls_rect);
 
                 let content_rect = self.chrome.content_rect(screen);
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(content_rect), |host| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |host| {
                     self.paint_header(host);
                     self.paint_sidebar(host);
                     self.paint_details_panel(host);
@@ -606,10 +607,10 @@ impl FicflowApp {
                     self.paint_central(host);
                 });
             });
-        self.paint_modals(ctx);
-        self.drain_worker_events(ctx);
-        self.draw_drag_preview(ctx);
-        self.toasts.show(ctx);
+        self.paint_modals(&ctx);
+        self.drain_worker_events(&ctx);
+        self.draw_drag_preview(&ctx);
+        self.toasts.show(&ctx);
 
         // Force a steady repaint cadence so hover state recovers after
         // an OS-managed move/resize — winit doesn't forward a
@@ -619,7 +620,7 @@ impl FicflowApp {
     }
 
     fn paint_header(&self, host: &mut egui::Ui) {
-        egui::TopBottomPanel::top("ficflow-header").show_inside(host, |ui| {
+        egui::Panel::top("ficflow-header").show_inside(host, |ui| {
             ui.add_space(4.0);
             ui.vertical_centered(|ui| {
                 ui.add(
@@ -642,9 +643,9 @@ impl FicflowApp {
         let prev_view = self.current_view.clone();
         let library_counts = compute_library_counts(&self.cache.fics);
         let mut outcome = sidebar::Outcome::None;
-        egui::SidePanel::left("ficflow-sidebar")
-            .default_width(160.0)
-            .width_range(140.0..=600.0)
+        egui::Panel::left("ficflow-sidebar")
+            .default_size(160.0)
+            .size_range(140.0..=600.0)
             .resizable(true)
             .show_inside(host, |ui| {
                 outcome = sidebar::draw(
@@ -693,9 +694,9 @@ impl FicflowApp {
             return;
         };
         let mut outcome = details_panel::Outcome::None;
-        egui::SidePanel::right("ficflow-details")
-            .default_width(320.0)
-            .width_range(280.0..=900.0)
+        egui::Panel::right("ficflow-details")
+            .default_size(320.0)
+            .size_range(280.0..=900.0)
             .resizable(true)
             .show_inside(host, |ui| {
                 outcome = details_panel::draw(
@@ -716,7 +717,7 @@ impl FicflowApp {
             return;
         }
         let mut outcome = selection_bar::Outcome::None;
-        egui::TopBottomPanel::bottom("ficflow-selection-bar")
+        egui::Panel::bottom("ficflow-selection-bar")
             .resizable(false)
             .show_inside(host, |ui| {
                 outcome = selection_bar::draw(
@@ -803,10 +804,10 @@ impl FicflowApp {
             self.refresh_selection_shelf_ids();
         }
         // Selected fic got deleted this frame: drop the orphan selection.
-        if let Selection::Single(id) = *self.selection.current() {
-            if !self.cache.fics.iter().any(|f| f.id == id) {
-                self.clear_selection();
-            }
+        if let Selection::Single(id) = *self.selection.current()
+            && !self.cache.fics.iter().any(|f| f.id == id)
+        {
+            self.clear_selection();
         }
         if sort_changed {
             self.config.default_sort = self.sort;
@@ -978,7 +979,7 @@ impl FicflowApp {
                 panel_rect.width() - buttons_reserve - title_reserve - 2.0 * EDGE_GAP;
             if avail_for_search >= SEARCH_W_MIN {
                 let search_w = avail_for_search.min(SEARCH_W_MAX);
-                let screen = ui.ctx().screen_rect();
+                let screen = ui.ctx().content_rect();
                 let row_rect = row_resp.response.rect;
                 let desired_x = screen.center().x - search_w / 2.0;
                 let max_x = panel_rect.right() - buttons_reserve - EDGE_GAP - search_w;
@@ -1007,8 +1008,8 @@ impl FicflowApp {
             egui::Frame::default()
                 .fill(fill)
                 .stroke(stroke)
-                .rounding(2.0)
-                .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                .corner_radius(2)
+                .inner_margin(egui::Margin::symmetric(6, 2))
                 .show(ui, |ui| {
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
@@ -1016,7 +1017,7 @@ impl FicflowApp {
                         let resp = ui.add(
                             egui::TextEdit::singleline(&mut self.search_query)
                                 .hint_text("Search title, author, fandom, tags…")
-                                .frame(false)
+                                .frame(egui::Frame::NONE)
                                 .desired_width(f32::INFINITY),
                         );
                         if self.focus_search_pending {
@@ -1123,7 +1124,7 @@ impl FicflowApp {
         if !self.current_view.shows_library() {
             self.focus_search_pending = false;
         }
-        if ctx.wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() {
             return;
         }
         use egui::{Key, KeyboardShortcut, Modifiers};

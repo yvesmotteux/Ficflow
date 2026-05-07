@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use egui::{Align, Color32, Layout, RichText, Sense, Stroke, Ui};
+use egui::{Align, Color32, Layout, RichText, Sense, Stroke, StrokeKind, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use std::collections::HashSet;
@@ -410,7 +410,9 @@ fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
     let palette = status_palette(status);
     let text = format_status(status);
     let body_font = egui::TextStyle::Body.resolve(ui.style());
-    let galley = ui.fonts(|f| f.layout_no_wrap(text.to_string(), body_font, palette.accent));
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), body_font, palette.accent);
 
     const INNER_X: f32 = 8.0;
     const INNER_Y: f32 = 4.0;
@@ -421,9 +423,10 @@ fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
     let painter = ui.painter();
     painter.rect(
         pill_rect,
-        egui::Rounding::same(10.0),
+        egui::CornerRadius::same(10),
         palette.fill,
         Stroke::new(1.0, palette.accent),
+        StrokeKind::Inside,
     );
     let text_pos = pill_rect.center() - galley.size() / 2.0;
     painter.galley(text_pos, galley, palette.accent);

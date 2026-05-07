@@ -11,7 +11,7 @@
 mod tests {
     use ficflow::{
         domain::fanfiction::FanfictionFetcher,
-        infrastructure::external::ao3::{fetcher::PRIMARY_AO3_URL, Ao3Fetcher},
+        infrastructure::external::ao3::{Ao3Fetcher, fetcher::PRIMARY_AO3_URL},
     };
     use std::time::Duration;
 

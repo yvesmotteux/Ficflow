@@ -87,8 +87,8 @@ impl GuiHarness {
             ..Default::default()
         };
         let app = &mut self.app;
-        let _ = self.ctx.run(raw_input, |ctx| {
-            app.render(ctx);
+        let _ = self.ctx.run_ui(raw_input, |ui| {
+            app.render(ui);
         });
     }
 

@@ -48,7 +48,7 @@ pub fn draw(ui: &mut Ui, state: SelectionBarState<'_>) -> Outcome {
             ] {
                 if ui.button(format_status(&status)).clicked() {
                     outcome = Outcome::SetStatus(status);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });
@@ -60,17 +60,17 @@ pub fn draw(ui: &mut Ui, state: SelectionBarState<'_>) -> Outcome {
                 for shelf in all_shelves {
                     if ui.button(&shelf.name).clicked() {
                         outcome = Outcome::AddToShelf(shelf.id);
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
             }
         });
 
         // "Remove from shelf" only makes sense when looking at a shelf.
-        if let View::Shelf(shelf_id) = current_view {
-            if ui.button("Remove from shelf").clicked() {
-                outcome = Outcome::RemoveFromShelf(*shelf_id);
-            }
+        if let View::Shelf(shelf_id) = current_view
+            && ui.button("Remove from shelf").clicked()
+        {
+            outcome = Outcome::RemoveFromShelf(*shelf_id);
         }
 
         if ui.button("\u{1F5D1}").on_hover_text("Delete").clicked() {

@@ -4,8 +4,8 @@
 //! removes the OS title bar).
 
 use egui::{
-    Color32, Context, CursorIcon, Id, LayerId, Pos2, Rect, ResizeDirection, Sense, Stroke, Ui,
-    Vec2, ViewportCommand,
+    Color32, Context, CursorIcon, Id, LayerId, Pos2, Rect, ResizeDirection, Sense, Stroke,
+    StrokeKind, Ui, Vec2, ViewportCommand,
 };
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg;
@@ -99,7 +99,7 @@ impl FrameChrome {
                 screen.bottom() - TOP_INNER_Y - BG_INSET,
             ),
         );
-        let bg_fill = ctx.style().visuals.window_fill;
+        let bg_fill = ctx.global_style().visuals.window_fill;
         painter.rect_filled(bg_rect, 0.0, bg_fill);
 
         if self.atlas.is_none() {
@@ -380,7 +380,13 @@ impl FrameChrome {
                         Color32::TRANSPARENT
                     };
                     let painter = area_ui.painter();
-                    painter.rect(rect, 4.0, fill, Stroke::new(1.0, theme::ACCENT));
+                    painter.rect(
+                        rect,
+                        4.0,
+                        fill,
+                        Stroke::new(1.0, theme::ACCENT),
+                        StrokeKind::Inside,
+                    );
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
