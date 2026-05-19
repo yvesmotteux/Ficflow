@@ -80,7 +80,6 @@ cargo build --release
 ## Features (Planned, the order is approximate)
 
 - [ ] Revert the details-panel custom resize handle once [emilk/egui#8056](https://github.com/emilk/egui/pull/8056) ships in an egui release (re-enable `Panel::right(...).resizable(true)`)
-- [ ] Retry all button next to Clear completed
 - [ ] closing the app clears all tasks including running : maybe at least ask confirmation, then maybe backup?
 - [ ] Ability to change column order by grabbing them
 - [ ] Make folders of shelves

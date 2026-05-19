@@ -177,6 +177,19 @@ impl TaskExecutor {
         }
     }
 
+    pub fn retry_all_failed(&self) {
+        let failed_ids: Vec<u64> = {
+            let tasks = self.inbox.tasks.lock().unwrap();
+            tasks
+                .iter()
+                .filter_map(|t| matches!(t.status, TaskStatus::Failed(_)).then_some(t.id))
+                .collect()
+        };
+        for id in failed_ids {
+            self.retry(id);
+        }
+    }
+
     /// Drains the queue of titles for fics added since the last call.
     /// Caller should reload its `fics` cache when this returns a non-empty
     /// vec, and may surface one toast per title.
