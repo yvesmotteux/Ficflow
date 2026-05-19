@@ -217,6 +217,15 @@ pub mod fixtures {
         )
     }
 
+    /// Sets up a mock AO3 server with an anonymous-author fanfiction HTML.
+    pub fn given_mock_anonymous_ao3_server() -> (MockServer, u64) {
+        create_mock_ao3_server(
+            "tests/fixtures/ao3_fic_anonymous.html",
+            85157066,
+            "Failed to read mock anonymous HTML file",
+        )
+    }
+
     /// Sets up a mock AO3 server with an outdated fanfiction HTML.
     pub fn given_mock_outdated_ao3_server() -> (MockServer, u64) {
         create_mock_ao3_server(

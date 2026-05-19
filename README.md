@@ -60,7 +60,7 @@ xattr -d com.apple.quarantine /usr/local/bin/ficflow
 
 ### Windows
 
-1. Download `ficflow-windows-amd64.exe` from the [Releases page](https://github.com/yvesmotteux/Ficflow/releases/latest).
+1. Download `ficflow-windows-amd64.exe` from the [Release page](https://github.com/yvesmotteux/Ficflow/releases/latest).
 2. (Optional) Move it to a directory on your `PATH` so you can run it from any terminal.
 3. Double-click to launch the GUI, or invoke it from PowerShell / cmd with arguments for the CLI.
 
@@ -80,7 +80,6 @@ cargo build --release
 ## Features (Planned, the order is approximate)
 
 - [ ] Display bug on further right column
-- [ ] Anon fics don't work because of missing authors element!
 - [ ] Retry all button next to Clear completed
 - [ ] closing the app clears all tasks including running : maybe at least ask confirmation, then maybe backup?
 - [ ] Ability to change column order by grabbing them

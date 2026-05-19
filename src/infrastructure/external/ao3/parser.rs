@@ -29,17 +29,25 @@ impl Ao3Parser {
     }
 
     pub fn extract_authors(&self, document: &Html) -> Result<Vec<String>, FicflowError> {
-        let selector = parse_selector("h3.byline.heading a[rel=\"author\"]");
+        let author_selector = parse_selector("h3.byline.heading a[rel=\"author\"]");
         let authors = document
-            .select(&selector)
+            .select(&author_selector)
             .map(|element| element.text().collect::<String>().trim().to_string())
             .collect::<Vec<String>>();
 
-        if authors.is_empty() {
-            return Err(missing("authors"));
+        if !authors.is_empty() {
+            return Ok(authors);
         }
 
-        Ok(authors)
+        let byline_selector = parse_selector("h3.byline.heading");
+        if let Some(byline) = document.select(&byline_selector).next() {
+            let text = byline.text().collect::<String>().trim().to_string();
+            if text == "Anonymous" {
+                return Ok(vec!["Anonymous".to_string()]);
+            }
+        }
+
+        Err(missing("authors"))
     }
 
     pub fn extract_summary(&self, document: &Html) -> Result<String, FicflowError> {
