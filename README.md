@@ -79,10 +79,13 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Display bug on further right column
+- [ ] Revert the details-panel custom resize handle once [emilk/egui#8056](https://github.com/emilk/egui/pull/8056) ships in an egui release (re-enable `Panel::right(...).resizable(true)`)
 - [ ] Retry all button next to Clear completed
 - [ ] closing the app clears all tasks including running : maybe at least ask confirmation, then maybe backup?
 - [ ] Ability to change column order by grabbing them
+- [ ] Make folders of shelves
+- [ ] Shelves or shelf folders can be pinned to top (with a pin icon)
+- [ ] Ficflow remembers which library/shelf tab was open when closed and reopens the same one
 - [ ] Ability to choose the text size / zoom level in the settings
 - [ ] New feature of auto-shelves (based on ships, fandoms, relationship,...)
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config

@@ -461,14 +461,19 @@ fn bubble_list(ui: &mut Ui, salt: &str, items: &[String]) {
 /// `horizontal_wrapped`'s wrap mode and fractures into one character
 /// per line in tight space. The manual measure → allocate → paint
 /// flow keeps the bubble atomic.
+///
+/// `break_anywhere = true` on the layout job: AO3 tags can contain
+/// long unbreakable segments (slash-joined character names, etc.).
+/// Without it the layouter renders the text wider than `max_text_w`,
+/// the bubble allocates beyond the panel's clip rect, and the panel
+/// stores the overflowed rect in `PanelState` — egui #8055 then makes
+/// the panel grow by that much every frame until it pegs at the max.
 fn bubble(ui: &mut Ui, text: &str) {
     let font = egui::FontId::proportional(12.0);
     let text_color = ui.visuals().text_color();
     let pad = egui::vec2(8.0, 2.0);
     let max_text_w = (ui.max_rect().width() - pad.x * 2.0).max(40.0);
-    let galley = ui
-        .painter()
-        .layout(text.to_string(), font, text_color, max_text_w);
+    let galley = layout_break_anywhere(ui, text, font, text_color, max_text_w);
     let size = galley.size() + pad * 2.0;
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let fill = ui.visuals().widgets.inactive.weak_bg_fill;
@@ -482,9 +487,7 @@ fn bubble_clickable(ui: &mut Ui, text: &str) -> egui::Response {
     let color = ui.visuals().weak_text_color();
     let pad = egui::vec2(8.0, 2.0);
     let max_text_w = (ui.max_rect().width() - pad.x * 2.0).max(40.0);
-    let galley = ui
-        .painter()
-        .layout(text.to_string(), font, color, max_text_w);
+    let galley = layout_break_anywhere(ui, text, font, color, max_text_w);
     let size = galley.size() + pad * 2.0;
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let visuals = ui.style().interact(&resp);
@@ -497,6 +500,26 @@ fn bubble_clickable(ui: &mut Ui, text: &str) -> egui::Response {
     );
     ui.painter().galley(rect.min + pad, galley, color);
     resp
+}
+
+fn layout_break_anywhere(
+    ui: &Ui,
+    text: &str,
+    font: egui::FontId,
+    color: Color32,
+    max_width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_string(),
+        egui::text::TextFormat {
+            font_id: font,
+            color,
+            ..Default::default()
+        },
+    );
+    job.wrap.max_width = max_width;
+    job.wrap.break_anywhere = true;
+    ui.fonts_mut(|f| f.layout_job(job))
 }
 
 // ---------------------------------------------------------------------------
