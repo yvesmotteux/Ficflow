@@ -57,6 +57,15 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
             if ui.button("Clear completed").clicked() {
                 executor.clear_completed();
             }
+            let has_failed = tasks
+                .iter()
+                .any(|t| matches!(t.status, TaskStatus::Failed(_)));
+            if ui
+                .add_enabled(has_failed, egui::Button::new("Retry all"))
+                .clicked()
+            {
+                executor.retry_all_failed();
+            }
         });
     });
     ui.separator();
