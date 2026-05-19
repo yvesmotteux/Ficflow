@@ -771,11 +771,11 @@ impl FicflowApp {
             egui::Id::new("ficflow-details-resize-handle"),
             egui::Sense::drag(),
         );
-        if handle_resp.dragged() {
-            if let Some(pointer) = handle_resp.interact_pointer_pos() {
-                let new_w = (host_after.right() + panel_width - pointer.x).clamp(MIN_W, MAX_W);
-                self.details_panel_width = new_w;
-            }
+        if handle_resp.dragged()
+            && let Some(pointer) = handle_resp.interact_pointer_pos()
+        {
+            let new_w = (host_after.right() + panel_width - pointer.x).clamp(MIN_W, MAX_W);
+            self.details_panel_width = new_w;
         }
         if handle_resp.hovered() || handle_resp.dragged() {
             host.ctx()
