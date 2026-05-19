@@ -82,6 +82,18 @@ mod tests {
     }
 
     #[test]
+    fn fetches_anonymous_fanfiction() {
+        let (mock_server, fic_id) = fixtures::given_mock_anonymous_ao3_server();
+        let fetcher = test_fetcher(mock_server.base_url());
+
+        let fic = fixtures::when_fetching_fanfiction(&fetcher, fic_id)
+            .expect("anonymous fanfiction should fetch successfully");
+
+        assert_eq!(fic.id, fic_id);
+        assert_eq!(fic.authors, vec!["Anonymous".to_string()]);
+    }
+
+    #[test]
     fn falls_back_from_failing_url_to_working_url() {
         use httpmock::{Method::GET, MockServer};
 

@@ -107,13 +107,13 @@ fn draw_header(ui: &mut Ui, fic: &Fanfiction) {
                 ui.label(",");
             }
             ui.label(author);
-            // ↗ NORTH EAST ARROW — universal "external link" indicator.
-            // AO3 author URLs use the username verbatim; this works for
-            // the vast majority of usernames (which are alphanumeric).
-            ui.hyperlink_to(
-                "\u{2197}",
-                format!("https://archiveofourown.org/users/{}/works", author),
-            );
+            if author != "Anonymous" {
+                // Anonymous works have no real user page, so the arrow is skipped.
+                ui.hyperlink_to(
+                    "\u{2197}",
+                    format!("https://archiveofourown.org/users/{}/works", author),
+                );
+            }
         }
     });
 
