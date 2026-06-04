@@ -80,8 +80,6 @@ cargo build --release
 ## Features (Planned, the order is approximate)
 
 - [ ] Revert the details-panel custom resize handle once egui 0.35 is out — the fix ([emilk/egui#8198](https://github.com/emilk/egui/pull/8198), merged 2026-05-26, superseding #8056) was kept out of 0.34.x patch releases (re-enable `Panel::right(...).resizable(true)`)
-- [ ] closing the app clears all tasks including running : maybe at least ask confirmation, then maybe backup?
-- [ ] Ability to change column order by grabbing them
 - [ ] Make folders of shelves
 - [ ] Shelves or shelf folders can be pinned to top (with a pin icon)
 - [ ] Ficflow remembers which library/shelf tab was open when closed and reopens the same one

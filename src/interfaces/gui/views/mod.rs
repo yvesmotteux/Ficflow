@@ -6,7 +6,7 @@ pub mod settings_view;
 pub mod sidebar;
 pub mod tasks_view;
 
-pub use library_view::LibraryViewState;
+pub use library_view::{LibraryViewState, TableOutcome};
 pub use selection_bar::SelectionBarState;
 pub use sidebar::{LibraryCounts, SidebarState};
 pub use tasks_view::{TaskFilter, TasksViewState};

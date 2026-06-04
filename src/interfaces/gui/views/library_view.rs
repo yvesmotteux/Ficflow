@@ -26,8 +26,13 @@ pub struct LibraryViewState<'a> {
     pub shelf_members: &'a HashSet<u64>,
 }
 
-/// Returns true if `sort` was mutated by a header click — caller persists.
-pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> bool {
+#[derive(Default)]
+pub struct TableOutcome {
+    pub sort_changed: bool,
+    pub column_reorder: Option<(ColumnKey, ColumnKey, bool)>,
+}
+
+pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
     let LibraryViewState {
         fics,
         sort,
@@ -88,14 +93,14 @@ fn draw_table(
     visible_columns: &[ColumnKey],
     selection: &mut SelectionController,
     search_query: &str,
-) -> bool {
+) -> TableOutcome {
     if visible_columns.is_empty() {
         ui.label(
             RichText::new("All columns are hidden — open the column picker to enable some.")
                 .italics()
                 .weak(),
         );
-        return false;
+        return TableOutcome::default();
     }
     if fics.is_empty() {
         let message = if all_fics.is_empty() {
@@ -107,7 +112,7 @@ fn draw_table(
         };
         ui.add_space(8.0);
         ui.label(RichText::new(message).italics().weak());
-        return false;
+        return TableOutcome::default();
     }
 
     // Compute auto-fit decision against the *outer* width — before any
@@ -143,8 +148,8 @@ fn build_table(
     selection: &mut SelectionController,
     natural: &[f32],
     auto_fit: bool,
-) -> bool {
-    let mut sort_changed = false;
+) -> TableOutcome {
+    let mut outcome = TableOutcome::default();
     let mut builder = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
@@ -174,9 +179,7 @@ fn build_table(
     builder
         .header(HEADER_HEIGHT, |mut header| {
             for col in visible_columns {
-                if header_cell(&mut header, *col, sort) {
-                    sort_changed = true;
-                }
+                header_cell(&mut header, *col, sort, &mut outcome);
             }
         })
         .body(|body| {
@@ -206,7 +209,7 @@ fn build_table(
                 }
             });
         });
-    sort_changed
+    outcome
 }
 
 fn default_initial_width(col: ColumnKey) -> f32 {
@@ -248,10 +251,11 @@ fn header_cell(
     header: &mut egui_extras::TableRow<'_, '_>,
     column: ColumnKey,
     sort: &mut SortPref,
-) -> bool {
+    outcome: &mut TableOutcome,
+) {
     // `selectable(false)` keeps the Label from swallowing the click
     // before it reaches the outer cell response (used for sort toggle).
-    let (_rect, resp) = header.col(|ui| {
+    let (rect, resp) = header.col(|ui| {
         let text = format!("{}{}", column.label(), sort_glyph(*sort, column));
         ui.with_layout(
             Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -265,9 +269,35 @@ fn header_cell(
     });
     if resp.clicked() {
         toggle_sort(sort, column);
-        return true;
+        outcome.sort_changed = true;
     }
-    false
+    if resp.drag_started() {
+        resp.dnd_set_drag_payload(column);
+    }
+    let place_after = resp
+        .ctx
+        .input(|i| i.pointer.hover_pos())
+        .is_some_and(|pos| pos.x > rect.center().x);
+    if let Some(dragged) = resp.dnd_hover_payload::<ColumnKey>()
+        && *dragged != column
+    {
+        let x = if place_after {
+            rect.right()
+        } else {
+            rect.left()
+        };
+        resp.ctx
+            .layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("column-reorder-indicator"),
+            ))
+            .vline(x, rect.y_range(), Stroke::new(2.0, theme::ACCENT));
+    }
+    if let Some(dragged) = resp.dnd_release_payload::<ColumnKey>()
+        && *dragged != column
+    {
+        outcome.column_reorder = Some((*dragged, column, place_after));
+    }
 }
 
 /// Longest of (header text, content text) per column, plus padding —
