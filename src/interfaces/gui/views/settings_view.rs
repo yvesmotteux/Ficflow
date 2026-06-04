@@ -1,6 +1,8 @@
+use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
-use crate::version::{LICENSE, VERSION};
+use super::super::format::erisian_date;
+use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
 pub fn draw(ui: &mut Ui) {
     ScrollArea::vertical()
@@ -12,6 +14,10 @@ pub fn draw(ui: &mut Ui) {
 
             ui.label(RichText::new("Application").strong());
             info_row(ui, "Version", VERSION.to_string());
+            if let Ok(date) = NaiveDate::parse_from_str(RELEASE_DATE, "%Y-%m-%d") {
+                info_row(ui, "Released", erisian_date(date))
+                    .on_hover_text(date.format("%-d %B %Y").to_string());
+            }
             info_row(ui, "License", LICENSE.to_string()).on_hover_text(
                 "The Erisian License — Self Attribution (EL-SA). A permissive software \
                 license granting broad rights to use, modify, and redistribute the work, \
