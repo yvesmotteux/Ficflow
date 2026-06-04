@@ -156,6 +156,13 @@ pub fn draw_delete_confirm(ctx: &Context, shelf_id: u64, shelves: &[Shelf]) -> D
                     .weak()
                     .italics(),
             );
+            if shelves.iter().any(|s| s.parent_shelf_id == Some(shelf_id)) {
+                ui.label(
+                    egui::RichText::new("Sub-shelves move up to the parent level.")
+                        .weak()
+                        .italics(),
+                );
+            }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button("Delete").clicked() {

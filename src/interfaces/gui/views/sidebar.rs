@@ -34,8 +34,20 @@ pub enum Outcome {
     OpenCreateShelfModal,
     OpenRenameShelfModal(u64),
     OpenDeleteShelfConfirm(u64),
-    DropOnShelf { shelf_id: u64, fic_ids: Vec<u64> },
+    DropOnShelf {
+        shelf_id: u64,
+        fic_ids: Vec<u64>,
+    },
+    MoveShelf {
+        shelf_id: u64,
+        new_parent: Option<u64>,
+    },
 }
+
+/// Dnd payload for dragging a shelf row — distinct from the `Vec<u64>`
+/// fic payload and the table's `ColumnKey` payload.
+#[derive(Clone, Copy)]
+pub struct ShelfDrag(pub u64);
 
 pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
     let SidebarState {
@@ -152,8 +164,17 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(4.0);
-            if shelves_header(ui) {
-                outcome = Outcome::OpenCreateShelfModal;
+            match shelves_header(ui) {
+                HeaderOutcome::None => {}
+                HeaderOutcome::AddClicked => {
+                    outcome = Outcome::OpenCreateShelfModal;
+                }
+                HeaderOutcome::ShelfDropped(shelf_id) => {
+                    outcome = Outcome::MoveShelf {
+                        shelf_id,
+                        new_parent: None,
+                    };
+                }
             }
             ui.add_space(2.0);
         });
@@ -254,6 +275,10 @@ fn shelf_rows(
             ui.data_mut(|d| d.insert_persisted(collapse_id, !collapsed));
         }
 
+        if resp.drag_started() {
+            resp.dnd_set_drag_payload(ShelfDrag(shelf.id));
+        }
+
         if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
@@ -267,6 +292,27 @@ fn shelf_rows(
             *outcome = Outcome::DropOnShelf {
                 shelf_id: shelf.id,
                 fic_ids: (*payload).clone(),
+            };
+        }
+
+        if resp
+            .dnd_hover_payload::<ShelfDrag>()
+            .is_some_and(|dragged| dragged.0 != shelf.id)
+        {
+            let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
+            ui.painter().rect_stroke(
+                inner,
+                4.0,
+                Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+                StrokeKind::Inside,
+            );
+        }
+        if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
+            && dragged.0 != shelf.id
+        {
+            *outcome = Outcome::MoveShelf {
+                shelf_id: dragged.0,
+                new_parent: Some(shelf.id),
             };
         }
 
@@ -316,7 +362,14 @@ fn view_row(
     // sparse. (Default interact_size.y is ~18.)
     let row_h = 22.0;
     let avail = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(avail, row_h), egui::Sense::click());
+    // Tree rows (shelves) are also drag sources for nesting; egui only
+    // reports `drag_started` on click_and_drag senses.
+    let sense = if tree.is_some() {
+        egui::Sense::click_and_drag()
+    } else {
+        egui::Sense::click()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(avail, row_h), sense);
     // The clickable rect spans the full row so the user can hit the row
     // anywhere, but we paint inside `inner_rect` so the highlight's
     // rounded corners have room to render and so trailing elements share
@@ -442,16 +495,37 @@ fn view_row(
     (resp, triangle_clicked)
 }
 
+enum HeaderOutcome {
+    None,
+    AddClicked,
+    ShelfDropped(u64),
+}
+
 /// Manually-laid-out SHELVES header so the "+" button's right edge sits
 /// exactly where the count badges below sit (same `RIGHT_GAP` from the
 /// inner edge), instead of at egui's default layout-gutter offset.
-/// Returns true if the user clicked the button.
-fn shelves_header(ui: &mut Ui) -> bool {
+/// Doubles as the drop target that moves a dragged shelf back to the
+/// top level.
+fn shelves_header(ui: &mut Ui) -> HeaderOutcome {
     let row_h = 18.0;
     let avail = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(avail, row_h), egui::Sense::hover());
+    let (rect, header_resp) =
+        ui.allocate_exact_size(egui::vec2(avail, row_h), egui::Sense::hover());
     let inner = rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
     let cy = inner.center().y;
+
+    let mut outcome = HeaderOutcome::None;
+    if header_resp.dnd_hover_payload::<ShelfDrag>().is_some() {
+        ui.painter().rect_stroke(
+            inner,
+            4.0,
+            Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+            StrokeKind::Inside,
+        );
+    }
+    if let Some(dragged) = header_resp.dnd_release_payload::<ShelfDrag>() {
+        outcome = HeaderOutcome::ShelfDropped(dragged.0);
+    }
 
     // Section label on the left, mirroring `section_label`'s styling.
     ui.painter().text(
@@ -491,5 +565,8 @@ fn shelves_header(ui: &mut Ui) -> bool {
         egui::FontId::proportional(12.0),
         visuals.text_color(),
     );
-    resp.clicked()
+    if resp.clicked() {
+        outcome = HeaderOutcome::AddClicked;
+    }
+    outcome
 }
