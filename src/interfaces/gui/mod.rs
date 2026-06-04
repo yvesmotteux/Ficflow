@@ -15,7 +15,7 @@ mod widgets;
 use std::process::ExitCode;
 
 pub use app::{FicflowApp, FicflowConfig, InitError};
-pub use config::{ColumnKey, SortDirection, SortPref};
+pub use config::{AppConfig, ColumnKey, SortDirection, SortPref};
 pub use selection::Selection;
 pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;

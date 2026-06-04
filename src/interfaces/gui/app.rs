@@ -32,8 +32,8 @@ use super::views::modals::{bulk_modals, column_picker, quit_modal};
 use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
-    LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TaskFilter, TasksViewState,
-    details_panel, library_view, selection_bar, sidebar,
+    LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TableOutcome, TaskFilter,
+    TasksViewState, details_panel, library_view, selection_bar, sidebar,
 };
 
 pub struct FicflowApp {
@@ -850,7 +850,7 @@ impl FicflowApp {
     }
 
     fn paint_central(&mut self, host: &mut egui::Ui) {
-        let mut sort_changed = false;
+        let mut table_outcome = TableOutcome::default();
         let mut empty_area_clicked = false;
         let prev_selection = self.selection.current().clone();
         let view_title = self.current_view.header_title(&self.cache.shelves);
@@ -858,7 +858,7 @@ impl FicflowApp {
             self.draw_central_header(ui, &view_title);
             ui.add_space(6.0);
             if self.current_view.shows_library() {
-                sort_changed = library_view::draw(
+                table_outcome = library_view::draw(
                     ui,
                     LibraryViewState {
                         fics: &self.cache.fics,
@@ -906,8 +906,16 @@ impl FicflowApp {
         {
             self.clear_selection();
         }
-        if sort_changed {
+        if table_outcome.sort_changed {
             self.config.default_sort = self.sort;
+            self.save_config();
+        }
+        if let Some((col, target, after)) = table_outcome.column_reorder {
+            self.config.reorder_visible_column(col, target, after);
+            self.save_config();
+        }
+        if let Some(col) = table_outcome.column_removed {
+            self.config.visible_columns.retain(|c| *c != col);
             self.save_config();
         }
     }
@@ -1155,21 +1163,24 @@ impl FicflowApp {
     /// egui's built-in dnd doesn't ship a drag-preview, so we paint a
     /// label near the cursor whenever there's an active payload.
     fn draw_drag_preview(&self, ctx: &egui::Context) {
-        let Some(payload) = egui::DragAndDrop::payload::<Vec<u64>>(ctx) else {
+        let label = if let Some(payload) = egui::DragAndDrop::payload::<Vec<u64>>(ctx) {
+            match payload.as_slice() {
+                [single] => self
+                    .cache
+                    .fics
+                    .iter()
+                    .find(|f| f.id == *single)
+                    .map(|f| f.title.clone())
+                    .unwrap_or_else(|| "(unknown)".to_string()),
+                ids => format!("{} fanfictions", ids.len()),
+            }
+        } else if let Some(column) = egui::DragAndDrop::payload::<ColumnKey>(ctx) {
+            column.label().to_string()
+        } else {
             return;
         };
         let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) else {
             return;
-        };
-        let label = match payload.as_slice() {
-            [single] => self
-                .cache
-                .fics
-                .iter()
-                .find(|f| f.id == *single)
-                .map(|f| f.title.clone())
-                .unwrap_or_else(|| "(unknown)".to_string()),
-            ids => format!("{} fanfictions", ids.len()),
         };
         egui::Area::new(egui::Id::new("ficflow-drag-preview"))
             .fixed_pos(pointer + egui::Vec2::new(14.0, 14.0))

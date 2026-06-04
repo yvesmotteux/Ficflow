@@ -38,10 +38,6 @@ pub enum ColumnKey {
 }
 
 impl ColumnKey {
-    /// Canonical column order. Used by the picker and to keep visible
-    /// columns in a deterministic spot when toggled. The default config
-    /// only enables a subset (see `AppConfig::default`); the rest are
-    /// opt-in via the column picker.
     pub const ALL: [ColumnKey; 17] = [
         ColumnKey::Title,
         ColumnKey::Author,
@@ -161,6 +157,26 @@ impl AppConfig {
                 Self::default()
             }
         }
+    }
+
+    pub fn reorder_visible_column(&mut self, col: ColumnKey, target: ColumnKey, place_after: bool) {
+        if col == target {
+            return;
+        }
+        let Some(from) = self.visible_columns.iter().position(|c| *c == col) else {
+            return;
+        };
+        if !self.visible_columns.contains(&target) {
+            return;
+        }
+        self.visible_columns.remove(from);
+        let to = self
+            .visible_columns
+            .iter()
+            .position(|c| *c == target)
+            .expect("target still present after removing col");
+        self.visible_columns
+            .insert(to + usize::from(place_after), col);
     }
 
     /// Writes the config to disk, creating parent directories as needed.
