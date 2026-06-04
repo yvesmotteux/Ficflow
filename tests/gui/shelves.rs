@@ -246,4 +246,159 @@ mod tests {
         let repo = SqliteRepository::new(&h.conn);
         assert_eq!(repo.count_fics_in_shelf(shelf_id).unwrap(), 3);
     }
+
+    #[test]
+    fn moving_a_shelf_under_another_persists_parent() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Fantasy").unwrap();
+        h.app.create_shelf("Dragons").unwrap();
+        let parent_id = shelf_id_by_name(&h, "Fantasy");
+        let child_id = shelf_id_by_name(&h, "Dragons");
+
+        h.app.move_shelf(child_id, Some(parent_id)).unwrap();
+
+        let cached = h.app.shelves().iter().find(|s| s.id == child_id).unwrap();
+        assert_eq!(cached.parent_shelf_id, Some(parent_id));
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(
+            repo.get_shelf_by_id(child_id).unwrap().parent_shelf_id,
+            Some(parent_id)
+        );
+    }
+
+    #[test]
+    fn moving_a_shelf_to_top_level_clears_parent() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Fantasy").unwrap();
+        h.app.create_shelf("Dragons").unwrap();
+        let parent_id = shelf_id_by_name(&h, "Fantasy");
+        let child_id = shelf_id_by_name(&h, "Dragons");
+        h.app.move_shelf(child_id, Some(parent_id)).unwrap();
+
+        h.app.move_shelf(child_id, None).unwrap();
+
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(
+            repo.get_shelf_by_id(child_id).unwrap().parent_shelf_id,
+            None
+        );
+    }
+
+    #[test]
+    fn moving_shelf_beyond_depth_limit_is_rejected() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("L1").unwrap();
+        h.app.create_shelf("L2").unwrap();
+        h.app.create_shelf("L3").unwrap();
+        h.app.create_shelf("L4").unwrap();
+        let l1 = shelf_id_by_name(&h, "L1");
+        let l2 = shelf_id_by_name(&h, "L2");
+        let l3 = shelf_id_by_name(&h, "L3");
+        let l4 = shelf_id_by_name(&h, "L4");
+        h.app.move_shelf(l2, Some(l1)).unwrap();
+        h.app.move_shelf(l3, Some(l2)).unwrap();
+
+        let outcome = h.app.move_shelf(l4, Some(l3));
+
+        assert!(matches!(
+            outcome,
+            Err(ficflow::error::FicflowError::ShelfDepthExceeded { max: 3 })
+        ));
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(repo.get_shelf_by_id(l4).unwrap().parent_shelf_id, None);
+    }
+
+    #[test]
+    fn moving_shelf_into_its_descendant_is_rejected() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Fantasy").unwrap();
+        h.app.create_shelf("Dragons").unwrap();
+        let parent_id = shelf_id_by_name(&h, "Fantasy");
+        let child_id = shelf_id_by_name(&h, "Dragons");
+        h.app.move_shelf(child_id, Some(parent_id)).unwrap();
+
+        let outcome = h.app.move_shelf(parent_id, Some(child_id));
+
+        assert!(matches!(
+            outcome,
+            Err(ficflow::error::FicflowError::ShelfCycle)
+        ));
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(
+            repo.get_shelf_by_id(parent_id).unwrap().parent_shelf_id,
+            None
+        );
+    }
+
+    #[test]
+    fn viewing_parent_shelf_includes_descendant_fics() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let f_parent = fixtures::given_sample_fanfiction(901, "On Parent");
+        let f_child = fixtures::given_sample_fanfiction(902, "On Child");
+        fixtures::when_fanfiction_added_to_db(&conn, &f_parent).unwrap();
+        fixtures::when_fanfiction_added_to_db(&conn, &f_child).unwrap();
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+        h.app.create_shelf("Fantasy").unwrap();
+        h.app.create_shelf("Dragons").unwrap();
+        let parent_id = shelf_id_by_name(&h, "Fantasy");
+        let child_id = shelf_id_by_name(&h, "Dragons");
+        h.app.move_shelf(child_id, Some(parent_id)).unwrap();
+        h.app.add_fic_to_shelf(901, parent_id).unwrap();
+        h.app.add_fic_to_shelf(902, child_id).unwrap();
+
+        h.app.open_view(View::Shelf(parent_id));
+        h.step();
+
+        // Same source of truth the render filter and the sidebar badge
+        // read after the refresh.
+        let repo = SqliteRepository::new(&h.conn);
+        let members: Vec<u64> = repo
+            .list_fics_in_shelf(parent_id)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
+        assert_eq!(members.len(), 2);
+        assert!(members.contains(&901));
+        assert!(members.contains(&902));
+        let counts = repo.count_fics_per_shelf().unwrap();
+        assert_eq!(counts.get(&parent_id).copied(), Some(2));
+        assert_eq!(counts.get(&child_id).copied(), Some(1));
+    }
+
+    #[test]
+    fn deleting_parent_shelf_promotes_children() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Fantasy").unwrap();
+        h.app.create_shelf("Dragons").unwrap();
+        let parent_id = shelf_id_by_name(&h, "Fantasy");
+        let child_id = shelf_id_by_name(&h, "Dragons");
+        h.app.move_shelf(child_id, Some(parent_id)).unwrap();
+
+        h.app.delete_shelf(parent_id).unwrap();
+
+        assert_eq!(h.app.shelves().len(), 1);
+        assert_eq!(h.app.shelves()[0].id, child_id);
+        assert_eq!(h.app.shelves()[0].parent_shelf_id, None);
+        let repo = SqliteRepository::new(&h.conn);
+        assert_eq!(
+            repo.get_shelf_by_id(child_id).unwrap().parent_shelf_id,
+            None
+        );
+    }
+
+    fn shelf_id_by_name(h: &GuiHarness, name: &str) -> u64 {
+        h.app
+            .shelves()
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("shelf {name} not in cache"))
+            .id
+    }
 }
