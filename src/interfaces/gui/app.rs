@@ -914,6 +914,10 @@ impl FicflowApp {
             self.config.reorder_visible_column(col, target, after);
             self.save_config();
         }
+        if let Some(col) = table_outcome.column_removed {
+            self.config.visible_columns.retain(|c| *c != col);
+            self.save_config();
+        }
     }
 
     fn paint_modals(&mut self, ctx: &egui::Context) {

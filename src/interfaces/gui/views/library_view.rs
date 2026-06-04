@@ -30,6 +30,7 @@ pub struct LibraryViewState<'a> {
 pub struct TableOutcome {
     pub sort_changed: bool,
     pub column_reorder: Option<(ColumnKey, ColumnKey, bool)>,
+    pub column_removed: Option<ColumnKey>,
 }
 
 pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
@@ -298,6 +299,12 @@ fn header_cell(
     {
         outcome.column_reorder = Some((*dragged, column, place_after));
     }
+    resp.context_menu(|ui| {
+        if ui.button("Remove column").clicked() {
+            outcome.column_removed = Some(column);
+            ui.close();
+        }
+    });
 }
 
 /// Longest of (header text, content text) per column, plus padding —
