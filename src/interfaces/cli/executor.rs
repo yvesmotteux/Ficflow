@@ -222,7 +222,7 @@ impl<'a> CliCommandExecutor<'a> {
     }
 
     fn execute_shelf_create(&self, name: &str) -> ExitCode {
-        match create_shelf(self.repository, name) {
+        match create_shelf(self.repository, name, None) {
             Ok(shelf) => {
                 println!(
                     "Created shelf \"{}\" (id: {}). Use this id to add, remove, or show fics.",

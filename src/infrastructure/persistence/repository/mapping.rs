@@ -6,15 +6,17 @@ use rusqlite::Row;
 pub fn row_to_shelf(row: &Row) -> Result<Shelf, rusqlite::Error> {
     let id: u64 = row.get(0)?;
     let name: String = row.get(1)?;
-    let created_at_str: String = row.get(2)?;
+    let parent_shelf_id: Option<u64> = row.get(2)?;
+    let created_at_str: String = row.get(3)?;
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
         .map_err(|_| {
-            rusqlite::Error::InvalidColumnType(2, "created_at".into(), rusqlite::types::Type::Text)
+            rusqlite::Error::InvalidColumnType(3, "created_at".into(), rusqlite::types::Type::Text)
         })?
         .with_timezone(&Utc);
     Ok(Shelf {
         id,
         name,
+        parent_shelf_id,
         created_at,
     })
 }

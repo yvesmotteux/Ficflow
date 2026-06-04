@@ -36,7 +36,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let shelf = repo.create_shelf("  Favorites  ")?;
+        let shelf = repo.create_shelf("  Favorites  ", None)?;
 
         assert_eq!(
             shelf.name, "Favorites",
@@ -53,7 +53,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let err = repo.create_shelf("").unwrap_err();
+        let err = repo.create_shelf("", None).unwrap_err();
         assert!(
             matches!(err, FicflowError::InvalidInput(_)),
             "expected InvalidInput, got {:?}",
@@ -66,7 +66,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let err = repo.create_shelf("   \t  ").unwrap_err();
+        let err = repo.create_shelf("   \t  ", None).unwrap_err();
         assert!(matches!(err, FicflowError::InvalidInput(_)));
     }
 
@@ -75,7 +75,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let created = repo.create_shelf("Long Reads")?;
+        let created = repo.create_shelf("Long Reads", None)?;
         let fetched = repo.get_shelf_by_id(created.id)?;
 
         assert_eq!(fetched.id, created.id);
@@ -100,9 +100,9 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        repo.create_shelf("zebra")?;
-        repo.create_shelf("Apple")?;
-        repo.create_shelf("Mango")?;
+        repo.create_shelf("zebra", None)?;
+        repo.create_shelf("Apple", None)?;
+        repo.create_shelf("Mango", None)?;
 
         let listed: Vec<String> = repo.list_shelves()?.into_iter().map(|s| s.name).collect();
         assert_eq!(listed, vec!["Apple", "Mango", "zebra"]);
@@ -116,7 +116,7 @@ mod tests {
 
         let fic = fixtures::given_sample_fanfiction(1, "Forever Belongs Here");
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let shelf = repo.create_shelf("Doomed")?;
+        let shelf = repo.create_shelf("Doomed", None)?;
         repo.add_fic_to_shelf(fic.id, shelf.id)?;
 
         repo.delete_shelf(shelf.id)?;
@@ -149,7 +149,7 @@ mod tests {
 
         let fic = fixtures::given_sample_fanfiction(11, "Test Fic");
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
 
         repo.add_fic_to_shelf(fic.id, shelf.id)?;
 
@@ -166,7 +166,7 @@ mod tests {
 
         let fic = fixtures::given_sample_fanfiction(12, "Twice-Added Fic");
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
 
         repo.add_fic_to_shelf(fic.id, shelf.id)?;
         // Second add must not error and must not duplicate.
@@ -181,7 +181,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
         let err = repo.add_fic_to_shelf(9999, shelf.id).unwrap_err();
         assert!(matches!(err, FicflowError::NotFound { fic_id: 9999 }));
         Ok(())
@@ -210,7 +210,7 @@ mod tests {
 
         let fic = fixtures::given_sample_fanfiction(14, "Removed Fic");
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
         repo.add_fic_to_shelf(fic.id, shelf.id)?;
 
         repo.remove_fic_from_shelf(fic.id, shelf.id)?;
@@ -231,7 +231,7 @@ mod tests {
         fixtures::when_fanfiction_added_to_db(&conn, &fic1)?;
         fixtures::when_fanfiction_added_to_db(&conn, &fic2)?;
         fixtures::when_fanfiction_added_to_db(&conn, &fic3)?;
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
         repo.add_fic_to_shelf(fic1.id, shelf.id)?;
         repo.add_fic_to_shelf(fic2.id, shelf.id)?;
         repo.add_fic_to_shelf(fic3.id, shelf.id)?;
@@ -267,9 +267,9 @@ mod tests {
 
         let fic = fixtures::given_sample_fanfiction(31, "Shared Fic");
         fixtures::when_fanfiction_added_to_db(&conn, &fic)?;
-        let s_zebra = repo.create_shelf("Zebra")?;
-        let s_apple = repo.create_shelf("Apple")?;
-        let s_mango = repo.create_shelf("Mango")?;
+        let s_zebra = repo.create_shelf("Zebra", None)?;
+        let s_apple = repo.create_shelf("Apple", None)?;
+        let s_mango = repo.create_shelf("Mango", None)?;
         repo.add_fic_to_shelf(fic.id, s_zebra.id)?;
         repo.add_fic_to_shelf(fic.id, s_apple.id)?;
         repo.add_fic_to_shelf(fic.id, s_mango.id)?;
@@ -300,7 +300,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
         assert_eq!(repo.count_fics_in_shelf(shelf.id)?, 0, "empty shelf is 0");
 
         let fic1 = fixtures::given_sample_fanfiction(41, "First");
@@ -319,7 +319,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
         let fic1 = fixtures::given_sample_fanfiction(51, "Stays");
         let fic2 = fixtures::given_sample_fanfiction(52, "Goes");
         fixtures::when_fanfiction_added_to_db(&conn, &fic1)?;
@@ -344,9 +344,9 @@ mod tests {
         // Three shelves, but only two have any fics. The empty one
         // should be absent from the returned map (callers default
         // missing keys to 0).
-        let s_full = repo.create_shelf("Full")?;
-        let s_one = repo.create_shelf("One")?;
-        let _s_empty = repo.create_shelf("Empty")?;
+        let s_full = repo.create_shelf("Full", None)?;
+        let s_one = repo.create_shelf("One", None)?;
+        let _s_empty = repo.create_shelf("Empty", None)?;
         let f1 = fixtures::given_sample_fanfiction(61, "F1");
         let f2 = fixtures::given_sample_fanfiction(62, "F2");
         let f3 = fixtures::given_sample_fanfiction(63, "F3");
@@ -371,7 +371,7 @@ mod tests {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);
 
-        let shelf = repo.create_shelf("Reading")?;
+        let shelf = repo.create_shelf("Reading", None)?;
         let f1 = fixtures::given_sample_fanfiction(71, "Stays");
         let f2 = fixtures::given_sample_fanfiction(72, "Goes");
         fixtures::when_fanfiction_added_to_db(&conn, &f1)?;

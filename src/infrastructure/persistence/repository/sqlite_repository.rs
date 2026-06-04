@@ -152,7 +152,11 @@ impl<'a> SqliteRepository<'a> {
 }
 
 impl<'a> ShelfOps for SqliteRepository<'a> {
-    fn create_shelf(&self, name: &str) -> Result<Shelf, FicflowError> {
+    fn create_shelf(
+        &self,
+        name: &str,
+        parent_shelf_id: Option<u64>,
+    ) -> Result<Shelf, FicflowError> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             return Err(FicflowError::InvalidInput(
@@ -162,13 +166,14 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
         let created_at = Utc::now();
         self.conn.execute(
-            "INSERT INTO shelf (name, created_at) VALUES (?1, ?2)",
-            params![trimmed, created_at.to_rfc3339()],
+            "INSERT INTO shelf (name, created_at, parent_shelf_id) VALUES (?1, ?2, ?3)",
+            params![trimmed, created_at.to_rfc3339(), parent_shelf_id],
         )?;
         let id = self.conn.last_insert_rowid() as u64;
         Ok(Shelf {
             id,
             name: trimmed.to_string(),
+            parent_shelf_id,
             created_at,
         })
     }
@@ -204,7 +209,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, created_at FROM shelf \
+            "SELECT id, name, parent_shelf_id, created_at FROM shelf \
              WHERE deleted_at IS NULL \
              ORDER BY name COLLATE NOCASE",
         )?;
@@ -215,7 +220,8 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn get_shelf_by_id(&self, shelf_id: u64) -> Result<Shelf, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, created_at FROM shelf WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT id, name, parent_shelf_id, created_at FROM shelf \
+             WHERE id = ?1 AND deleted_at IS NULL",
         )?;
         stmt.query_row(params![shelf_id], row_to_shelf)
             .map_err(|e| match e {
@@ -265,7 +271,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.ensure_fanfiction_exists(fic_id)?;
 
         let mut stmt = self.conn.prepare(
-            "SELECT s.id, s.name, s.created_at FROM shelf s \
+            "SELECT s.id, s.name, s.parent_shelf_id, s.created_at FROM shelf s \
              JOIN fic_shelf fs ON fs.shelf_id = s.id \
              WHERE fs.fic_id = ?1 AND s.deleted_at IS NULL \
              ORDER BY s.name COLLATE NOCASE",

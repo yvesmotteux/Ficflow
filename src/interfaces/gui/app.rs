@@ -284,7 +284,7 @@ impl FicflowApp {
 
     pub fn create_shelf(&mut self, name: impl AsRef<str>) -> Result<(), FicflowError> {
         let repo = self.repo();
-        match create_shelf(&repo, name.as_ref()) {
+        match create_shelf(&repo, name.as_ref(), None) {
             Ok(shelf) => {
                 self.toasts
                     .success(format!("Created shelf \u{201C}{}\u{201D}", shelf.name));

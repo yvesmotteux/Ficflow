@@ -5,7 +5,8 @@ use crate::domain::fanfiction::Fanfiction;
 use crate::error::FicflowError;
 
 pub trait ShelfOps {
-    fn create_shelf(&self, name: &str) -> Result<Shelf, FicflowError>;
+    fn create_shelf(&self, name: &str, parent_shelf_id: Option<u64>)
+    -> Result<Shelf, FicflowError>;
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError>;
     fn update_shelf_name(&self, shelf_id: u64, new_name: &str) -> Result<Shelf, FicflowError>;
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError>;
