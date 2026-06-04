@@ -79,7 +79,7 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Revert the details-panel custom resize handle once [emilk/egui#8056](https://github.com/emilk/egui/pull/8056) ships in an egui release (re-enable `Panel::right(...).resizable(true)`)
+- [ ] Revert the details-panel custom resize handle once egui 0.35 is out — the fix ([emilk/egui#8198](https://github.com/emilk/egui/pull/8198), merged 2026-05-26, superseding #8056) was kept out of 0.34.x patch releases (re-enable `Panel::right(...).resizable(true)`)
 - [ ] closing the app clears all tasks including running : maybe at least ask confirmation, then maybe backup?
 - [ ] Ability to change column order by grabbing them
 - [ ] Make folders of shelves
@@ -97,7 +97,7 @@ cargo build --release
 - [ ] detect when a fanfic was removed from AO3 and tag it specially / send a message to the inbox. If epub dl optin, explicitly offer access to the fic
 - [ ] Add a search system based on tags, with an option to filter out fics already catalogued
 - [ ] Setting to make it start in the background on computer start-up, and stay on background when closing (opt-in, different settings or same? SHould add a proper, cleaner "quit" option if so)
-- [ ] Create a mobile phone app (target for v2)
+- [ ] Create a mobile phone app
 
 ## Contributing
 

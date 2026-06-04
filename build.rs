@@ -25,8 +25,23 @@ fn main() {
         (false, None) => format!("{pkg}-dev"),
     };
 
+    let release_date = Command::new("git")
+        .args(["log", "-1", "--format=%cs", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
     let out = Path::new(&env::var("OUT_DIR").unwrap()).join("version.rs");
-    fs::write(out, format!("pub const VERSION: &str = \"{version}\";\n")).unwrap();
+    fs::write(
+        out,
+        format!(
+            "pub const VERSION: &str = \"{version}\";\npub const RELEASE_DATE: &str = \"{release_date}\";\n"
+        ),
+    )
+    .unwrap();
 
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/tags");
