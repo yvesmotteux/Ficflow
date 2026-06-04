@@ -92,6 +92,23 @@ impl GuiHarness {
         });
     }
 
+    pub fn step_with_close_request(&mut self) -> egui::FullOutput {
+        let mut raw_input = egui::RawInput {
+            max_texture_side: Some(8192),
+            ..Default::default()
+        };
+        raw_input
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let app = &mut self.app;
+        self.ctx.run_ui(raw_input, |ui| {
+            app.render(ui);
+        })
+    }
+
     pub fn step_n(&mut self, n: usize) {
         for _ in 0..n {
             self.step();

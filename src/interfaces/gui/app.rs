@@ -28,7 +28,7 @@ use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
 use super::views::modals::shelf_modals::{self, CreateState, RenameState};
-use super::views::modals::{bulk_modals, column_picker};
+use super::views::modals::{bulk_modals, column_picker, quit_modal};
 use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
@@ -51,6 +51,7 @@ pub struct FicflowApp {
     current_view: View,
     active_modal: ActiveModal,
     task_executor: TaskExecutor,
+    quit_confirmed: bool,
     task_filter: TaskFilter,
     /// Set by Ctrl+F; consumed by `draw_search_field` on next paint.
     focus_search_pending: bool,
@@ -89,6 +90,7 @@ pub enum ActiveModal {
     DeleteShelf(u64),
     DeleteFics(Vec<u64>),
     AddFic(AddFicState),
+    ConfirmQuit,
 }
 
 /// Explicit wiring so embedders and integration tests can inject a
@@ -148,6 +150,7 @@ impl FicflowApp {
             current_view: View::default(),
             active_modal: ActiveModal::None,
             task_executor,
+            quit_confirmed: false,
             task_filter: TaskFilter::default(),
             focus_search_pending: false,
             toasts: Toasts::default(),
@@ -210,6 +213,10 @@ impl FicflowApp {
         self.task_executor.has_running()
     }
 
+    pub fn confirm_quit_open(&self) -> bool {
+        matches!(self.active_modal, ActiveModal::ConfirmQuit)
+    }
+
     pub fn task_states(&self) -> Vec<crate::interfaces::gui::tasks::TaskState> {
         self.task_executor.snapshot()
     }
@@ -224,6 +231,11 @@ impl FicflowApp {
 
     pub fn submit_add_fic(&self, input: impl Into<String>) {
         self.task_executor.enqueue_add(input.into());
+    }
+
+    pub fn confirm_quit(&mut self) {
+        self.quit_confirmed = true;
+        self.active_modal = ActiveModal::None;
     }
 
     pub fn select_fic(&mut self, fic_id: u64) {
@@ -537,6 +549,16 @@ impl FicflowApp {
         }
     }
 
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quit_confirmed
+            && self.task_executor.has_running()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.active_modal = ActiveModal::ConfirmQuit;
+        }
+    }
+
     fn refresh_shelf_members(&mut self) {
         if let Err(err) = self
             .cache
@@ -616,6 +638,7 @@ impl FicflowApp {
     pub fn render(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.sync_window_state(&ctx);
+        self.handle_close_request(&ctx);
         self.handle_shortcuts(&ctx);
 
         let screen = ctx.content_rect();
@@ -906,6 +929,7 @@ impl FicflowApp {
             DeleteShelf(u64),
             DeleteFics(Vec<u64>),
             AddFic(String),
+            Quit,
         }
         let action = match &mut self.active_modal {
             ActiveModal::None => ModalAction::None,
@@ -940,6 +964,13 @@ impl FicflowApp {
                 add_fic_dialog::Outcome::Cancel => ModalAction::Close,
                 add_fic_dialog::Outcome::None => ModalAction::None,
             },
+            ActiveModal::ConfirmQuit => {
+                match quit_modal::draw_confirm(ctx, self.task_executor.running_count()) {
+                    quit_modal::Outcome::Quit => ModalAction::Quit,
+                    quit_modal::Outcome::Cancel => ModalAction::Close,
+                    quit_modal::Outcome::None => ModalAction::None,
+                }
+            }
         };
         match action {
             ModalAction::None => {}
@@ -963,6 +994,10 @@ impl FicflowApp {
             ModalAction::AddFic(input) => {
                 self.task_executor.enqueue_add(input);
                 self.active_modal = ActiveModal::None;
+            }
+            ModalAction::Quit => {
+                self.confirm_quit();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
         if columns_changed {

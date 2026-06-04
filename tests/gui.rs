@@ -36,3 +36,6 @@ mod soft_delete;
 
 #[path = "gui/view_state.rs"]
 mod view_state;
+
+#[path = "gui/quit_confirm.rs"]
+mod quit_confirm;
