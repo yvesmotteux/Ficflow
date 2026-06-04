@@ -1,5 +1,5 @@
 use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
-use crate::domain::shelf::{Shelf, ShelfOps};
+use crate::domain::shelf::{MAX_SHELF_DEPTH, Shelf, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{row_to_fanfiction, row_to_shelf};
 use chrono::Utc;
@@ -149,6 +149,43 @@ impl<'a> SqliteRepository<'a> {
         }
         Ok(())
     }
+
+    /// 1 for a root shelf, parent's depth + 1 below it.
+    fn shelf_depth(&self, shelf_id: u64) -> Result<u32, FicflowError> {
+        let depth: i64 = self.conn.query_row(
+            "WITH RECURSIVE anc(id) AS ( \
+                 SELECT ?1 \
+                 UNION \
+                 SELECT s.parent_shelf_id FROM shelf s \
+                 JOIN anc ON s.id = anc.id \
+                 WHERE s.parent_shelf_id IS NOT NULL \
+             ) \
+             SELECT COUNT(*) FROM anc",
+            params![shelf_id],
+            |r| r.get(0),
+        )?;
+        Ok(depth as u32)
+    }
+
+    /// `(id, depth-below-shelf_id)` for the shelf and every non-deleted
+    /// descendant; the shelf itself is at depth 0.
+    fn shelf_subtree(&self, shelf_id: u64) -> Result<Vec<(u64, u32)>, FicflowError> {
+        let mut stmt = self.conn.prepare(
+            "WITH RECURSIVE subtree(id, depth) AS ( \
+                 SELECT id, 0 FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
+                 UNION \
+                 SELECT s.id, subtree.depth + 1 FROM shelf s \
+                 JOIN subtree ON s.parent_shelf_id = subtree.id \
+                 WHERE s.deleted_at IS NULL \
+             ) \
+             SELECT id, depth FROM subtree",
+        )?;
+        let rows = stmt.query_map(params![shelf_id], |r| {
+            Ok((r.get::<_, u64>(0)?, r.get::<_, u32>(1)?))
+        })?;
+        rows.collect::<Result<_, _>>()
+            .map_err(FicflowError::Database)
+    }
 }
 
 impl<'a> ShelfOps for SqliteRepository<'a> {
@@ -162,6 +199,14 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
             return Err(FicflowError::InvalidInput(
                 "shelf name must not be empty".into(),
             ));
+        }
+        if let Some(parent) = parent_shelf_id {
+            self.ensure_shelf_exists(parent)?;
+            if self.shelf_depth(parent)? >= MAX_SHELF_DEPTH as u32 {
+                return Err(FicflowError::ShelfDepthExceeded {
+                    max: MAX_SHELF_DEPTH,
+                });
+            }
         }
 
         let created_at = Utc::now();
@@ -187,7 +232,39 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         if rows_affected == 0 {
             return Err(FicflowError::ShelfNotFound { shelf_id });
         }
+        // Children are promoted to the deleted shelf's parent rather
+        // than deleted with it.
+        self.conn.execute(
+            "UPDATE shelf SET parent_shelf_id = \
+                 (SELECT parent_shelf_id FROM shelf WHERE id = ?1) \
+             WHERE parent_shelf_id = ?1 AND deleted_at IS NULL",
+            params![shelf_id],
+        )?;
         Ok(())
+    }
+
+    fn move_shelf(&self, shelf_id: u64, new_parent: Option<u64>) -> Result<Shelf, FicflowError> {
+        self.ensure_shelf_exists(shelf_id)?;
+        if let Some(parent) = new_parent {
+            if parent != shelf_id {
+                self.ensure_shelf_exists(parent)?;
+            }
+            let subtree = self.shelf_subtree(shelf_id)?;
+            if subtree.iter().any(|(id, _)| *id == parent) {
+                return Err(FicflowError::ShelfCycle);
+            }
+            let height = subtree.iter().map(|(_, d)| *d).max().unwrap_or(0);
+            if self.shelf_depth(parent)? + 1 + height > MAX_SHELF_DEPTH as u32 {
+                return Err(FicflowError::ShelfDepthExceeded {
+                    max: MAX_SHELF_DEPTH,
+                });
+            }
+        }
+        self.conn.execute(
+            "UPDATE shelf SET parent_shelf_id = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+            params![shelf_id, new_parent],
+        )?;
+        self.get_shelf_by_id(shelf_id)
     }
 
     fn update_shelf_name(&self, shelf_id: u64, new_name: &str) -> Result<Shelf, FicflowError> {
@@ -257,9 +334,17 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.ensure_shelf_exists(shelf_id)?;
 
         let mut stmt = self.conn.prepare(
-            "SELECT f.* FROM fanfiction f \
+            "WITH RECURSIVE subtree(id) AS ( \
+                 SELECT id FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
+                 UNION \
+                 SELECT s.id FROM shelf s \
+                 JOIN subtree ON s.parent_shelf_id = subtree.id \
+                 WHERE s.deleted_at IS NULL \
+             ) \
+             SELECT DISTINCT f.* FROM fanfiction f \
              JOIN fic_shelf fs ON fs.fic_id = f.id \
-             WHERE fs.shelf_id = ?1 AND f.deleted_at IS NULL \
+             JOIN subtree ON subtree.id = fs.shelf_id \
+             WHERE f.deleted_at IS NULL \
              ORDER BY f.title",
         )?;
         let rows = stmt.query_map(params![shelf_id], row_to_fanfiction)?;
@@ -285,9 +370,17 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.ensure_shelf_exists(shelf_id)?;
 
         let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM fic_shelf fs \
+            "WITH RECURSIVE subtree(id) AS ( \
+                 SELECT id FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
+                 UNION \
+                 SELECT s.id FROM shelf s \
+                 JOIN subtree ON s.parent_shelf_id = subtree.id \
+                 WHERE s.deleted_at IS NULL \
+             ) \
+             SELECT COUNT(DISTINCT fs.fic_id) FROM fic_shelf fs \
              JOIN fanfiction f ON f.id = fs.fic_id \
-             WHERE fs.shelf_id = ?1 AND f.deleted_at IS NULL",
+             JOIN subtree ON subtree.id = fs.shelf_id \
+             WHERE f.deleted_at IS NULL",
             params![shelf_id],
             |row| row.get(0),
         )?;
@@ -296,10 +389,18 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn count_fics_per_shelf(&self) -> Result<std::collections::HashMap<u64, usize>, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT fs.shelf_id, COUNT(*) FROM fic_shelf fs \
+            "WITH RECURSIVE anc(ancestor, node) AS ( \
+                 SELECT id, id FROM shelf WHERE deleted_at IS NULL \
+                 UNION \
+                 SELECT anc.ancestor, s.id FROM shelf s \
+                 JOIN anc ON s.parent_shelf_id = anc.node \
+                 WHERE s.deleted_at IS NULL \
+             ) \
+             SELECT anc.ancestor, COUNT(DISTINCT fs.fic_id) FROM anc \
+             JOIN fic_shelf fs ON fs.shelf_id = anc.node \
              JOIN fanfiction f ON f.id = fs.fic_id \
              WHERE f.deleted_at IS NULL \
-             GROUP BY fs.shelf_id",
+             GROUP BY anc.ancestor",
         )?;
         let rows = stmt.query_map([], |row| {
             let shelf_id: i64 = row.get(0)?;
