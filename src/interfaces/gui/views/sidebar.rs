@@ -34,8 +34,20 @@ pub enum Outcome {
     OpenCreateShelfModal,
     OpenRenameShelfModal(u64),
     OpenDeleteShelfConfirm(u64),
-    DropOnShelf { shelf_id: u64, fic_ids: Vec<u64> },
+    DropOnShelf {
+        shelf_id: u64,
+        fic_ids: Vec<u64>,
+    },
+    MoveShelf {
+        shelf_id: u64,
+        new_parent: Option<u64>,
+    },
 }
+
+/// Dnd payload for dragging a shelf row — distinct from the `Vec<u64>`
+/// fic payload and the table's `ColumnKey` payload.
+#[derive(Clone, Copy)]
+pub struct ShelfDrag(pub u64);
 
 pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
     let SidebarState {
@@ -66,8 +78,17 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "Tasks",
                 None,
                 Some(running_tasks),
+                None,
             );
-            view_row(ui, current_view, View::Settings, "Settings", None, None);
+            view_row(
+                ui,
+                current_view,
+                View::Settings,
+                "Settings",
+                None,
+                None,
+                None,
+            );
             ui.add_space(6.0);
         });
 
@@ -90,6 +111,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "All Fanfictions",
                 Some(LIBRARY_ICON_ALL),
                 Some(library_counts.all),
+                None,
             );
             view_row(
                 ui,
@@ -98,6 +120,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "In Progress",
                 Some(LIBRARY_ICON_IN_PROGRESS),
                 Some(library_counts.in_progress),
+                None,
             );
             view_row(
                 ui,
@@ -106,6 +129,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "Read",
                 Some(LIBRARY_ICON_READ),
                 Some(library_counts.read),
+                None,
             );
             view_row(
                 ui,
@@ -114,6 +138,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "Plan to Read",
                 Some(LIBRARY_ICON_PLAN),
                 Some(library_counts.plan_to_read),
+                None,
             );
             view_row(
                 ui,
@@ -122,6 +147,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "Paused",
                 Some(LIBRARY_ICON_PAUSED),
                 Some(library_counts.paused),
+                None,
             );
             view_row(
                 ui,
@@ -130,6 +156,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 "Abandoned",
                 Some(LIBRARY_ICON_ABANDONED),
                 Some(library_counts.abandoned),
+                None,
             );
 
             // Match the line above Tasks/Settings — same separator
@@ -137,8 +164,17 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(4.0);
-            if shelves_header(ui) {
-                outcome = Outcome::OpenCreateShelfModal;
+            match shelves_header(ui) {
+                HeaderOutcome::None => {}
+                HeaderOutcome::AddClicked => {
+                    outcome = Outcome::OpenCreateShelfModal;
+                }
+                HeaderOutcome::ShelfDropped(shelf_id) => {
+                    outcome = Outcome::MoveShelf {
+                        shelf_id,
+                        new_parent: None,
+                    };
+                }
             }
             ui.add_space(2.0);
         });
@@ -146,12 +182,6 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
         .show_inside(ui, |ui| {
-            // Floating scrollbar so the scrollbar overlays the content
-            // instead of reserving horizontal space — without this, when
-            // the shelf list overflows the bar shaves ~10px off the right
-            // edge, pushing shelf count badges left of the Library badges
-            // (which live in a panel with no scrollbar) and breaking the
-            // shared right-edge column.
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
             egui::ScrollArea::vertical()
                 .id_salt("sidebar-scroll")
@@ -159,49 +189,22 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                     if shelves.is_empty() {
                         ui.label(RichText::new("(none yet)").italics().weak());
                     } else {
+                        let mut children: HashMap<Option<u64>, Vec<&Shelf>> = HashMap::new();
                         for shelf in shelves {
-                            let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
-                            let resp = view_row(
-                                ui,
-                                current_view,
-                                View::Shelf(shelf.id),
-                                &shelf.name,
-                                None,
-                                Some(count),
-                            );
-
-                            // Drop target: highlight while a row is hovering
-                            // with a payload, commit the drop on release.
-                            // Inset to match the row highlight so the
-                            // green outline doesn't get clipped at the
-                            // panel edges.
-                            if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
-                                let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
-                                ui.painter().rect_stroke(
-                                    inner,
-                                    4.0,
-                                    Stroke::new(2.0, Color32::from_rgb(120, 200, 120)),
-                                    StrokeKind::Inside,
-                                );
-                            }
-                            if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
-                                outcome = Outcome::DropOnShelf {
-                                    shelf_id: shelf.id,
-                                    fic_ids: (*payload).clone(),
-                                };
-                            }
-
-                            resp.context_menu(|ui| {
-                                if ui.button("Rename shelf").clicked() {
-                                    outcome = Outcome::OpenRenameShelfModal(shelf.id);
-                                    ui.close();
-                                }
-                                if ui.button("Delete shelf").clicked() {
-                                    outcome = Outcome::OpenDeleteShelfConfirm(shelf.id);
-                                    ui.close();
-                                }
-                            });
+                            children
+                                .entry(shelf.parent_shelf_id)
+                                .or_default()
+                                .push(shelf);
                         }
+                        shelf_rows(
+                            ui,
+                            current_view,
+                            &children,
+                            shelf_counts,
+                            None,
+                            0,
+                            &mut outcome,
+                        );
                     }
                 });
         });
@@ -230,25 +233,121 @@ const INNER_MARGIN_X: f32 = 4.0;
 /// `+` button). Both use this same offset so they line up vertically.
 const RIGHT_GAP: f32 = 8.0;
 
+const INDENT_STEP: f32 = 14.0;
+const TRIANGLE_COL_W: f32 = 14.0;
+
+#[derive(Clone, Copy)]
+struct TreeRow {
+    depth: usize,
+    expanded: Option<bool>,
+}
+
+fn shelf_rows(
+    ui: &mut Ui,
+    current_view: &mut View,
+    children: &HashMap<Option<u64>, Vec<&Shelf>>,
+    shelf_counts: &HashMap<u64, usize>,
+    parent: Option<u64>,
+    depth: usize,
+    outcome: &mut Outcome,
+) {
+    let Some(siblings) = children.get(&parent) else {
+        return;
+    };
+    for shelf in siblings {
+        let has_children = children.contains_key(&Some(shelf.id));
+        let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
+        let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
+        let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
+        let (resp, triangle_clicked) = view_row(
+            ui,
+            current_view,
+            View::Shelf(shelf.id),
+            &shelf.name,
+            None,
+            Some(count),
+            Some(TreeRow {
+                depth,
+                expanded: has_children.then_some(!collapsed),
+            }),
+        );
+        if triangle_clicked {
+            ui.data_mut(|d| d.insert_persisted(collapse_id, !collapsed));
+        }
+
+        if resp.drag_started() {
+            resp.dnd_set_drag_payload(ShelfDrag(shelf.id));
+        }
+
+        if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
+            let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
+            ui.painter().rect_stroke(
+                inner,
+                4.0,
+                Stroke::new(2.0, Color32::from_rgb(120, 200, 120)),
+                StrokeKind::Inside,
+            );
+        }
+        if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
+            *outcome = Outcome::DropOnShelf {
+                shelf_id: shelf.id,
+                fic_ids: (*payload).clone(),
+            };
+        }
+
+        if resp
+            .dnd_hover_payload::<ShelfDrag>()
+            .is_some_and(|dragged| dragged.0 != shelf.id)
+        {
+            let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
+            ui.painter().rect_stroke(
+                inner,
+                4.0,
+                Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+                StrokeKind::Inside,
+            );
+        }
+        if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
+            && dragged.0 != shelf.id
+        {
+            *outcome = Outcome::MoveShelf {
+                shelf_id: dragged.0,
+                new_parent: Some(shelf.id),
+            };
+        }
+
+        resp.context_menu(|ui| {
+            if ui.button("Rename shelf").clicked() {
+                *outcome = Outcome::OpenRenameShelfModal(shelf.id);
+                ui.close();
+            }
+            if ui.button("Delete shelf").clicked() {
+                *outcome = Outcome::OpenDeleteShelfConfirm(shelf.id);
+                ui.close();
+            }
+        });
+
+        if has_children && !collapsed {
+            shelf_rows(
+                ui,
+                current_view,
+                children,
+                shelf_counts,
+                Some(shelf.id),
+                depth + 1,
+                outcome,
+            );
+        }
+    }
+}
+
 fn section_label(ui: &mut Ui, text: &str) {
-    // Match view_row's label x: INNER_MARGIN_X for the row inset, plus
-    // the 8px gutter we use inside inner_rect. Without this, the
-    // section label sat 12px to the left of the row labels below it.
     ui.horizontal(|ui| {
         ui.add_space(INNER_MARGIN_X + 8.0);
         ui.label(RichText::new(text).weak().size(11.0));
     });
 }
 
-/// Sidebar row that's clickable across its full width (not just the text),
-/// shows an optional left-side icon, and right-aligns an optional count.
-/// Returns the underlying response so callers can attach context menus
-/// (used for shelf right-click → delete) and dnd payload checks.
-///
-/// The icon column is reserved unconditionally so labels in the same
-/// section line up vertically even when some rows have no icon (currently
-/// only the Shelves rows in Library/Shelves; Tasks/Settings live in a
-/// separate panel where alignment doesn't matter).
 fn view_row(
     ui: &mut Ui,
     current_view: &mut View,
@@ -256,13 +355,21 @@ fn view_row(
     label: &str,
     icon: Option<&str>,
     count: Option<usize>,
-) -> egui::Response {
+    tree: Option<TreeRow>,
+) -> (egui::Response, bool) {
     let selected = *current_view == target;
     // 22px gives the rows breathing room without making the sidebar feel
     // sparse. (Default interact_size.y is ~18.)
     let row_h = 22.0;
     let avail = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(avail, row_h), egui::Sense::click());
+    // Tree rows (shelves) are also drag sources for nesting; egui only
+    // reports `drag_started` on click_and_drag senses.
+    let sense = if tree.is_some() {
+        egui::Sense::click_and_drag()
+    } else {
+        egui::Sense::click()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(avail, row_h), sense);
     // The clickable rect spans the full row so the user can hit the row
     // anywhere, but we paint inside `inner_rect` so the highlight's
     // rounded corners have room to render and so trailing elements share
@@ -311,19 +418,50 @@ fn view_row(
 
     // Left side: icon column reserved only when there *is* an icon. Rows
     // without one (Shelves, Tasks, Settings) sit flush-left with no
-    // phantom indent.
+    // phantom indent. Tree rows (shelves) get a depth indent plus a
+    // disclosure-triangle column instead, reserved for leaves too so
+    // sibling labels line up.
     let left_pad = 8.0;
+    let (indent, tree_col_w) = match tree {
+        Some(t) => (t.depth as f32 * INDENT_STEP, TRIANGLE_COL_W),
+        None => (0.0, 0.0),
+    };
     let icon_col_w = if icon.is_some() { 20.0 } else { 0.0 };
     if let Some(icon) = icon {
         ui.painter().text(
-            egui::pos2(inner_rect.left() + left_pad + icon_col_w / 2.0, cy),
+            egui::pos2(
+                inner_rect.left() + left_pad + indent + tree_col_w + icon_col_w / 2.0,
+                cy,
+            ),
             egui::Align2::CENTER_CENTER,
             icon,
             body_font.clone(),
             text_color,
         );
     }
-    let label_x = inner_rect.left() + left_pad + icon_col_w;
+    let mut triangle_clicked = false;
+    if let Some(TreeRow {
+        expanded: Some(expanded),
+        ..
+    }) = tree
+    {
+        let tri_center = egui::pos2(
+            inner_rect.left() + left_pad + indent + TRIANGLE_COL_W / 2.0,
+            cy,
+        );
+        let tri_rect = egui::Rect::from_center_size(tri_center, egui::vec2(TRIANGLE_COL_W, row_h));
+        let tri_resp = ui.interact(tri_rect, resp.id.with("disclosure"), egui::Sense::click());
+        triangle_clicked = tri_resp.clicked();
+        let glyph = if expanded { "\u{25BE}" } else { "\u{25B8}" };
+        ui.painter().text(
+            tri_center,
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            egui::FontId::proportional(10.0),
+            ui.style().interact(&tri_resp).text_color(),
+        );
+    }
+    let label_x = inner_rect.left() + left_pad + indent + tree_col_w + icon_col_w;
     let label_clip = egui::Rect::from_min_max(
         egui::pos2(label_x, inner_rect.top()),
         egui::pos2(inner_rect.right() - count_reserve, inner_rect.bottom()),
@@ -350,23 +488,44 @@ fn view_row(
             .galley(badge_rect.min + pad, galley, text_color);
     }
 
-    if resp.clicked() && !selected {
+    if resp.clicked() && !triangle_clicked && !selected {
         *current_view = target;
     }
 
-    resp
+    (resp, triangle_clicked)
+}
+
+enum HeaderOutcome {
+    None,
+    AddClicked,
+    ShelfDropped(u64),
 }
 
 /// Manually-laid-out SHELVES header so the "+" button's right edge sits
 /// exactly where the count badges below sit (same `RIGHT_GAP` from the
 /// inner edge), instead of at egui's default layout-gutter offset.
-/// Returns true if the user clicked the button.
-fn shelves_header(ui: &mut Ui) -> bool {
+/// Doubles as the drop target that moves a dragged shelf back to the
+/// top level.
+fn shelves_header(ui: &mut Ui) -> HeaderOutcome {
     let row_h = 18.0;
     let avail = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(avail, row_h), egui::Sense::hover());
+    let (rect, header_resp) =
+        ui.allocate_exact_size(egui::vec2(avail, row_h), egui::Sense::hover());
     let inner = rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
     let cy = inner.center().y;
+
+    let mut outcome = HeaderOutcome::None;
+    if header_resp.dnd_hover_payload::<ShelfDrag>().is_some() {
+        ui.painter().rect_stroke(
+            inner,
+            4.0,
+            Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+            StrokeKind::Inside,
+        );
+    }
+    if let Some(dragged) = header_resp.dnd_release_payload::<ShelfDrag>() {
+        outcome = HeaderOutcome::ShelfDropped(dragged.0);
+    }
 
     // Section label on the left, mirroring `section_label`'s styling.
     ui.painter().text(
@@ -406,5 +565,8 @@ fn shelves_header(ui: &mut Ui) -> bool {
         egui::FontId::proportional(12.0),
         visuals.text_color(),
     );
-    resp.clicked()
+    if resp.clicked() {
+        outcome = HeaderOutcome::AddClicked;
+    }
+    outcome
 }

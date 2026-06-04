@@ -18,9 +18,10 @@ pub enum CliCommand {
 
 #[derive(Debug)]
 pub enum ShelfCommand {
-    Create { name: String },
+    Create { name: String, parent: Option<u64> },
     Delete { shelf_id: u64 },
     Rename { shelf_id: u64, new_name: String },
+    Move { shelf_id: u64, parent: Option<u64> },
     List,
     Add { fic_id: u64, shelf_id: u64 },
     Remove { fic_id: u64, shelf_id: u64 },
@@ -84,7 +85,8 @@ pub fn parse_cli_commands() -> CliCommand {
                 .subcommand(
                     Command::new("create")
                         .about("Create a new shelf")
-                        .arg(Arg::new("name").required(true).index(1).help("Shelf name")),
+                        .arg(Arg::new("name").required(true).index(1).help("Shelf name"))
+                        .arg(Arg::new("parent").long("parent").short('p').value_parser(value_parser!(u64)).help("Parent shelf ID to nest the new shelf under")),
                 )
                 .subcommand(
                     Command::new("delete")
@@ -96,6 +98,12 @@ pub fn parse_cli_commands() -> CliCommand {
                         .about("Rename an existing shelf")
                         .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID"))
                         .arg(Arg::new("new-name").required(true).index(2).help("New shelf name")),
+                )
+                .subcommand(
+                    Command::new("move")
+                        .about("Move a shelf under another shelf (omit parent-id to move to top level)")
+                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID"))
+                        .arg(Arg::new("parent-id").required(false).index(2).value_parser(value_parser!(u64)).help("New parent shelf ID (omit for top level)")),
                 )
                 .subcommand(Command::new("list").about("List all shelves"))
                 .subcommand(
@@ -199,7 +207,8 @@ fn parse_shelf_subcommand(matches: &clap::ArgMatches) -> ShelfCommand {
             .get_one::<String>("name")
             .expect("name is required")
             .to_string();
-        ShelfCommand::Create { name }
+        let parent = m.get_one::<u64>("parent").copied();
+        ShelfCommand::Create { name, parent }
     } else if let Some(m) = matches.subcommand_matches("delete") {
         let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
         ShelfCommand::Delete { shelf_id }
@@ -210,6 +219,10 @@ fn parse_shelf_subcommand(matches: &clap::ArgMatches) -> ShelfCommand {
             .expect("new-name is required")
             .to_string();
         ShelfCommand::Rename { shelf_id, new_name }
+    } else if let Some(m) = matches.subcommand_matches("move") {
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        let parent = m.get_one::<u64>("parent-id").copied();
+        ShelfCommand::Move { shelf_id, parent }
     } else if matches.subcommand_matches("list").is_some() {
         ShelfCommand::List
     } else if let Some(m) = matches.subcommand_matches("add") {

@@ -14,6 +14,12 @@ pub enum FicflowError {
     #[error("shelf with ID {shelf_id} not found")]
     ShelfNotFound { shelf_id: u64 },
 
+    #[error("shelf nesting cannot exceed {max} levels")]
+    ShelfDepthExceeded { max: u8 },
+
+    #[error("cannot move a shelf into itself or one of its descendants")]
+    ShelfCycle,
+
     #[error("failed to parse {field}: {reason}")]
     Parse { field: String, reason: String },
 

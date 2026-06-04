@@ -59,6 +59,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
             ALTER TABLE shelf      ADD COLUMN deleted_at TEXT;
         "#,
         ),
+        M::up(
+            r#"
+            ALTER TABLE shelf ADD COLUMN parent_shelf_id INTEGER REFERENCES shelf(id);
+            CREATE INDEX IF NOT EXISTS idx_shelf_parent ON shelf(parent_shelf_id);
+        "#,
+        ),
     ]);
 
     migrations.to_latest(conn)?;

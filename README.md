@@ -80,7 +80,6 @@ cargo build --release
 ## Features (Planned, the order is approximate)
 
 - [ ] Revert the details-panel custom resize handle once egui 0.35 is out — the fix ([emilk/egui#8198](https://github.com/emilk/egui/pull/8198), merged 2026-05-26, superseding #8056) was kept out of 0.34.x patch releases (re-enable `Panel::right(...).resizable(true)`)
-- [ ] Make folders of shelves
 - [ ] Shelves or shelf folders can be pinned to top (with a pin icon)
 - [ ] Ficflow remembers which library/shelf tab was open when closed and reopens the same one
 - [ ] Ability to choose the text size / zoom level in the settings
@@ -88,6 +87,7 @@ cargo build --release
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
 - [ ] Release the software on the AUR (can we make both the CLI and GUI work at the same time?)
 - [ ] Import/Export database to create backups
+- [ ] In the settings, after the version, display some warning in red if a newer version is available
 - [ ] Ability to login to access restricted fics
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one (settings, refresh every x time, + notifications for all manual and auto refreshes when a new update was found! And an inbox too)
 - [ ] add works with not only single fics, but collections, a user list of fics, a tag, a user profile,...

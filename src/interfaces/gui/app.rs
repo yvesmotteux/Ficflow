@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use super::config::{AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
-    add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf,
+    add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
     remove_from_shelf, rename_shelf::rename_shelf, update_chapters, update_note, update_rating,
     update_read_count, update_status,
 };
@@ -284,7 +284,7 @@ impl FicflowApp {
 
     pub fn create_shelf(&mut self, name: impl AsRef<str>) -> Result<(), FicflowError> {
         let repo = self.repo();
-        match create_shelf(&repo, name.as_ref()) {
+        match create_shelf(&repo, name.as_ref(), None) {
             Ok(shelf) => {
                 self.toasts
                     .success(format!("Created shelf \u{201C}{}\u{201D}", shelf.name));
@@ -314,6 +314,30 @@ impl FicflowApp {
             }
             Err(err) => {
                 self.toasts.error(format!("Couldn't delete shelf: {}", err));
+                Err(err)
+            }
+        }
+    }
+
+    pub fn move_shelf(
+        &mut self,
+        shelf_id: u64,
+        new_parent: Option<u64>,
+    ) -> Result<(), FicflowError> {
+        let repo = self.repo();
+        match move_shelf::move_shelf(&repo, shelf_id, new_parent) {
+            Ok(shelf) => {
+                self.toasts
+                    .success(format!("Moved shelf \u{201C}{}\u{201D}", shelf.name));
+                self.cache.reload_shelves(&self.connection);
+                self.refresh_shelf_counts();
+                if matches!(self.current_view, View::Shelf(_)) {
+                    self.refresh_shelf_members();
+                }
+                Ok(())
+            }
+            Err(err) => {
+                self.toasts.error(format!("Couldn't move shelf: {}", err));
                 Err(err)
             }
         }
@@ -726,6 +750,12 @@ impl FicflowApp {
             }
             sidebar::Outcome::DropOnShelf { shelf_id, fic_ids } => {
                 self.handle_drop_on_shelf(shelf_id, &fic_ids);
+            }
+            sidebar::Outcome::MoveShelf {
+                shelf_id,
+                new_parent,
+            } => {
+                let _ = self.move_shelf(shelf_id, new_parent);
             }
         }
         if self.current_view != prev_view {
@@ -1176,6 +1206,13 @@ impl FicflowApp {
             }
         } else if let Some(column) = egui::DragAndDrop::payload::<ColumnKey>(ctx) {
             column.label().to_string()
+        } else if let Some(dragged) = egui::DragAndDrop::payload::<sidebar::ShelfDrag>(ctx) {
+            self.cache
+                .shelves
+                .iter()
+                .find(|s| s.id == dragged.0)
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| "(unknown)".to_string())
         } else {
             return;
         };

@@ -15,6 +15,7 @@ use crate::{
         list_fics::list_fics,
         list_shelf_fics::list_shelf_fics,
         list_shelves::list_shelves,
+        move_shelf::move_shelf,
         remove_from_shelf::remove_from_shelf,
         rename_shelf::rename_shelf,
         update_chapters::update_last_chapter_read,
@@ -221,8 +222,8 @@ impl<'a> CliCommandExecutor<'a> {
         }
     }
 
-    fn execute_shelf_create(&self, name: &str) -> ExitCode {
-        match create_shelf(self.repository, name) {
+    fn execute_shelf_create(&self, name: &str, parent: Option<u64>) -> ExitCode {
+        match create_shelf(self.repository, name, parent) {
             Ok(shelf) => {
                 println!(
                     "Created shelf \"{}\" (id: {}). Use this id to add, remove, or show fics.",
@@ -232,6 +233,22 @@ impl<'a> CliCommandExecutor<'a> {
             }
             Err(e) => {
                 report_error("creating shelf", &e);
+                ExitCode::FAILURE
+            }
+        }
+    }
+
+    fn execute_shelf_move(&self, shelf_id: u64, parent: Option<u64>) -> ExitCode {
+        match move_shelf(self.repository, shelf_id, parent) {
+            Ok(shelf) => {
+                match shelf.parent_shelf_id {
+                    Some(parent_id) => println!("Moved shelf {} under {}.", shelf.id, parent_id),
+                    None => println!("Moved shelf {} to top level.", shelf.id),
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                report_error("moving shelf", &e);
                 ExitCode::FAILURE
             }
         }
@@ -423,10 +440,13 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
             CliCommand::List => self.execute_list(),
             CliCommand::Wipe => self.execute_wipe(),
             CliCommand::Shelf(sub) => match sub {
-                ShelfCommand::Create { name } => self.execute_shelf_create(&name),
+                ShelfCommand::Create { name, parent } => self.execute_shelf_create(&name, parent),
                 ShelfCommand::Delete { shelf_id } => self.execute_shelf_delete(shelf_id),
                 ShelfCommand::Rename { shelf_id, new_name } => {
                     self.execute_shelf_rename(shelf_id, &new_name)
+                }
+                ShelfCommand::Move { shelf_id, parent } => {
+                    self.execute_shelf_move(shelf_id, parent)
                 }
                 ShelfCommand::List => self.execute_shelf_list(),
                 ShelfCommand::Add { fic_id, shelf_id } => self.execute_shelf_add(fic_id, shelf_id),

@@ -1,5 +1,5 @@
 pub mod entity;
 pub mod repository;
 
-pub use entity::Shelf;
+pub use entity::{MAX_SHELF_DEPTH, Shelf};
 pub use repository::ShelfOps;
