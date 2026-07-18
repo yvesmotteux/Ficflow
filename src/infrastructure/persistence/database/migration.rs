@@ -65,6 +65,11 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
             CREATE INDEX IF NOT EXISTS idx_shelf_parent ON shelf(parent_shelf_id);
         "#,
         ),
+        M::up(
+            r#"
+            ALTER TABLE shelf ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0;
+        "#,
+        ),
     ]);
 
     migrations.to_latest(conn)?;

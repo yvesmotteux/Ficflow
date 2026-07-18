@@ -8,5 +8,6 @@ pub struct Shelf {
     pub id: u64,
     pub name: String,
     pub parent_shelf_id: Option<u64>,
+    pub pinned: bool,
     pub created_at: DateTime<Utc>,
 }
