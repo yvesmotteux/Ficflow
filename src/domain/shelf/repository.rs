@@ -10,6 +10,7 @@ pub trait ShelfOps {
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError>;
     fn move_shelf(&self, shelf_id: u64, new_parent: Option<u64>) -> Result<Shelf, FicflowError>;
     fn update_shelf_name(&self, shelf_id: u64, new_name: &str) -> Result<Shelf, FicflowError>;
+    fn set_shelf_pinned(&self, shelf_id: u64, pinned: bool) -> Result<Shelf, FicflowError>;
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError>;
     fn get_shelf_by_id(&self, shelf_id: u64) -> Result<Shelf, FicflowError>;
     fn add_fic_to_shelf(&self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError>;

@@ -219,6 +219,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
             id,
             name: trimmed.to_string(),
             parent_shelf_id,
+            pinned: false,
             created_at,
         })
     }
@@ -284,11 +285,20 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.get_shelf_by_id(shelf_id)
     }
 
+    fn set_shelf_pinned(&self, shelf_id: u64, pinned: bool) -> Result<Shelf, FicflowError> {
+        self.ensure_shelf_exists(shelf_id)?;
+        self.conn.execute(
+            "UPDATE shelf SET pinned = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+            params![shelf_id, pinned],
+        )?;
+        self.get_shelf_by_id(shelf_id)
+    }
+
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_shelf_id, created_at FROM shelf \
+            "SELECT id, name, parent_shelf_id, pinned, created_at FROM shelf \
              WHERE deleted_at IS NULL \
-             ORDER BY name COLLATE NOCASE",
+             ORDER BY pinned DESC, name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], row_to_shelf)?;
         let shelves = rows.collect::<Result<Vec<_>, _>>()?;
@@ -297,7 +307,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn get_shelf_by_id(&self, shelf_id: u64) -> Result<Shelf, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_shelf_id, created_at FROM shelf \
+            "SELECT id, name, parent_shelf_id, pinned, created_at FROM shelf \
              WHERE id = ?1 AND deleted_at IS NULL",
         )?;
         stmt.query_row(params![shelf_id], row_to_shelf)
@@ -356,7 +366,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.ensure_fanfiction_exists(fic_id)?;
 
         let mut stmt = self.conn.prepare(
-            "SELECT s.id, s.name, s.parent_shelf_id, s.created_at FROM shelf s \
+            "SELECT s.id, s.name, s.parent_shelf_id, s.pinned, s.created_at FROM shelf s \
              JOIN fic_shelf fs ON fs.shelf_id = s.id \
              WHERE fs.fic_id = ?1 AND s.deleted_at IS NULL \
              ORDER BY s.name COLLATE NOCASE",

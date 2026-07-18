@@ -110,6 +110,44 @@ mod tests {
     }
 
     #[test]
+    fn test_list_shelves_orders_pinned_before_unpinned_regardless_of_name()
+    -> Result<(), Box<dyn Error>> {
+        let (conn, _td) = setup_test_db();
+        let repo = SqliteRepository::new(&conn);
+
+        repo.create_shelf("Apple", None)?;
+        let zebra = repo.create_shelf("zebra", None)?;
+        repo.create_shelf("Mango", None)?;
+        repo.set_shelf_pinned(zebra.id, true)?;
+
+        let listed: Vec<String> = repo.list_shelves()?.into_iter().map(|s| s.name).collect();
+        assert_eq!(listed, vec!["zebra", "Apple", "Mango"]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_shelf_pinned_toggles_and_rejects_missing_shelf() -> Result<(), Box<dyn Error>> {
+        let (conn, _td) = setup_test_db();
+        let repo = SqliteRepository::new(&conn);
+
+        let shelf = repo.create_shelf("Favorites", None)?;
+        assert!(!shelf.pinned);
+
+        let pinned = repo.set_shelf_pinned(shelf.id, true)?;
+        assert!(pinned.pinned);
+
+        let unpinned = repo.set_shelf_pinned(shelf.id, false)?;
+        assert!(!unpinned.pinned);
+
+        let err = repo.set_shelf_pinned(9999, true).unwrap_err();
+        assert!(matches!(
+            err,
+            FicflowError::ShelfNotFound { shelf_id: 9999 }
+        ));
+        Ok(())
+    }
+
+    #[test]
     fn test_delete_shelf_excludes_from_list_but_keeps_fics() -> Result<(), Box<dyn Error>> {
         let (conn, _td) = setup_test_db();
         let repo = SqliteRepository::new(&conn);

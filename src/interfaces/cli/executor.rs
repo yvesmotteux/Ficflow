@@ -16,8 +16,10 @@ use crate::{
         list_shelf_fics::list_shelf_fics,
         list_shelves::list_shelves,
         move_shelf::move_shelf,
+        pin_shelf::pin_shelf,
         remove_from_shelf::remove_from_shelf,
         rename_shelf::rename_shelf,
+        unpin_shelf::unpin_shelf,
         update_chapters::update_last_chapter_read,
         update_note::update_personal_note,
         update_rating::{parse_user_rating, update_user_rating},
@@ -254,6 +256,32 @@ impl<'a> CliCommandExecutor<'a> {
         }
     }
 
+    fn execute_shelf_pin(&self, shelf_id: u64) -> ExitCode {
+        match pin_shelf(self.repository, shelf_id) {
+            Ok(shelf) => {
+                println!("Pinned shelf {} (\"{}\").", shelf.id, shelf.name);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                report_error("pinning shelf", &e);
+                ExitCode::FAILURE
+            }
+        }
+    }
+
+    fn execute_shelf_unpin(&self, shelf_id: u64) -> ExitCode {
+        match unpin_shelf(self.repository, shelf_id) {
+            Ok(shelf) => {
+                println!("Unpinned shelf {} (\"{}\").", shelf.id, shelf.name);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                report_error("unpinning shelf", &e);
+                ExitCode::FAILURE
+            }
+        }
+    }
+
     fn execute_shelf_delete(&self, shelf_id: u64) -> ExitCode {
         match delete_shelf(self.repository, shelf_id) {
             Ok(()) => {
@@ -448,6 +476,8 @@ impl<'a> CommandExecutor for CliCommandExecutor<'a> {
                 ShelfCommand::Move { shelf_id, parent } => {
                     self.execute_shelf_move(shelf_id, parent)
                 }
+                ShelfCommand::Pin { shelf_id } => self.execute_shelf_pin(shelf_id),
+                ShelfCommand::Unpin { shelf_id } => self.execute_shelf_unpin(shelf_id),
                 ShelfCommand::List => self.execute_shelf_list(),
                 ShelfCommand::Add { fic_id, shelf_id } => self.execute_shelf_add(fic_id, shelf_id),
                 ShelfCommand::Remove { fic_id, shelf_id } => {

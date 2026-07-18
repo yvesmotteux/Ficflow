@@ -292,7 +292,7 @@ fn header_cell(
                 egui::Order::Foreground,
                 egui::Id::new("column-reorder-indicator"),
             ))
-            .vline(x, rect.y_range(), Stroke::new(2.0, theme::ACCENT));
+            .vline(x, rect.y_range(), Stroke::new(2.0_f32, theme::ACCENT));
     }
     if let Some(dragged) = resp.dnd_release_payload::<ColumnKey>()
         && *dragged != column
@@ -462,7 +462,7 @@ fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
         pill_rect,
         egui::CornerRadius::same(10),
         palette.fill,
-        Stroke::new(1.0, palette.accent),
+        Stroke::new(1.0_f32, palette.accent),
         StrokeKind::Inside,
     );
     let text_pos = pill_rect.center() - galley.size() / 2.0;

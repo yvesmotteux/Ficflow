@@ -6,8 +6,8 @@ use rusqlite::Connection;
 use super::config::{AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
-    remove_from_shelf, rename_shelf::rename_shelf, update_chapters, update_note, update_rating,
-    update_read_count, update_status,
+    pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
+    update_chapters, update_note, update_rating, update_read_count, update_status,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
 use crate::domain::shelf::Shelf;
@@ -338,6 +338,31 @@ impl FicflowApp {
             }
             Err(err) => {
                 self.toasts.error(format!("Couldn't move shelf: {}", err));
+                Err(err)
+            }
+        }
+    }
+
+    pub fn toggle_pin_shelf(&mut self, shelf_id: u64) -> Result<(), FicflowError> {
+        let Some(shelf) = self.cache.shelves.iter().find(|s| s.id == shelf_id) else {
+            return Err(FicflowError::ShelfNotFound { shelf_id });
+        };
+        let repo = self.repo();
+        let result = if shelf.pinned {
+            unpin_shelf(&repo, shelf_id)
+        } else {
+            pin_shelf(&repo, shelf_id)
+        };
+        match result {
+            Ok(shelf) => {
+                let verb = if shelf.pinned { "Pinned" } else { "Unpinned" };
+                self.toasts
+                    .success(format!("{} shelf \u{201C}{}\u{201D}", verb, shelf.name));
+                self.cache.reload_shelves(&self.connection);
+                Ok(())
+            }
+            Err(err) => {
+                self.toasts.error(format!("Couldn't update shelf: {}", err));
                 Err(err)
             }
         }
@@ -756,6 +781,9 @@ impl FicflowApp {
                 new_parent,
             } => {
                 let _ = self.move_shelf(shelf_id, new_parent);
+            }
+            sidebar::Outcome::TogglePinShelf(shelf_id) => {
+                let _ = self.toggle_pin_shelf(shelf_id);
             }
         }
         if self.current_view != prev_view {

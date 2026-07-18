@@ -384,7 +384,7 @@ impl FrameChrome {
                         rect,
                         4.0,
                         fill,
-                        Stroke::new(1.0, theme::ACCENT),
+                        Stroke::new(1.0_f32, theme::ACCENT),
                         StrokeKind::Inside,
                     );
                     painter.text(

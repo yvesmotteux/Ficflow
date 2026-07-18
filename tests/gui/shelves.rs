@@ -393,6 +393,64 @@ mod tests {
         );
     }
 
+    #[test]
+    fn toggling_pin_moves_shelf_to_top_of_siblings() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        h.app.create_shelf("Apple").unwrap();
+        h.app.create_shelf("zebra").unwrap();
+        h.app.create_shelf("Mango").unwrap();
+        let zebra_id = shelf_id_by_name(&h, "zebra");
+
+        h.app.toggle_pin_shelf(zebra_id).unwrap();
+
+        let repo = SqliteRepository::new(&h.conn);
+        let names: Vec<String> = repo
+            .list_shelves()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(names, vec!["zebra", "Apple", "Mango"]);
+        assert!(
+            h.app
+                .shelves()
+                .iter()
+                .find(|s| s.id == zebra_id)
+                .unwrap()
+                .pinned
+        );
+
+        h.app.toggle_pin_shelf(zebra_id).unwrap();
+
+        let names: Vec<String> = repo
+            .list_shelves()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(names, vec!["Apple", "Mango", "zebra"]);
+        assert!(
+            !h.app
+                .shelves()
+                .iter()
+                .find(|s| s.id == zebra_id)
+                .unwrap()
+                .pinned
+        );
+    }
+
+    #[test]
+    fn toggling_pin_on_missing_shelf_returns_not_found() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+        h.step_n(1);
+        let outcome = h.app.toggle_pin_shelf(99999);
+        assert!(matches!(
+            outcome,
+            Err(ficflow::error::FicflowError::ShelfNotFound { shelf_id: 99999 })
+        ));
+    }
+
     fn shelf_id_by_name(h: &GuiHarness, name: &str) -> u64 {
         h.app
             .shelves()

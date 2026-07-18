@@ -5,6 +5,7 @@ use egui::{Color32, RichText, Stroke, StrokeKind, Ui};
 use crate::domain::fanfiction::ReadingStatus;
 use crate::domain::shelf::Shelf;
 
+use super::super::theme;
 use super::super::view::View;
 
 #[derive(Default)]
@@ -42,6 +43,7 @@ pub enum Outcome {
         shelf_id: u64,
         new_parent: Option<u64>,
     },
+    TogglePinShelf(u64),
 }
 
 /// Dnd payload for dragging a shelf row — distinct from the `Vec<u64>`
@@ -240,6 +242,7 @@ const TRIANGLE_COL_W: f32 = 14.0;
 struct TreeRow {
     depth: usize,
     expanded: Option<bool>,
+    pinned: bool,
 }
 
 fn shelf_rows(
@@ -259,7 +262,7 @@ fn shelf_rows(
         let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
-        let (resp, triangle_clicked) = view_row(
+        let (resp, triangle_clicked, pin_clicked) = view_row(
             ui,
             current_view,
             View::Shelf(shelf.id),
@@ -269,33 +272,43 @@ fn shelf_rows(
             Some(TreeRow {
                 depth,
                 expanded: has_children.then_some(!collapsed),
+                pinned: shelf.pinned,
             }),
         );
         if triangle_clicked {
             ui.data_mut(|d| d.insert_persisted(collapse_id, !collapsed));
+        }
+        if pin_clicked {
+            *outcome = Outcome::TogglePinShelf(shelf.id);
         }
 
         if resp.drag_started() {
             resp.dnd_set_drag_payload(ShelfDrag(shelf.id));
         }
 
+        // `dnd_release_payload::<T>()` takes the payload out of egui's shared
+        // drag-and-drop slot *unconditionally*, then tries to downcast it —
+        // even a failed downcast still clears the slot. So we must only ever
+        // call it for the payload type that's actually being carried (checked
+        // non-destructively via `dnd_hover_payload` first); calling it for
+        // both `Vec<u64>` and `ShelfDrag` unconditionally on the same row, in
+        // sequence, silently destroyed real `ShelfDrag` drops before the
+        // second check ever saw them — nesting a shelf never worked.
         if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
                 inner,
                 4.0,
-                Stroke::new(2.0, Color32::from_rgb(120, 200, 120)),
+                Stroke::new(2.0_f32, Color32::from_rgb(120, 200, 120)),
                 StrokeKind::Inside,
             );
-        }
-        if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
-            *outcome = Outcome::DropOnShelf {
-                shelf_id: shelf.id,
-                fic_ids: (*payload).clone(),
-            };
-        }
-
-        if resp
+            if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
+                *outcome = Outcome::DropOnShelf {
+                    shelf_id: shelf.id,
+                    fic_ids: (*payload).clone(),
+                };
+            }
+        } else if resp
             .dnd_hover_payload::<ShelfDrag>()
             .is_some_and(|dragged| dragged.0 != shelf.id)
         {
@@ -303,22 +316,31 @@ fn shelf_rows(
             ui.painter().rect_stroke(
                 inner,
                 4.0,
-                Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+                Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
                 StrokeKind::Inside,
             );
-        }
-        if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
-            && dragged.0 != shelf.id
-        {
-            *outcome = Outcome::MoveShelf {
-                shelf_id: dragged.0,
-                new_parent: Some(shelf.id),
-            };
+            if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
+                && dragged.0 != shelf.id
+            {
+                *outcome = Outcome::MoveShelf {
+                    shelf_id: dragged.0,
+                    new_parent: Some(shelf.id),
+                };
+            }
         }
 
         resp.context_menu(|ui| {
             if ui.button("Rename shelf").clicked() {
                 *outcome = Outcome::OpenRenameShelfModal(shelf.id);
+                ui.close();
+            }
+            let pin_label = if shelf.pinned {
+                "Unpin shelf"
+            } else {
+                "Pin shelf"
+            };
+            if ui.button(pin_label).clicked() {
+                *outcome = Outcome::TogglePinShelf(shelf.id);
                 ui.close();
             }
             if ui.button("Delete shelf").clicked() {
@@ -356,7 +378,7 @@ fn view_row(
     icon: Option<&str>,
     count: Option<usize>,
     tree: Option<TreeRow>,
-) -> (egui::Response, bool) {
+) -> (egui::Response, bool, bool) {
     let selected = *current_view == target;
     // 22px gives the rows breathing room without making the sidebar feel
     // sparse. (Default interact_size.y is ~18.)
@@ -416,6 +438,21 @@ fn view_row(
         None => 4.0,
     };
 
+    // Pin toggle: only shelf rows (`tree.is_some()`) get one, positioned
+    // just left of the count badge so it doesn't shift when the count
+    // changes width.
+    const PIN_COL_W: f32 = 16.0;
+    const PIN_GAP: f32 = 4.0;
+    let pin_rect = tree.map(|_| {
+        let size = egui::vec2(PIN_COL_W, PIN_COL_W);
+        let x = inner_rect.right() - count_reserve - PIN_GAP - size.x;
+        egui::Rect::from_min_size(egui::pos2(x, cy - size.y / 2.0), size)
+    });
+    let total_reserve = match pin_rect {
+        Some(_) => count_reserve + PIN_GAP + PIN_COL_W,
+        None => count_reserve,
+    };
+
     // Left side: icon column reserved only when there *is* an icon. Rows
     // without one (Shelves, Tasks, Settings) sit flush-left with no
     // phantom indent. Tree rows (shelves) get a depth indent plus a
@@ -464,7 +501,7 @@ fn view_row(
     let label_x = inner_rect.left() + left_pad + indent + tree_col_w + icon_col_w;
     let label_clip = egui::Rect::from_min_max(
         egui::pos2(label_x, inner_rect.top()),
-        egui::pos2(inner_rect.right() - count_reserve, inner_rect.bottom()),
+        egui::pos2(inner_rect.right() - total_reserve, inner_rect.bottom()),
     );
     ui.painter().with_clip_rect(label_clip).text(
         egui::pos2(label_x, cy),
@@ -488,11 +525,46 @@ fn view_row(
             .galley(badge_rect.min + pad, galley, text_color);
     }
 
-    if resp.clicked() && !triangle_clicked && !selected {
+    // Pin toggle icon, painted on top of the label like the count badge.
+    // Only shown for pinned shelves, or on hover so unpinned shelves don't
+    // clutter the row — `theme::ACCENT` rather than the selection blue so
+    // it stays visible when the row itself is selected/highlighted.
+    let mut pin_clicked = false;
+    if let (Some(pin_rect), Some(TreeRow { pinned, .. })) = (pin_rect, tree) {
+        let pin_resp = ui.interact(pin_rect, resp.id.with("pin"), egui::Sense::click());
+        pin_clicked = pin_resp.clicked();
+        if pinned || resp.hovered() || pin_resp.hovered() {
+            let color = if pinned {
+                theme::ACCENT
+            } else {
+                ui.style().visuals.weak_text_color()
+            };
+            paint_pin_icon(ui.painter(), pin_rect.center(), color);
+        }
+        pin_resp.on_hover_text(if pinned { "Unpin shelf" } else { "Pin shelf" });
+    }
+
+    if resp.clicked() && !triangle_clicked && !pin_clicked && !selected {
         *current_view = target;
     }
 
-    (resp, triangle_clicked)
+    (resp, triangle_clicked, pin_clicked)
+}
+
+/// A small map-pin glyph drawn from primitives (circular head, triangular
+/// point) rather than a font character — the bundled/fallback fonts don't
+/// carry a pin symbol, only a flag one, which reads as the wrong icon.
+fn paint_pin_icon(painter: &egui::Painter, center: egui::Pos2, color: Color32) {
+    let head_center = center - egui::vec2(0.0, 2.0);
+    painter.circle_filled(head_center, 3.5, color);
+    let tip = center + egui::vec2(0.0, 5.0);
+    let base_l = head_center + egui::vec2(-3.0, 1.0);
+    let base_r = head_center + egui::vec2(3.0, 1.0);
+    painter.add(egui::Shape::convex_polygon(
+        vec![base_l, base_r, tip],
+        color,
+        Stroke::NONE,
+    ));
 }
 
 enum HeaderOutcome {
@@ -519,7 +591,7 @@ fn shelves_header(ui: &mut Ui) -> HeaderOutcome {
         ui.painter().rect_stroke(
             inner,
             4.0,
-            Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+            Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
             StrokeKind::Inside,
         );
     }
