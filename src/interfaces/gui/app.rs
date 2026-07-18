@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
-use super::config::{
-    AppConfig, BASE_MIN_INNER_SIZE, ColumnKey, SortDirection, SortPref, TEXT_ZOOM_RANGE,
-};
+use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
     pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
@@ -132,12 +130,8 @@ impl FicflowApp {
         };
         let cache = LibraryCache::load(&connection);
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
-        let app_config = AppConfig::load();
-        let zoom = app_config
-            .text_zoom
-            .clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
-        ctx.set_zoom_factor(zoom);
-        Self::apply_min_inner_size(ctx, zoom);
+        let mut app_config = AppConfig::load();
+        app_config.text_zoom = config::set_zoom(ctx, app_config.text_zoom);
         let sort = app_config.default_sort;
         let current_view = app_config
             .last_view
@@ -627,35 +621,20 @@ impl FicflowApp {
         }
     }
 
-    /// Picks up zoom changes from egui's built-in Ctrl/Cmd +/-/0 shortcut
-    /// (which calls `set_zoom_factor` directly, bypassing our code and its
-    /// own 0.2..=5.0 range, not ours), snaps it back within `TEXT_ZOOM_RANGE`
-    /// if the shortcut pushed it out of bounds, reasserts the
-    /// zoom-compensated OS minimum window size for the new factor, and
-    /// persists it — including while the Settings view is showing the
-    /// current percentage, so the shortcut and the buttons always agree.
+    /// Reconciles zoom changes from egui's built-in Ctrl/Cmd +/-/0 shortcut,
+    /// which mutates `zoom_factor` directly (bypassing our code) and uses
+    /// its own 0.2..=5.0 range, not `TEXT_ZOOM_RANGE`.
     fn sync_text_zoom(&mut self, ctx: &egui::Context) {
         let raw = ctx.zoom_factor();
-        let clamped = raw.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
+        let clamped = config::clamp_zoom(raw);
         if (raw - clamped).abs() > f32::EPSILON {
             ctx.set_zoom_factor(clamped);
         }
         if (clamped - self.config.text_zoom).abs() > f32::EPSILON {
-            Self::apply_min_inner_size(ctx, clamped);
+            config::apply_min_inner_size(ctx, clamped);
             self.config.text_zoom = clamped;
             self.save_config();
         }
-    }
-
-    /// Counteracts eframe multiplying `min_inner_size` by the current zoom
-    /// factor when enforcing it as the OS-level minimum window size (see
-    /// `run_gui`'s comment) by dividing our baseline by `zoom`, so the
-    /// OS-enforced physical floor stays constant regardless of text zoom.
-    fn apply_min_inner_size(ctx: &egui::Context, zoom: f32) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-            BASE_MIN_INNER_SIZE[0] / zoom,
-            BASE_MIN_INNER_SIZE[1] / zoom,
-        )));
     }
 
     fn handle_close_request(&mut self, ctx: &egui::Context) {

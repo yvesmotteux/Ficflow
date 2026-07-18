@@ -21,21 +21,10 @@ pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
 
 pub fn run_gui() -> ExitCode {
-    // eframe multiplies `min_inner_size` by the *current* zoom factor when
-    // enforcing it as the OS-level minimum window size (unlike `inner_size`,
-    // which it clamps back down to the monitor's bounds itself) — so the
-    // value handed to the window here is pre-divided by the persisted zoom,
-    // keeping the OS-enforced physical floor at a constant ~600x400
-    // regardless of `text_zoom`. `FicflowApp::apply_min_inner_size` reasserts
-    // this same compensation whenever zoom changes at runtime.
-    let zoom = AppConfig::load().text_zoom.clamp(
-        *config::TEXT_ZOOM_RANGE.start(),
-        *config::TEXT_ZOOM_RANGE.end(),
-    );
-    let min_inner_size = [
-        config::BASE_MIN_INNER_SIZE[0] / zoom,
-        config::BASE_MIN_INNER_SIZE[1] / zoom,
-    ];
+    // See `config::BASE_MIN_INNER_SIZE`'s doc for why this must be
+    // pre-divided by the persisted zoom before reaching the window builder.
+    let zoom = config::clamp_zoom(AppConfig::load().text_zoom);
+    let min_inner_size = config::min_inner_size_for(zoom);
 
     // Borderless + transparent so the Art Nouveau chrome paints in
     // place of the OS title bar (`FicflowApp::clear_color` returns

@@ -81,7 +81,7 @@ cargo build --release
 
 - [ ] Revert the details-panel custom resize handle once egui 0.35 is out — the fix ([emilk/egui#8198](https://github.com/emilk/egui/pull/8198), merged 2026-05-26, superseding #8056) was kept out of 0.34.x patch releases (re-enable `Panel::right(...).resizable(true)`). Update : blocked by egui-notify ; they need to have a compatible version with 0.35 egui
 - [x] Ficflow remembers which library/shelf tab was open when closed and reopens the same one
-- [ ] Ability to choose the text size / zoom level in the settings
+- [x] Ability to choose the text size / zoom level in the settings
 - [ ] New feature of auto-shelves (based on ships, fandoms, relationship,...)
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
 - [ ] Release the software on the AUR (can we make both the CLI and GUI work at the same time?)

@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
-use super::super::config::{AppConfig, BASE_MIN_INNER_SIZE, TEXT_ZOOM_RANGE};
+use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE};
 use super::super::format::erisian_date;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
@@ -38,27 +38,21 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
                 let can_shrink = config.text_zoom > *TEXT_ZOOM_RANGE.start();
                 let can_grow = config.text_zoom < *TEXT_ZOOM_RANGE.end();
                 if ui.add_enabled(can_shrink, egui::Button::new("−")).clicked() {
-                    let z = (config.text_zoom - ZOOM_STEP)
-                        .clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
-                    config.text_zoom = z;
-                    apply_zoom(ui.ctx(), z);
+                    config.text_zoom = config::set_zoom(ui.ctx(), config.text_zoom - ZOOM_STEP);
                     changed = true;
                 }
                 ui.label(format!("{:.0}%", config.text_zoom * 100.0));
                 if ui.add_enabled(can_grow, egui::Button::new("+")).clicked() {
-                    let z = (config.text_zoom + ZOOM_STEP)
-                        .clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
-                    config.text_zoom = z;
-                    apply_zoom(ui.ctx(), z);
+                    config.text_zoom = config::set_zoom(ui.ctx(), config.text_zoom + ZOOM_STEP);
                     changed = true;
                 }
                 ui.label("Text size");
+                let at_default = (config.text_zoom - 1.0).abs() <= f32::EPSILON;
                 if ui
-                    .add_enabled(config.text_zoom != 1.0, egui::Button::new("Reset"))
+                    .add_enabled(!at_default, egui::Button::new("Reset"))
                     .clicked()
                 {
-                    config.text_zoom = 1.0;
-                    apply_zoom(ui.ctx(), 1.0);
+                    config.text_zoom = config::set_zoom(ui.ctx(), 1.0);
                     changed = true;
                 }
             });
@@ -71,17 +65,6 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
         });
 
     changed
-}
-
-/// Sets the zoom factor and, in the same step, reasserts the OS-enforced
-/// minimum window size compensated for it — see `FicflowApp::apply_min_inner_size`
-/// for why eframe needs this counteracted on every zoom change.
-fn apply_zoom(ctx: &egui::Context, zoom: f32) {
-    ctx.set_zoom_factor(zoom);
-    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-        BASE_MIN_INNER_SIZE[0] / zoom,
-        BASE_MIN_INNER_SIZE[1] / zoom,
-    )));
 }
 
 fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {
