@@ -632,11 +632,8 @@ impl FicflowApp {
     /// own 0.2..=5.0 range, not ours), snaps it back within `TEXT_ZOOM_RANGE`
     /// if the shortcut pushed it out of bounds, reasserts the
     /// zoom-compensated OS minimum window size for the new factor, and
-    /// persists it. Persistence (but not the size reassertion) is skipped
-    /// while the Settings view is on screen — its own button handlers
-    /// already update `self.config.text_zoom` directly, and reconciling
-    /// against the one-frame-stale `zoom_factor()` here could otherwise
-    /// race with that.
+    /// persists it — including while the Settings view is showing the
+    /// current percentage, so the shortcut and the buttons always agree.
     fn sync_text_zoom(&mut self, ctx: &egui::Context) {
         let raw = ctx.zoom_factor();
         let clamped = raw.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
@@ -645,9 +642,6 @@ impl FicflowApp {
         }
         if (clamped - self.config.text_zoom).abs() > f32::EPSILON {
             Self::apply_min_inner_size(ctx, clamped);
-            if matches!(self.current_view, View::Settings) {
-                return;
-            }
             self.config.text_zoom = clamped;
             self.save_config();
         }

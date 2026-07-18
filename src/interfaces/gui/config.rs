@@ -139,7 +139,7 @@ pub struct AppConfig {
     pub text_zoom: f32,
 }
 
-pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.75..=2.0;
+pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
 /// The window's OS-enforced minimum size, in points, at `text_zoom == 1.0`.
 /// eframe multiplies whatever `min_inner_size` we hand it by the current
