@@ -583,6 +583,9 @@ impl FicflowApp {
             Outcome::RequestRefresh => {
                 self.refresh_selected();
             }
+            Outcome::CreateAutoShelfFromTag(field, value) => {
+                self.active_modal = ActiveModal::CreateShelf(CreateState::prefilled(field, value));
+            }
         }
     }
 
