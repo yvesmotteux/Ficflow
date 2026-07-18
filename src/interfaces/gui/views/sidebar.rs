@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use egui::{Color32, RichText, Stroke, StrokeKind, Ui};
 
 use crate::domain::fanfiction::ReadingStatus;
-use crate::domain::shelf::Shelf;
+use crate::domain::shelf::{Shelf, ShelfKind};
 
 use super::super::theme;
 use super::super::view::View;
@@ -262,12 +262,13 @@ fn shelf_rows(
         let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
+        let is_auto = matches!(shelf.kind, ShelfKind::Auto(_));
         let (resp, triangle_clicked, pin_clicked) = view_row(
             ui,
             current_view,
             View::Shelf(shelf.id),
             &shelf.name,
-            None,
+            is_auto.then_some("\u{2699}"),
             Some(count),
             Some(TreeRow {
                 depth,
@@ -294,7 +295,7 @@ fn shelf_rows(
         // both `Vec<u64>` and `ShelfDrag` unconditionally on the same row, in
         // sequence, silently destroyed real `ShelfDrag` drops before the
         // second check ever saw them — nesting a shelf never worked.
-        if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
+        if !is_auto && resp.dnd_hover_payload::<Vec<u64>>().is_some() {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
                 inner,
@@ -308,9 +309,10 @@ fn shelf_rows(
                     fic_ids: (*payload).clone(),
                 };
             }
-        } else if resp
-            .dnd_hover_payload::<ShelfDrag>()
-            .is_some_and(|dragged| dragged.0 != shelf.id)
+        } else if !is_auto
+            && resp
+                .dnd_hover_payload::<ShelfDrag>()
+                .is_some_and(|dragged| dragged.0 != shelf.id)
         {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
