@@ -61,10 +61,15 @@ impl LibraryCache {
         self.refresh_auto_shelf_members();
     }
 
-    /// Pure — recomputes `auto_shelf_members` from `self.fics`/`self.shelves`.
-    /// Called after every mutation of either, never per-frame.
+    /// Pure — recomputes `auto_shelf_members` (and the counts derived
+    /// from it) from `self.fics`/`self.shelves`. Called after every
+    /// mutation of either, never per-frame. Overlaying counts here too
+    /// (not only in `refresh_shelf_counts`) matters because call sites
+    /// like `replace_fic` (e.g. a status change) update membership
+    /// without going through `refresh_shelf_counts`.
     pub fn refresh_auto_shelf_members(&mut self) {
         self.auto_shelf_members = compute_auto_shelf_members(&self.fics, &self.shelves);
+        overlay_auto_shelf_counts(&mut self.shelf_counts, &self.auto_shelf_members);
     }
 
     pub fn refresh_shelf_members(

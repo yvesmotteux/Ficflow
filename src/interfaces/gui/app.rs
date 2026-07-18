@@ -184,6 +184,13 @@ impl FicflowApp {
         &self.cache.shelves
     }
 
+    /// Sidebar count for a shelf; 0 for a missing or empty shelf. For
+    /// auto-shelves this comes from the live-computed cache, not
+    /// `fic_shelf` rows.
+    pub fn shelf_count(&self, shelf_id: u64) -> usize {
+        self.cache.shelf_counts.get(&shelf_id).copied().unwrap_or(0)
+    }
+
     pub fn selection(&self) -> &Selection {
         self.selection.current()
     }
@@ -269,6 +276,11 @@ impl FicflowApp {
 
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
+        if matches!(self.current_view, View::Shelf(_)) {
+            self.refresh_shelf_members();
+        } else {
+            self.cache.shelf_members.clear();
+        }
         self.persist_current_view();
     }
 
