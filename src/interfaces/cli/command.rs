@@ -22,6 +22,8 @@ pub enum ShelfCommand {
     Delete { shelf_id: u64 },
     Rename { shelf_id: u64, new_name: String },
     Move { shelf_id: u64, parent: Option<u64> },
+    Pin { shelf_id: u64 },
+    Unpin { shelf_id: u64 },
     List,
     Add { fic_id: u64, shelf_id: u64 },
     Remove { fic_id: u64, shelf_id: u64 },
@@ -104,6 +106,16 @@ pub fn parse_cli_commands() -> CliCommand {
                         .about("Move a shelf under another shelf (omit parent-id to move to top level)")
                         .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID"))
                         .arg(Arg::new("parent-id").required(false).index(2).value_parser(value_parser!(u64)).help("New parent shelf ID (omit for top level)")),
+                )
+                .subcommand(
+                    Command::new("pin")
+                        .about("Pin a shelf to the top of its siblings")
+                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
+                )
+                .subcommand(
+                    Command::new("unpin")
+                        .about("Unpin a shelf")
+                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
                 )
                 .subcommand(Command::new("list").about("List all shelves"))
                 .subcommand(
@@ -223,6 +235,12 @@ fn parse_shelf_subcommand(matches: &clap::ArgMatches) -> ShelfCommand {
         let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
         let parent = m.get_one::<u64>("parent-id").copied();
         ShelfCommand::Move { shelf_id, parent }
+    } else if let Some(m) = matches.subcommand_matches("pin") {
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        ShelfCommand::Pin { shelf_id }
+    } else if let Some(m) = matches.subcommand_matches("unpin") {
+        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
+        ShelfCommand::Unpin { shelf_id }
     } else if matches.subcommand_matches("list").is_some() {
         ShelfCommand::List
     } else if let Some(m) = matches.subcommand_matches("add") {

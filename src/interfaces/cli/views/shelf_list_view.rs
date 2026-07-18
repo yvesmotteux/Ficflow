@@ -46,9 +46,15 @@ fn add_rows(
     };
     for shelf in siblings {
         #[allow(deprecated)]
+        let pin_marker = if shelf.pinned { "* " } else { "" };
         let row_cells = vec![
             TableCell::new_with_alignment(shelf.id, 1, Alignment::Right),
-            TableCell::new(format!("{}{}", "  ".repeat(depth), shelf.name)),
+            TableCell::new(format!(
+                "{}{}{}",
+                "  ".repeat(depth),
+                pin_marker,
+                shelf.name
+            )),
             TableCell::new(shelf.created_at.format("%Y-%m-%d").to_string()),
         ];
         table.add_row(Row::new(row_cells));
