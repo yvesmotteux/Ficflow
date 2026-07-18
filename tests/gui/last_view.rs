@@ -74,4 +74,23 @@ mod tests {
         let h = given_harness();
         assert_eq!(*h.app.current_view(), View::AllFics);
     }
+
+    /// G6 — restoring straight into a shelf view on startup must also
+    /// populate that shelf's members, not just `current_view`, or the
+    /// table renders empty even though the shelf has fics.
+    #[test]
+    fn restart_into_shelf_view_shows_its_fics() {
+        let mut h = given_harness();
+        let fic = fixtures::given_sample_fanfiction(501, "Anchor");
+        fixtures::when_fanfiction_added_to_db(&h.conn, &fic).unwrap();
+        h.app.create_shelf("Favorites").unwrap();
+        let shelf_id = h.app.shelves()[0].id;
+        h.app.add_fic_to_shelf(501, shelf_id).unwrap();
+
+        h.app.open_view(View::Shelf(shelf_id));
+        h.restart(vec!["http://127.0.0.1:1".into()]);
+
+        assert_eq!(*h.app.current_view(), View::Shelf(shelf_id));
+        assert_eq!(h.app.visible_ids(), vec![501]);
+    }
 }

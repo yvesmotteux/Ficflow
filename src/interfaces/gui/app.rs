@@ -149,7 +149,7 @@ impl FicflowApp {
             config.max_retry_cycles,
             config.db_path.clone(),
         );
-        Ok(Self {
+        let mut app = Self {
             connection,
             cache,
             chrome,
@@ -168,7 +168,14 @@ impl FicflowApp {
             focus_search_pending: false,
             toasts: Toasts::default(),
             details_panel_width: 320.0,
-        })
+        };
+        // Restoring straight into a shelf view skips the sidebar's
+        // prev/post diff (see `paint_sidebar`) that normally populates
+        // `shelf_members` on a view change, so do it explicitly here.
+        if matches!(app.current_view, View::Shelf(_)) {
+            app.refresh_shelf_members();
+        }
+        Ok(app)
     }
 
     // ---- Read-only accessors ----
