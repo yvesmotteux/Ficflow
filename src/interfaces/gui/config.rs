@@ -139,13 +139,6 @@ pub struct AppConfig {
 
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
-/// eframe multiplies `min_inner_size` by the current zoom factor when
-/// enforcing it as the OS-level minimum window size (unlike `inner_size`,
-/// which eframe clamps back down to the monitor's bounds itself) — kept
-/// small enough that even at `TEXT_ZOOM_RANGE`'s max on a scaled display,
-/// the enforced minimum can't exceed a real screen.
-pub const MIN_INNER_SIZE: [f32; 2] = [280.0, 200.0];
-
 fn default_text_zoom() -> f32 {
     1.0
 }

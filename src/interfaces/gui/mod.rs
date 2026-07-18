@@ -20,6 +20,13 @@ pub use selection::Selection;
 pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
 
+/// eframe multiplies `min_inner_size` by the current zoom factor when
+/// enforcing it as the OS-level minimum window size (unlike `inner_size`,
+/// which eframe clamps back down to the monitor's bounds itself) — kept
+/// small enough that even at `config::TEXT_ZOOM_RANGE`'s max on a scaled
+/// display, the enforced minimum can't exceed a real screen.
+const MIN_INNER_SIZE: [f32; 2] = [280.0, 200.0];
+
 pub fn run_gui() -> ExitCode {
     // Borderless + transparent so the Art Nouveau chrome paints in
     // place of the OS title bar (`FicflowApp::clear_color` returns
@@ -30,7 +37,7 @@ pub fn run_gui() -> ExitCode {
         .with_decorations(false)
         .with_transparent(true)
         .with_inner_size([1100.0, 700.0])
-        .with_min_inner_size(config::MIN_INNER_SIZE);
+        .with_min_inner_size(MIN_INNER_SIZE);
     match eframe::icon_data::from_png_bytes(assets::ICON_PNG) {
         Ok(icon) => viewport = viewport.with_icon(icon),
         Err(err) => log::warn!("Failed to decode window icon: {}", err),
