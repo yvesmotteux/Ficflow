@@ -268,6 +268,13 @@ impl FicflowApp {
 
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
+        self.persist_current_view();
+    }
+
+    /// Saves `current_view` into `AppConfig` if it's a restorable
+    /// (library-facing) view. Called from both `open_view` and the
+    /// sidebar's direct `current_view` mutation (`paint_sidebar`).
+    fn persist_current_view(&mut self) {
         if let Some(persisted) = self.current_view.to_persisted() {
             self.config.last_view = Some(persisted);
             self.save_config();
@@ -810,6 +817,7 @@ impl FicflowApp {
                 self.cache.shelf_members.clear();
             }
             self.prune_selection_to_view();
+            self.persist_current_view();
         }
     }
 
