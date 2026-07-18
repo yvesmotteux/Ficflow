@@ -3,14 +3,16 @@ use std::path::PathBuf;
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
+use super::auto_shelf;
 use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
-    add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
-    pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
-    update_chapters, update_note, update_rating, update_read_count, update_status,
+    add_to_shelf::add_to_shelf, create_auto_shelf::create_auto_shelf, create_shelf::create_shelf,
+    delete_fic, delete_shelf, move_shelf, pin_shelf::pin_shelf, remove_from_shelf,
+    rename_shelf::rename_shelf, unpin_shelf::unpin_shelf, update_chapters, update_note,
+    update_rating, update_read_count, update_status,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
-use crate::domain::shelf::Shelf;
+use crate::domain::shelf::{AutoShelfCriteria, Shelf};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
@@ -317,6 +319,28 @@ impl FicflowApp {
             }
             Err(err) => {
                 self.toasts.error(format!("Couldn't create shelf: {}", err));
+                Err(err)
+            }
+        }
+    }
+
+    pub fn create_auto_shelf(
+        &mut self,
+        name: impl AsRef<str>,
+        criteria: AutoShelfCriteria,
+    ) -> Result<(), FicflowError> {
+        let repo = self.repo();
+        match create_auto_shelf(&repo, name.as_ref(), None, criteria) {
+            Ok(shelf) => {
+                self.toasts
+                    .success(format!("Created auto-shelf \u{201C}{}\u{201D}", shelf.name));
+                self.cache.reload_shelves(&self.connection);
+                self.refresh_shelf_counts();
+                Ok(())
+            }
+            Err(err) => {
+                self.toasts
+                    .error(format!("Couldn't create auto-shelf: {}", err));
                 Err(err)
             }
         }
@@ -1033,6 +1057,7 @@ impl FicflowApp {
             None,
             Close,
             CreateShelf(String),
+            CreateAutoShelf(String, AutoShelfCriteria),
             RenameShelf { shelf_id: u64, new_name: String },
             DeleteShelf(u64),
             DeleteFics(Vec<u64>),
@@ -1041,11 +1066,17 @@ impl FicflowApp {
         }
         let action = match &mut self.active_modal {
             ActiveModal::None => ModalAction::None,
-            ActiveModal::CreateShelf(state) => match shelf_modals::draw_create(ctx, state) {
-                shelf_modals::Outcome::Submit(name) => ModalAction::CreateShelf(name),
-                shelf_modals::Outcome::Cancel => ModalAction::Close,
-                shelf_modals::Outcome::None => ModalAction::None,
-            },
+            ActiveModal::CreateShelf(state) => {
+                let distinct_values = auto_shelf::build_distinct_values(&self.cache.fics);
+                match shelf_modals::draw_create(ctx, state, &distinct_values) {
+                    shelf_modals::Outcome::SubmitNormal(name) => ModalAction::CreateShelf(name),
+                    shelf_modals::Outcome::SubmitAuto(name, criteria) => {
+                        ModalAction::CreateAutoShelf(name, criteria)
+                    }
+                    shelf_modals::Outcome::Cancel => ModalAction::Close,
+                    shelf_modals::Outcome::None => ModalAction::None,
+                }
+            }
             ActiveModal::RenameShelf(state) => match shelf_modals::draw_rename(ctx, state) {
                 shelf_modals::RenameOutcome::Submit { shelf_id, new_name } => {
                     ModalAction::RenameShelf { shelf_id, new_name }
@@ -1085,6 +1116,10 @@ impl FicflowApp {
             ModalAction::Close => self.active_modal = ActiveModal::None,
             ModalAction::CreateShelf(name) => {
                 let _ = self.create_shelf(name);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::CreateAutoShelf(name, criteria) => {
+                let _ = self.create_auto_shelf(name, criteria);
                 self.active_modal = ActiveModal::None;
             }
             ModalAction::RenameShelf { shelf_id, new_name } => {
