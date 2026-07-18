@@ -286,6 +286,14 @@ fn shelf_rows(
             resp.dnd_set_drag_payload(ShelfDrag(shelf.id));
         }
 
+        // `dnd_release_payload::<T>()` takes the payload out of egui's shared
+        // drag-and-drop slot *unconditionally*, then tries to downcast it —
+        // even a failed downcast still clears the slot. So we must only ever
+        // call it for the payload type that's actually being carried (checked
+        // non-destructively via `dnd_hover_payload` first); calling it for
+        // both `Vec<u64>` and `ShelfDrag` unconditionally on the same row, in
+        // sequence, silently destroyed real `ShelfDrag` drops before the
+        // second check ever saw them — nesting a shelf never worked.
         if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
@@ -294,15 +302,13 @@ fn shelf_rows(
                 Stroke::new(2.0_f32, Color32::from_rgb(120, 200, 120)),
                 StrokeKind::Inside,
             );
-        }
-        if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
-            *outcome = Outcome::DropOnShelf {
-                shelf_id: shelf.id,
-                fic_ids: (*payload).clone(),
-            };
-        }
-
-        if resp
+            if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
+                *outcome = Outcome::DropOnShelf {
+                    shelf_id: shelf.id,
+                    fic_ids: (*payload).clone(),
+                };
+            }
+        } else if resp
             .dnd_hover_payload::<ShelfDrag>()
             .is_some_and(|dragged| dragged.0 != shelf.id)
         {
@@ -313,14 +319,14 @@ fn shelf_rows(
                 Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
                 StrokeKind::Inside,
             );
-        }
-        if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
-            && dragged.0 != shelf.id
-        {
-            *outcome = Outcome::MoveShelf {
-                shelf_id: dragged.0,
-                new_parent: Some(shelf.id),
-            };
+            if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
+                && dragged.0 != shelf.id
+            {
+                *outcome = Outcome::MoveShelf {
+                    shelf_id: dragged.0,
+                    new_parent: Some(shelf.id),
+                };
+            }
         }
 
         resp.context_menu(|ui| {
