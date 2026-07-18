@@ -11,18 +11,6 @@ pub fn draw(
     text: &mut String,
     options: &[String],
 ) -> Response {
-    // A suggestion click below sets `pending` rather than `*text`
-    // directly: this widget's `text_edit_singleline` already rendered
-    // for this frame by the time the popup below is drawn, so writing
-    // straight into `*text` wouldn't show up until a repaint happened
-    // to be triggered some other way. Applying the pending value here,
-    // before the text edit is drawn, makes the new value visible the
-    // very next frame every time.
-    let pending_id = ui.id().with(("autocomplete-pending", &id_salt));
-    if let Some(pending) = ui.data_mut(|d| d.remove_temp::<String>(pending_id)) {
-        *text = pending;
-    }
-
     let resp = ui.text_edit_singleline(text);
     let query = text.trim().to_lowercase();
     let matches: Vec<&String> = if query.is_empty() {
@@ -44,7 +32,12 @@ pub fn draw(
                     ui.set_min_width(resp.rect.width());
                     for opt in &matches {
                         if ui.selectable_label(false, opt.as_str()).clicked() {
-                            ui.data_mut(|d| d.insert_temp(pending_id, (*opt).clone()));
+                            *text = (*opt).clone();
+                            // eframe only repaints on demand: without this,
+                            // the mutation above wouldn't become visible
+                            // until some unrelated later input happened to
+                            // trigger the next frame.
+                            ui.ctx().request_repaint();
                         }
                     }
                 });

@@ -475,12 +475,15 @@ fn view_row(
     };
     let icon_col_w = if icon.is_some() { 20.0 } else { 0.0 };
     if let Some(icon) = icon {
+        // Left-aligned rather than centered in the reserved column: some
+        // glyphs (the auto-shelf gear in particular) measure much wider
+        // than their visible ink, so centering by measured width left a
+        // gap before the glyph. Anchoring flush-left, right where a
+        // same-depth row's label would start without an icon, is
+        // deterministic regardless of the glyph's metrics.
         ui.painter().text(
-            egui::pos2(
-                inner_rect.left() + left_pad + indent + tree_col_w + icon_col_w / 2.0,
-                cy,
-            ),
-            egui::Align2::CENTER_CENTER,
+            egui::pos2(inner_rect.left() + left_pad + indent + tree_col_w, cy),
+            egui::Align2::LEFT_CENTER,
             icon,
             body_font.clone(),
             text_color,
