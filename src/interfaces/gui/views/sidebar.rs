@@ -34,6 +34,7 @@ pub enum Outcome {
     None,
     OpenCreateShelfModal,
     OpenRenameShelfModal(u64),
+    OpenEditAutoShelfModal(u64),
     OpenDeleteShelfConfirm(u64),
     DropOnShelf {
         shelf_id: u64,
@@ -268,7 +269,10 @@ fn shelf_rows(
             current_view,
             View::Shelf(shelf.id),
             &shelf.name,
-            is_auto.then_some("\u{2699}"),
+            // U+FE0E forces the plain "text" glyph variant rather than a
+            // wider emoji-style rendering, which otherwise bakes in extra
+            // left padding that throws off alignment vs. other icons.
+            is_auto.then_some("\u{2699}\u{FE0E}"),
             Some(count),
             Some(TreeRow {
                 depth,
@@ -334,6 +338,10 @@ fn shelf_rows(
         resp.context_menu(|ui| {
             if ui.button("Rename shelf").clicked() {
                 *outcome = Outcome::OpenRenameShelfModal(shelf.id);
+                ui.close();
+            }
+            if is_auto && ui.button("Edit criteria").clicked() {
+                *outcome = Outcome::OpenEditAutoShelfModal(shelf.id);
                 ui.close();
             }
             let pin_label = if shelf.pinned {

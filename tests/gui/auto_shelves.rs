@@ -148,4 +148,46 @@ mod tests {
             ficflow::domain::shelf::ShelfKind::Normal => panic!("expected an auto-shelf"),
         }
     }
+
+    #[test]
+    fn editing_auto_shelf_criteria_updates_persisted_criteria_and_live_membership() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let mut wars = fixtures::given_sample_fanfiction(801, "Wars Fic");
+        wars.fandoms = vec!["Star Wars".to_string()];
+        let mut trek = fixtures::given_sample_fanfiction(802, "Trek Fic");
+        trek.fandoms = vec!["Star Trek".to_string()];
+        fixtures::when_fanfiction_added_to_db(&conn, &wars).unwrap();
+        fixtures::when_fanfiction_added_to_db(&conn, &trek).unwrap();
+
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+
+        let initial = AutoShelfCriteria {
+            logic: ClauseLogic::Or,
+            clauses: vec![Clause::Fandom("Star Wars".to_string())],
+        };
+        h.app.create_auto_shelf("Editable", initial).unwrap();
+        let shelf_id = h.app.shelves()[0].id;
+        assert_eq!(h.app.shelf_count(shelf_id), 1);
+
+        let updated = AutoShelfCriteria {
+            logic: ClauseLogic::Or,
+            clauses: vec![Clause::Fandom("Star Trek".to_string())],
+        };
+        h.app
+            .update_auto_shelf_criteria(shelf_id, updated.clone())
+            .unwrap();
+
+        assert_eq!(h.app.shelf_count(shelf_id), 1);
+        h.app.open_view(View::Shelf(shelf_id));
+        h.step();
+        assert_eq!(h.app.visible_ids(), vec![802]);
+
+        let repo = SqliteRepository::new(&h.conn);
+        let reloaded = repo.get_shelf_by_id(shelf_id).unwrap();
+        match reloaded.kind {
+            ficflow::domain::shelf::ShelfKind::Auto(loaded) => assert_eq!(loaded, updated),
+            ficflow::domain::shelf::ShelfKind::Normal => panic!("expected an auto-shelf"),
+        }
+    }
 }

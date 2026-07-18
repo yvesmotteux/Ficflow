@@ -1,8 +1,9 @@
 use egui::{ComboBox, Context, Window};
 
 use crate::domain::fanfiction::ReadingStatus;
-use crate::domain::shelf::{AutoShelfCriteria, Clause, ClauseLogic, Shelf};
+use crate::domain::shelf::{AutoShelfCriteria, Clause, ClauseLogic, Shelf, ShelfKind};
 use crate::interfaces::gui::auto_shelf::DistinctValues;
+use crate::interfaces::gui::format::format_status;
 use crate::interfaces::gui::widgets::autocomplete_input;
 
 /// Which field a query-builder clause row matches against. Distinct
@@ -73,6 +74,21 @@ impl ClauseRow {
             ClauseFieldKind::Status => unreachable!(),
         })
     }
+
+    fn from_clause(clause: &Clause) -> Self {
+        match clause {
+            Clause::Tag(v) => Self::new(ClauseFieldKind::Tag, v.clone()),
+            Clause::Fandom(v) => Self::new(ClauseFieldKind::Fandom, v.clone()),
+            Clause::Relationship(v) => Self::new(ClauseFieldKind::Relationship, v.clone()),
+            Clause::Character(v) => Self::new(ClauseFieldKind::Character, v.clone()),
+            Clause::Author(v) => Self::new(ClauseFieldKind::Author, v.clone()),
+            Clause::Status(status) => {
+                let mut row = Self::new(ClauseFieldKind::Status, String::new());
+                row.status = *status;
+                row
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -121,30 +137,30 @@ pub enum Outcome {
 }
 
 /// Renders the AND/OR toggle and clause rows shared by the create and
-/// (future) edit-criteria modals. Returns whether the criteria built
-/// from `state` is non-empty enough to submit.
+/// edit-criteria modals.
 fn draw_clause_builder(
     ui: &mut egui::Ui,
-    state: &mut CreateState,
+    logic: &mut ClauseLogic,
+    clauses: &mut Vec<ClauseRow>,
     distinct_values: &DistinctValues,
 ) {
     ui.horizontal(|ui| {
         ui.label("Match");
         ComboBox::from_id_salt("auto-shelf-logic")
-            .selected_text(match state.logic {
+            .selected_text(match logic {
                 ClauseLogic::And => "ALL of",
                 ClauseLogic::Or => "ANY of",
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut state.logic, ClauseLogic::And, "ALL of");
-                ui.selectable_value(&mut state.logic, ClauseLogic::Or, "ANY of");
+                ui.selectable_value(logic, ClauseLogic::And, "ALL of");
+                ui.selectable_value(logic, ClauseLogic::Or, "ANY of");
             });
         ui.label("these:");
     });
     ui.add_space(4.0);
 
     let mut remove_index = None;
-    for (i, row) in state.clauses.iter_mut().enumerate() {
+    for (i, row) in clauses.iter_mut().enumerate() {
         ui.horizontal(|ui| {
             ComboBox::from_id_salt(("auto-shelf-field", i))
                 .selected_text(row.field.label())
@@ -155,7 +171,7 @@ fn draw_clause_builder(
                 });
             if row.field == ClauseFieldKind::Status {
                 ComboBox::from_id_salt(("auto-shelf-status", i))
-                    .selected_text(row.status.to_string())
+                    .selected_text(format_status(&row.status))
                     .show_ui(ui, |ui| {
                         for status in [
                             ReadingStatus::InProgress,
@@ -164,7 +180,7 @@ fn draw_clause_builder(
                             ReadingStatus::Paused,
                             ReadingStatus::Abandoned,
                         ] {
-                            ui.selectable_value(&mut row.status, status, status.to_string());
+                            ui.selectable_value(&mut row.status, status, format_status(&status));
                         }
                     });
             } else {
@@ -184,13 +200,11 @@ fn draw_clause_builder(
         });
     }
     if let Some(i) = remove_index {
-        state.clauses.remove(i);
+        clauses.remove(i);
     }
 
     if ui.button("+ Add clause").clicked() {
-        state
-            .clauses
-            .push(ClauseRow::new(ClauseFieldKind::Tag, String::new()));
+        clauses.push(ClauseRow::new(ClauseFieldKind::Tag, String::new()));
     }
 }
 
@@ -228,13 +242,13 @@ pub fn draw_create(
             ui.add_space(6.0);
 
             if state.kind == CreateKind::Auto {
-                draw_clause_builder(ui, state, distinct_values);
+                draw_clause_builder(ui, &mut state.logic, &mut state.clauses, distinct_values);
                 ui.add_space(6.0);
             }
 
             ui.horizontal(|ui| {
                 let name_ok = !state.name.trim().is_empty();
-                let criteria = build_criteria(state);
+                let criteria = build_criteria(state.logic, &state.clauses);
                 let submit_enabled = name_ok
                     && match state.kind {
                         CreateKind::Normal => true,
@@ -265,15 +279,78 @@ pub fn draw_create(
     outcome
 }
 
-fn build_criteria(state: &CreateState) -> AutoShelfCriteria {
+fn build_criteria(logic: ClauseLogic, clauses: &[ClauseRow]) -> AutoShelfCriteria {
     AutoShelfCriteria {
-        logic: state.logic,
-        clauses: state
-            .clauses
-            .iter()
-            .filter_map(ClauseRow::to_clause)
-            .collect(),
+        logic,
+        clauses: clauses.iter().filter_map(ClauseRow::to_clause).collect(),
     }
+}
+
+pub struct EditAutoShelfState {
+    pub shelf_id: u64,
+    pub logic: ClauseLogic,
+    pub clauses: Vec<ClauseRow>,
+}
+
+impl EditAutoShelfState {
+    /// `None` if `shelf` isn't an auto-shelf.
+    pub fn from_shelf(shelf: &Shelf) -> Option<Self> {
+        match &shelf.kind {
+            ShelfKind::Auto(criteria) => Some(Self {
+                shelf_id: shelf.id,
+                logic: criteria.logic,
+                clauses: criteria
+                    .clauses
+                    .iter()
+                    .map(ClauseRow::from_clause)
+                    .collect(),
+            }),
+            ShelfKind::Normal => None,
+        }
+    }
+}
+
+pub enum EditOutcome {
+    None,
+    Submit(u64, AutoShelfCriteria),
+    Cancel,
+}
+
+pub fn draw_edit_auto_shelf(
+    ctx: &Context,
+    state: &mut EditAutoShelfState,
+    distinct_values: &DistinctValues,
+) -> EditOutcome {
+    let mut still_open = true;
+    let mut outcome = EditOutcome::None;
+    Window::new("Edit auto-shelf criteria")
+        .open(&mut still_open)
+        .resizable(false)
+        .collapsible(false)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .show(ctx, |ui| {
+            draw_clause_builder(ui, &mut state.logic, &mut state.clauses, distinct_values);
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                let criteria = build_criteria(state.logic, &state.clauses);
+                let submit_enabled = !criteria.clauses.is_empty();
+                if ui
+                    .add_enabled(submit_enabled, egui::Button::new("Save"))
+                    .clicked()
+                {
+                    outcome = EditOutcome::Submit(state.shelf_id, criteria);
+                }
+                if ui.button("Cancel").clicked() {
+                    outcome = EditOutcome::Cancel;
+                }
+            });
+        });
+    if !still_open {
+        outcome = EditOutcome::Cancel;
+    }
+    outcome
 }
 
 pub struct RenameState {
