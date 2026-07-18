@@ -1,10 +1,15 @@
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
+use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE};
 use super::super::format::erisian_date;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
-pub fn draw(ui: &mut Ui) {
+const ZOOM_STEP: f32 = 0.1;
+
+pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
+    let mut changed = false;
+
     ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
@@ -28,20 +33,40 @@ pub fn draw(ui: &mut Ui) {
             );
 
             ui.add_space(12.0);
+            ui.label(RichText::new("Display").strong());
+            ui.horizontal(|ui| {
+                let can_shrink = config.text_zoom > *TEXT_ZOOM_RANGE.start();
+                let can_grow = config.text_zoom < *TEXT_ZOOM_RANGE.end();
+                if ui.add_enabled(can_shrink, egui::Button::new("−")).clicked() {
+                    apply_zoom(config, &mut changed, ui.ctx(), config.text_zoom - ZOOM_STEP);
+                }
+                ui.label(format!("{:.0}%", config.text_zoom * 100.0));
+                if ui.add_enabled(can_grow, egui::Button::new("+")).clicked() {
+                    apply_zoom(config, &mut changed, ui.ctx(), config.text_zoom + ZOOM_STEP);
+                }
+                ui.label("Text size");
+                let at_default = (config.text_zoom - 1.0).abs() <= f32::EPSILON;
+                if ui
+                    .add_enabled(!at_default, egui::Button::new("Reset"))
+                    .clicked()
+                {
+                    apply_zoom(config, &mut changed, ui.ctx(), 1.0);
+                }
+            });
+            ui.label(RichText::new("Or use Ctrl/Cmd +/-/0.").weak().italics());
+
+            ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());
             info_row(ui, "Database", db_path_display());
             info_row(ui, "Config", config_path_display());
-
-            ui.add_space(16.0);
-            ui.label(
-                RichText::new(
-                    "Configurable settings (themes, shortcuts, default views) will land here in \
-                future versions.",
-                )
-                .italics()
-                .weak(),
-            );
         });
+
+    changed
+}
+
+fn apply_zoom(config: &mut AppConfig, changed: &mut bool, ctx: &egui::Context, zoom: f32) {
+    config.text_zoom = config::set_zoom(ctx, zoom);
+    *changed = true;
 }
 
 fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {

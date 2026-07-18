@@ -1,8 +1,8 @@
 //! Persistent GUI preferences stored as TOML at the platform's config
 //! dir (`~/.config/ficflow/config.toml` on Linux). Holds visible
-//! columns, the default sort for the library table, and the
-//! maximized/fullscreen window state — read at startup, written when
-//! the user changes them.
+//! columns, the default sort for the library table, the
+//! maximized/fullscreen window state, and the text-zoom level — read
+//! at startup, written when the user changes them.
 //!
 //! Lives under `interfaces/gui/` because every field here is a GUI
 //! concern: column visibility, sort direction, and window state have
@@ -131,6 +131,30 @@ pub struct AppConfig {
     /// reopens the same one next launch.
     #[serde(default)]
     pub last_view: Option<PersistedView>,
+    /// Global UI zoom factor (egui's `zoom_factor`). Clamped defensively
+    /// against a hand-edited config file.
+    #[serde(default = "default_text_zoom")]
+    pub text_zoom: f32,
+}
+
+pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
+
+fn default_text_zoom() -> f32 {
+    1.0
+}
+
+pub fn clamp_zoom(zoom: f32) -> f32 {
+    if zoom.is_finite() {
+        zoom.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end())
+    } else {
+        default_text_zoom()
+    }
+}
+
+pub fn set_zoom(ctx: &egui::Context, zoom: f32) -> f32 {
+    let clamped = clamp_zoom(zoom);
+    ctx.set_zoom_factor(clamped);
+    clamped
 }
 
 impl Default for AppConfig {
@@ -153,6 +177,7 @@ impl Default for AppConfig {
             window_maximized: false,
             window_fullscreen: false,
             last_view: None,
+            text_zoom: 1.0,
         }
     }
 }

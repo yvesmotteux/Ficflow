@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
-use super::config::{AppConfig, ColumnKey, SortDirection, SortPref};
+use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
     pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
@@ -130,7 +130,8 @@ impl FicflowApp {
         };
         let cache = LibraryCache::load(&connection);
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
-        let app_config = AppConfig::load();
+        let mut app_config = AppConfig::load();
+        app_config.text_zoom = config::set_zoom(ctx, app_config.text_zoom);
         let sort = app_config.default_sort;
         let current_view = app_config
             .last_view
@@ -620,6 +621,21 @@ impl FicflowApp {
         }
     }
 
+    /// Reconciles zoom changes from egui's built-in Ctrl/Cmd +/-/0 shortcut,
+    /// which mutates `zoom_factor` directly (bypassing our code) and uses
+    /// its own 0.2..=5.0 range, not `TEXT_ZOOM_RANGE`.
+    fn sync_text_zoom(&mut self, ctx: &egui::Context) {
+        let raw = ctx.zoom_factor();
+        let clamped = config::clamp_zoom(raw);
+        if (raw - clamped).abs() > f32::EPSILON {
+            ctx.set_zoom_factor(clamped);
+        }
+        if (clamped - self.config.text_zoom).abs() > f32::EPSILON {
+            self.config.text_zoom = clamped;
+            self.save_config();
+        }
+    }
+
     fn handle_close_request(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quit_confirmed
@@ -709,6 +725,7 @@ impl FicflowApp {
     pub fn render(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.sync_window_state(&ctx);
+        self.sync_text_zoom(&ctx);
         self.handle_close_request(&ctx);
         self.handle_shortcuts(&ctx);
 
@@ -960,7 +977,9 @@ impl FicflowApp {
                     },
                 );
             } else if matches!(self.current_view, View::Settings) {
-                settings_view::draw(ui);
+                if settings_view::draw(ui, &mut self.config) {
+                    self.save_config();
+                }
             } else {
                 draw_stub_view(ui, &self.current_view);
             }
