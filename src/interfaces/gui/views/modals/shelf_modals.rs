@@ -98,41 +98,20 @@ pub enum CreateKind {
     Auto,
 }
 
+/// State for the initial "+" picker: a plain name for Normal shelves,
+/// or a hand-off into `AutoShelfState` for Auto ones (see `Outcome::
+/// SwitchToAuto`) — the auto-shelf name/criteria form itself is never
+/// duplicated here.
+#[derive(Default)]
 pub struct CreateState {
     pub name: String,
     pub kind: CreateKind,
-    pub logic: ClauseLogic,
-    pub clauses: Vec<ClauseRow>,
-}
-
-impl Default for CreateState {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            kind: CreateKind::Normal,
-            logic: ClauseLogic::And,
-            clauses: Vec::new(),
-        }
-    }
-}
-
-impl CreateState {
-    /// Pre-filled from a "create auto-shelf from this tag" context-menu
-    /// click: starts in Auto mode with one clause already set.
-    pub fn prefilled(field: ClauseFieldKind, value: String) -> Self {
-        Self {
-            name: String::new(),
-            kind: CreateKind::Auto,
-            logic: ClauseLogic::And,
-            clauses: vec![ClauseRow::new(field, value)],
-        }
-    }
 }
 
 pub enum Outcome {
     None,
     SubmitNormal(String),
-    SubmitAuto(String, AutoShelfCriteria),
+    SwitchToAuto,
     Cancel,
 }
 
@@ -208,11 +187,7 @@ fn draw_clause_builder(
     }
 }
 
-pub fn draw_create(
-    ctx: &Context,
-    state: &mut CreateState,
-    distinct_values: &DistinctValues,
-) -> Outcome {
+pub fn draw_create(ctx: &Context, state: &mut CreateState) -> Outcome {
     let mut still_open = true;
     let mut outcome = Outcome::None;
     Window::new("Create shelf")
@@ -222,14 +197,6 @@ pub fn draw_create(
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
         .show(ctx, |ui| {
-            ui.label("Name:");
-            let resp = ui.text_edit_singleline(&mut state.name);
-            // Auto-focus the field the first frame so users can type immediately.
-            if !resp.has_focus() && state.name.is_empty() {
-                resp.request_focus();
-            }
-            ui.add_space(6.0);
-
             ComboBox::from_id_salt("shelf-kind")
                 .selected_text(match state.kind {
                     CreateKind::Normal => "Normal shelf",
@@ -241,37 +208,49 @@ pub fn draw_create(
                 });
             ui.add_space(6.0);
 
-            if state.kind == CreateKind::Auto {
-                draw_clause_builder(ui, &mut state.logic, &mut state.clauses, distinct_values);
-                ui.add_space(6.0);
-            }
-
-            ui.horizontal(|ui| {
-                let name_ok = !state.name.trim().is_empty();
-                let criteria = build_criteria(state.logic, &state.clauses);
-                let submit_enabled = name_ok
-                    && match state.kind {
-                        CreateKind::Normal => true,
-                        CreateKind::Auto => !criteria.clauses.is_empty(),
-                    };
-                let create_clicked = ui
-                    .add_enabled(submit_enabled, egui::Button::new("Create"))
-                    .clicked();
-                let pressed_enter = resp.lost_focus()
-                    && ctx.input(|i| i.key_pressed(egui::Key::Enter))
-                    && submit_enabled;
-                if create_clicked || pressed_enter {
-                    outcome = match state.kind {
-                        CreateKind::Normal => Outcome::SubmitNormal(state.name.trim().to_string()),
-                        CreateKind::Auto => {
-                            Outcome::SubmitAuto(state.name.trim().to_string(), criteria)
+            match state.kind {
+                CreateKind::Normal => {
+                    ui.label("Name:");
+                    let resp = ui.text_edit_singleline(&mut state.name);
+                    // Auto-focus the field the first frame so users can type immediately.
+                    if !resp.has_focus() && state.name.is_empty() {
+                        resp.request_focus();
+                    }
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let submit_enabled = !state.name.trim().is_empty();
+                        let create_clicked = ui
+                            .add_enabled(submit_enabled, egui::Button::new("Create"))
+                            .clicked();
+                        let pressed_enter = resp.lost_focus()
+                            && ctx.input(|i| i.key_pressed(egui::Key::Enter))
+                            && submit_enabled;
+                        if create_clicked || pressed_enter {
+                            outcome = Outcome::SubmitNormal(state.name.trim().to_string());
                         }
-                    };
+                        if ui.button("Cancel").clicked() {
+                            outcome = Outcome::Cancel;
+                        }
+                    });
                 }
-                if ui.button("Cancel").clicked() {
-                    outcome = Outcome::Cancel;
+                CreateKind::Auto => {
+                    ui.label(
+                        egui::RichText::new(
+                            "The next step lets you name the shelf and build its criteria.",
+                        )
+                        .weak(),
+                    );
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Continue").clicked() {
+                            outcome = Outcome::SwitchToAuto;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            outcome = Outcome::Cancel;
+                        }
+                    });
                 }
-            });
+            }
         });
     if !still_open {
         outcome = Outcome::Cancel;
@@ -286,18 +265,42 @@ fn build_criteria(logic: ClauseLogic, clauses: &[ClauseRow]) -> AutoShelfCriteri
     }
 }
 
-pub struct EditAutoShelfState {
-    pub shelf_id: u64,
+/// Shared by both creating a new auto-shelf (`shelf_id: None`) and
+/// editing an existing one's name + criteria (`shelf_id: Some`) — one
+/// state type and one modal for both, since the two only differ in
+/// whether a shelf id already exists to upsert against.
+pub struct AutoShelfState {
+    pub shelf_id: Option<u64>,
+    pub name: String,
     pub logic: ClauseLogic,
     pub clauses: Vec<ClauseRow>,
 }
 
-impl EditAutoShelfState {
+impl AutoShelfState {
+    pub fn new() -> Self {
+        Self {
+            shelf_id: None,
+            name: String::new(),
+            logic: ClauseLogic::And,
+            clauses: Vec::new(),
+        }
+    }
+
+    /// Pre-filled from a "create auto-shelf from this tag" context-menu
+    /// click: one clause already set.
+    pub fn prefilled(field: ClauseFieldKind, value: String) -> Self {
+        Self {
+            clauses: vec![ClauseRow::new(field, value)],
+            ..Self::new()
+        }
+    }
+
     /// `None` if `shelf` isn't an auto-shelf.
     pub fn from_shelf(shelf: &Shelf) -> Option<Self> {
         match &shelf.kind {
             ShelfKind::Auto(criteria) => Some(Self {
-                shelf_id: shelf.id,
+                shelf_id: Some(shelf.id),
+                name: shelf.name.clone(),
                 logic: criteria.logic,
                 clauses: criteria
                     .clauses
@@ -310,45 +313,66 @@ impl EditAutoShelfState {
     }
 }
 
-pub enum EditOutcome {
+pub enum AutoShelfOutcome {
     None,
-    Submit(u64, AutoShelfCriteria),
+    Submit {
+        shelf_id: Option<u64>,
+        name: String,
+        criteria: AutoShelfCriteria,
+    },
     Cancel,
 }
 
-pub fn draw_edit_auto_shelf(
+pub fn draw_auto_shelf(
     ctx: &Context,
-    state: &mut EditAutoShelfState,
+    state: &mut AutoShelfState,
     distinct_values: &DistinctValues,
-) -> EditOutcome {
+) -> AutoShelfOutcome {
+    let is_edit = state.shelf_id.is_some();
     let mut still_open = true;
-    let mut outcome = EditOutcome::None;
-    Window::new("Edit auto-shelf criteria")
-        .open(&mut still_open)
-        .resizable(false)
-        .collapsible(false)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .show(ctx, |ui| {
-            draw_clause_builder(ui, &mut state.logic, &mut state.clauses, distinct_values);
-            ui.add_space(6.0);
+    let mut outcome = AutoShelfOutcome::None;
+    Window::new(if is_edit {
+        "Edit auto-shelf"
+    } else {
+        "Create auto-shelf"
+    })
+    .open(&mut still_open)
+    .resizable(false)
+    .collapsible(false)
+    .pivot(egui::Align2::CENTER_CENTER)
+    .default_pos(ctx.content_rect().center())
+    .show(ctx, |ui| {
+        ui.label("Name:");
+        let resp = ui.text_edit_singleline(&mut state.name);
+        if !is_edit && !resp.has_focus() && state.name.is_empty() {
+            resp.request_focus();
+        }
+        ui.add_space(6.0);
 
-            ui.horizontal(|ui| {
-                let criteria = build_criteria(state.logic, &state.clauses);
-                let submit_enabled = !criteria.clauses.is_empty();
-                if ui
-                    .add_enabled(submit_enabled, egui::Button::new("Save"))
-                    .clicked()
-                {
-                    outcome = EditOutcome::Submit(state.shelf_id, criteria);
-                }
-                if ui.button("Cancel").clicked() {
-                    outcome = EditOutcome::Cancel;
-                }
-            });
+        draw_clause_builder(ui, &mut state.logic, &mut state.clauses, distinct_values);
+        ui.add_space(6.0);
+
+        ui.horizontal(|ui| {
+            let criteria = build_criteria(state.logic, &state.clauses);
+            let submit_enabled = !criteria.clauses.is_empty();
+            let submit_label = if is_edit { "Save" } else { "Create" };
+            if ui
+                .add_enabled(submit_enabled, egui::Button::new(submit_label))
+                .clicked()
+            {
+                outcome = AutoShelfOutcome::Submit {
+                    shelf_id: state.shelf_id,
+                    name: state.name.trim().to_string(),
+                    criteria,
+                };
+            }
+            if ui.button("Cancel").clicked() {
+                outcome = AutoShelfOutcome::Cancel;
+            }
         });
+    });
     if !still_open {
-        outcome = EditOutcome::Cancel;
+        outcome = AutoShelfOutcome::Cancel;
     }
     outcome
 }

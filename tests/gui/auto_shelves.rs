@@ -38,7 +38,7 @@ mod tests {
             ],
         };
         h.app
-            .create_auto_shelf("Trek & Read", criteria)
+            .upsert_auto_shelf(None, "Trek & Read", criteria)
             .expect("valid auto-shelf");
         let shelf_id = h.app.shelves()[0].id;
 
@@ -64,7 +64,7 @@ mod tests {
             clauses: vec![Clause::Status(ReadingStatus::Read)],
         };
         h.app
-            .create_auto_shelf("Read", status_only)
+            .upsert_auto_shelf(None, "Read", status_only)
             .expect("valid auto-shelf");
         let status_shelf_id = h
             .app
@@ -97,7 +97,7 @@ mod tests {
             logic: ClauseLogic::And,
             clauses: vec![Clause::Tag("Tag 1".to_string())],
         };
-        h.app.create_auto_shelf("Auto", criteria).unwrap();
+        h.app.upsert_auto_shelf(None, "Auto", criteria).unwrap();
         let shelf_id = h.app.shelves()[0].id;
 
         let repo = SqliteRepository::new(&h.conn);
@@ -115,7 +115,7 @@ mod tests {
             logic: ClauseLogic::And,
             clauses: vec![Clause::Tag("Tag 1".to_string())],
         };
-        h.app.create_auto_shelf("Auto", criteria).unwrap();
+        h.app.upsert_auto_shelf(None, "Auto", criteria).unwrap();
         let auto_id = h.app.shelves()[0].id;
 
         let repo = SqliteRepository::new(&h.conn);
@@ -137,7 +137,7 @@ mod tests {
             ],
         };
         h.app
-            .create_auto_shelf("Round Trip", criteria.clone())
+            .upsert_auto_shelf(None, "Round Trip", criteria.clone())
             .unwrap();
         let shelf_id = h.app.shelves()[0].id;
 
@@ -166,16 +166,17 @@ mod tests {
             logic: ClauseLogic::Or,
             clauses: vec![Clause::Fandom("Star Wars".to_string())],
         };
-        h.app.create_auto_shelf("Editable", initial).unwrap();
+        h.app.upsert_auto_shelf(None, "Editable", initial).unwrap();
         let shelf_id = h.app.shelves()[0].id;
         assert_eq!(h.app.shelf_count(shelf_id), 1);
 
+        // The single upsert also lets the same edit rename the shelf.
         let updated = AutoShelfCriteria {
             logic: ClauseLogic::Or,
             clauses: vec![Clause::Fandom("Star Trek".to_string())],
         };
         h.app
-            .update_auto_shelf_criteria(shelf_id, updated.clone())
+            .upsert_auto_shelf(Some(shelf_id), "Renamed", updated.clone())
             .unwrap();
 
         assert_eq!(h.app.shelf_count(shelf_id), 1);
@@ -185,9 +186,26 @@ mod tests {
 
         let repo = SqliteRepository::new(&h.conn);
         let reloaded = repo.get_shelf_by_id(shelf_id).unwrap();
+        assert_eq!(reloaded.name, "Renamed");
         match reloaded.kind {
             ficflow::domain::shelf::ShelfKind::Auto(loaded) => assert_eq!(loaded, updated),
             ficflow::domain::shelf::ShelfKind::Normal => panic!("expected an auto-shelf"),
         }
+    }
+
+    #[test]
+    fn blank_name_defaults_to_unnamed_instead_of_blocking_creation() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+
+        let criteria = AutoShelfCriteria {
+            logic: ClauseLogic::And,
+            clauses: vec![Clause::Tag("Tag 1".to_string())],
+        };
+        h.app
+            .upsert_auto_shelf(None, "   ", criteria)
+            .expect("blank name should not block creation");
+        assert_eq!(h.app.shelves()[0].name, "Unnamed");
     }
 }

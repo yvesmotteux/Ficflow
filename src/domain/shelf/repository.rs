@@ -8,15 +8,17 @@ use crate::error::FicflowError;
 pub trait ShelfOps {
     fn create_shelf(&self, name: &str, parent_shelf_id: Option<u64>)
     -> Result<Shelf, FicflowError>;
-    fn create_auto_shelf(
+    /// Creates a new auto-shelf (`shelf_id: None`) or updates an
+    /// existing one's name + criteria (`shelf_id: Some`) in one call —
+    /// the two cases share every validation/refresh concern, so callers
+    /// (and the GUI modal) don't need to duplicate them. A blank name
+    /// defaults to "Unnamed" rather than being rejected, since a shelf
+    /// creation shouldn't be blocked on the user picking a name.
+    fn upsert_auto_shelf(
         &self,
+        shelf_id: Option<u64>,
         name: &str,
         parent_shelf_id: Option<u64>,
-        criteria: AutoShelfCriteria,
-    ) -> Result<Shelf, FicflowError>;
-    fn update_auto_shelf_criteria(
-        &self,
-        shelf_id: u64,
         criteria: AutoShelfCriteria,
     ) -> Result<Shelf, FicflowError>;
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError>;

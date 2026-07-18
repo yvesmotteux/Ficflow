@@ -253,31 +253,35 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.insert_shelf_row(name, parent_shelf_id, ShelfKind::Normal)
     }
 
-    fn create_auto_shelf(
+    fn upsert_auto_shelf(
         &self,
+        shelf_id: Option<u64>,
         name: &str,
         parent_shelf_id: Option<u64>,
         criteria: AutoShelfCriteria,
     ) -> Result<Shelf, FicflowError> {
-        self.insert_shelf_row(name, parent_shelf_id, ShelfKind::Auto(criteria))
-    }
-
-    fn update_auto_shelf_criteria(
-        &self,
-        shelf_id: u64,
-        criteria: AutoShelfCriteria,
-    ) -> Result<Shelf, FicflowError> {
-        if !matches!(self.get_shelf_by_id(shelf_id)?.kind, ShelfKind::Auto(_)) {
-            return Err(FicflowError::InvalidInput(
-                "shelf is not an auto-shelf".into(),
-            ));
+        let name = if name.trim().is_empty() {
+            "Unnamed"
+        } else {
+            name
+        };
+        match shelf_id {
+            None => self.insert_shelf_row(name, parent_shelf_id, ShelfKind::Auto(criteria)),
+            Some(id) => {
+                if !matches!(self.get_shelf_by_id(id)?.kind, ShelfKind::Auto(_)) {
+                    return Err(FicflowError::InvalidInput(
+                        "shelf is not an auto-shelf".into(),
+                    ));
+                }
+                let criteria_json = serde_json::to_string(&criteria)?;
+                self.conn.execute(
+                    "UPDATE shelf SET name = ?2, auto_criteria = ?3 \
+                     WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id, name.trim(), criteria_json],
+                )?;
+                self.get_shelf_by_id(id)
+            }
         }
-        let criteria_json = serde_json::to_string(&criteria)?;
-        self.conn.execute(
-            "UPDATE shelf SET auto_criteria = ?2 WHERE id = ?1 AND deleted_at IS NULL",
-            params![shelf_id, criteria_json],
-        )?;
-        self.get_shelf_by_id(shelf_id)
     }
 
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError> {
