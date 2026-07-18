@@ -1,5 +1,6 @@
 pub mod app;
 mod assets;
+mod auto_shelf;
 mod chrome;
 mod config;
 mod format;
