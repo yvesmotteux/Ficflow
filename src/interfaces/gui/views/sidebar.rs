@@ -42,6 +42,7 @@ pub enum Outcome {
         shelf_id: u64,
         new_parent: Option<u64>,
     },
+    TogglePinShelf(u64),
 }
 
 /// Dnd payload for dragging a shelf row — distinct from the `Vec<u64>`
@@ -240,6 +241,7 @@ const TRIANGLE_COL_W: f32 = 14.0;
 struct TreeRow {
     depth: usize,
     expanded: Option<bool>,
+    pinned: bool,
 }
 
 fn shelf_rows(
@@ -259,7 +261,7 @@ fn shelf_rows(
         let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
-        let (resp, triangle_clicked) = view_row(
+        let (resp, triangle_clicked, pin_clicked) = view_row(
             ui,
             current_view,
             View::Shelf(shelf.id),
@@ -269,10 +271,14 @@ fn shelf_rows(
             Some(TreeRow {
                 depth,
                 expanded: has_children.then_some(!collapsed),
+                pinned: shelf.pinned,
             }),
         );
         if triangle_clicked {
             ui.data_mut(|d| d.insert_persisted(collapse_id, !collapsed));
+        }
+        if pin_clicked {
+            *outcome = Outcome::TogglePinShelf(shelf.id);
         }
 
         if resp.drag_started() {
@@ -321,6 +327,15 @@ fn shelf_rows(
                 *outcome = Outcome::OpenRenameShelfModal(shelf.id);
                 ui.close();
             }
+            let pin_label = if shelf.pinned {
+                "Unpin shelf"
+            } else {
+                "Pin shelf"
+            };
+            if ui.button(pin_label).clicked() {
+                *outcome = Outcome::TogglePinShelf(shelf.id);
+                ui.close();
+            }
             if ui.button("Delete shelf").clicked() {
                 *outcome = Outcome::OpenDeleteShelfConfirm(shelf.id);
                 ui.close();
@@ -356,7 +371,7 @@ fn view_row(
     icon: Option<&str>,
     count: Option<usize>,
     tree: Option<TreeRow>,
-) -> (egui::Response, bool) {
+) -> (egui::Response, bool, bool) {
     let selected = *current_view == target;
     // 22px gives the rows breathing room without making the sidebar feel
     // sparse. (Default interact_size.y is ~18.)
@@ -416,6 +431,21 @@ fn view_row(
         None => 4.0,
     };
 
+    // Pin toggle: only shelf rows (`tree.is_some()`) get one, positioned
+    // just left of the count badge so it doesn't shift when the count
+    // changes width.
+    const PIN_COL_W: f32 = 16.0;
+    const PIN_GAP: f32 = 4.0;
+    let pin_rect = tree.map(|_| {
+        let size = egui::vec2(PIN_COL_W, PIN_COL_W);
+        let x = inner_rect.right() - count_reserve - PIN_GAP - size.x;
+        egui::Rect::from_min_size(egui::pos2(x, cy - size.y / 2.0), size)
+    });
+    let total_reserve = match pin_rect {
+        Some(_) => count_reserve + PIN_GAP + PIN_COL_W,
+        None => count_reserve,
+    };
+
     // Left side: icon column reserved only when there *is* an icon. Rows
     // without one (Shelves, Tasks, Settings) sit flush-left with no
     // phantom indent. Tree rows (shelves) get a depth indent plus a
@@ -464,7 +494,7 @@ fn view_row(
     let label_x = inner_rect.left() + left_pad + indent + tree_col_w + icon_col_w;
     let label_clip = egui::Rect::from_min_max(
         egui::pos2(label_x, inner_rect.top()),
-        egui::pos2(inner_rect.right() - count_reserve, inner_rect.bottom()),
+        egui::pos2(inner_rect.right() - total_reserve, inner_rect.bottom()),
     );
     ui.painter().with_clip_rect(label_clip).text(
         egui::pos2(label_x, cy),
@@ -488,12 +518,34 @@ fn view_row(
             .galley(badge_rect.min + pad, galley, text_color);
     }
 
-    if resp.clicked() && !triangle_clicked && !selected {
+    // Pin toggle icon, painted on top of the label like the count badge.
+    let mut pin_clicked = false;
+    if let (Some(pin_rect), Some(TreeRow { pinned, .. })) = (pin_rect, tree) {
+        let pin_resp = ui.interact(pin_rect, resp.id.with("pin"), egui::Sense::click());
+        pin_clicked = pin_resp.clicked();
+        let color = if pinned {
+            ui.style().visuals.selection.bg_fill
+        } else {
+            ui.style().visuals.weak_text_color()
+        };
+        ui.painter().text(
+            pin_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            PIN_ICON,
+            egui::FontId::proportional(12.0),
+            color,
+        );
+        pin_resp.on_hover_text(if pinned { "Unpin shelf" } else { "Pin shelf" });
+    }
+
+    if resp.clicked() && !triangle_clicked && !pin_clicked && !selected {
         *current_view = target;
     }
 
-    (resp, triangle_clicked)
+    (resp, triangle_clicked, pin_clicked)
 }
+
+const PIN_ICON: &str = "\u{2691}"; // ⚑ black flag
 
 enum HeaderOutcome {
     None,
