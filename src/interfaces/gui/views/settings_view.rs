@@ -5,6 +5,8 @@ use super::super::config::{AppConfig, BASE_MIN_INNER_SIZE, TEXT_ZOOM_RANGE};
 use super::super::format::erisian_date;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
+const ZOOM_STEP: f32 = 0.1;
+
 pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
     let mut changed = false;
 
@@ -33,31 +35,34 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
             ui.add_space(12.0);
             ui.label(RichText::new("Display").strong());
             ui.horizontal(|ui| {
-                let resp = ui.add(
-                    egui::Slider::new(&mut config.text_zoom, TEXT_ZOOM_RANGE)
-                        .step_by(0.05)
-                        .custom_formatter(|n, _| format!("{:.0}%", n * 100.0))
-                        .custom_parser(|s| {
-                            s.trim_end_matches('%')
-                                .trim()
-                                .parse::<f64>()
-                                .ok()
-                                .map(|p| p / 100.0)
-                        })
-                        .text("Text size"),
-                );
-                if resp.changed() {
-                    apply_zoom(ui.ctx(), config.text_zoom);
-                }
-                if resp.drag_stopped() || resp.lost_focus() {
+                let can_shrink = config.text_zoom > *TEXT_ZOOM_RANGE.start();
+                let can_grow = config.text_zoom < *TEXT_ZOOM_RANGE.end();
+                if ui.add_enabled(can_shrink, egui::Button::new("−")).clicked() {
+                    let z = (config.text_zoom - ZOOM_STEP)
+                        .clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
+                    config.text_zoom = z;
+                    apply_zoom(ui.ctx(), z);
                     changed = true;
                 }
-                if ui.button("Reset").clicked() {
+                ui.label(format!("{:.0}%", config.text_zoom * 100.0));
+                if ui.add_enabled(can_grow, egui::Button::new("+")).clicked() {
+                    let z = (config.text_zoom + ZOOM_STEP)
+                        .clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
+                    config.text_zoom = z;
+                    apply_zoom(ui.ctx(), z);
+                    changed = true;
+                }
+                ui.label("Text size");
+                if ui
+                    .add_enabled(config.text_zoom != 1.0, egui::Button::new("Reset"))
+                    .clicked()
+                {
                     config.text_zoom = 1.0;
                     apply_zoom(ui.ctx(), 1.0);
                     changed = true;
                 }
             });
+            ui.label(RichText::new("Or use Ctrl/Cmd +/-/0.").weak().italics());
 
             ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());

@@ -628,23 +628,27 @@ impl FicflowApp {
     }
 
     /// Picks up zoom changes from egui's built-in Ctrl/Cmd +/-/0 shortcut
-    /// (which calls `set_zoom_factor` directly, bypassing our code),
-    /// reasserts the zoom-compensated OS minimum window size for the new
-    /// factor, and persists it. Persistence (but not the size reassertion)
-    /// is skipped while the Settings slider is on screen — its own drag
-    /// handler already updates `self.config.text_zoom` this frame, and
-    /// reconciling against the one-frame-stale `zoom_factor()` here would
-    /// snap the slider back and cause visible jitter.
+    /// (which calls `set_zoom_factor` directly, bypassing our code and its
+    /// own 0.2..=5.0 range, not ours), snaps it back within `TEXT_ZOOM_RANGE`
+    /// if the shortcut pushed it out of bounds, reasserts the
+    /// zoom-compensated OS minimum window size for the new factor, and
+    /// persists it. Persistence (but not the size reassertion) is skipped
+    /// while the Settings view is on screen — its own button handlers
+    /// already update `self.config.text_zoom` directly, and reconciling
+    /// against the one-frame-stale `zoom_factor()` here could otherwise
+    /// race with that.
     fn sync_text_zoom(&mut self, ctx: &egui::Context) {
-        let live = ctx
-            .zoom_factor()
-            .clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
-        if (live - self.config.text_zoom).abs() > f32::EPSILON {
-            Self::apply_min_inner_size(ctx, live);
+        let raw = ctx.zoom_factor();
+        let clamped = raw.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end());
+        if (raw - clamped).abs() > f32::EPSILON {
+            ctx.set_zoom_factor(clamped);
+        }
+        if (clamped - self.config.text_zoom).abs() > f32::EPSILON {
+            Self::apply_min_inner_size(ctx, clamped);
             if matches!(self.current_view, View::Settings) {
                 return;
             }
-            self.config.text_zoom = live;
+            self.config.text_zoom = clamped;
             self.save_config();
         }
     }
