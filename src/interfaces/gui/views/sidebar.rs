@@ -5,6 +5,7 @@ use egui::{Color32, RichText, Stroke, StrokeKind, Ui};
 use crate::domain::fanfiction::ReadingStatus;
 use crate::domain::shelf::Shelf;
 
+use super::super::theme;
 use super::super::view::View;
 
 #[derive(Default)]
@@ -519,22 +520,21 @@ fn view_row(
     }
 
     // Pin toggle icon, painted on top of the label like the count badge.
+    // Only shown for pinned shelves, or on hover so unpinned shelves don't
+    // clutter the row — `theme::ACCENT` rather than the selection blue so
+    // it stays visible when the row itself is selected/highlighted.
     let mut pin_clicked = false;
     if let (Some(pin_rect), Some(TreeRow { pinned, .. })) = (pin_rect, tree) {
         let pin_resp = ui.interact(pin_rect, resp.id.with("pin"), egui::Sense::click());
         pin_clicked = pin_resp.clicked();
-        let color = if pinned {
-            ui.style().visuals.selection.bg_fill
-        } else {
-            ui.style().visuals.weak_text_color()
-        };
-        ui.painter().text(
-            pin_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            PIN_ICON,
-            egui::FontId::proportional(12.0),
-            color,
-        );
+        if pinned || resp.hovered() || pin_resp.hovered() {
+            let color = if pinned {
+                theme::ACCENT
+            } else {
+                ui.style().visuals.weak_text_color()
+            };
+            paint_pin_icon(ui.painter(), pin_rect.center(), color);
+        }
         pin_resp.on_hover_text(if pinned { "Unpin shelf" } else { "Pin shelf" });
     }
 
@@ -545,7 +545,21 @@ fn view_row(
     (resp, triangle_clicked, pin_clicked)
 }
 
-const PIN_ICON: &str = "\u{2691}"; // ⚑ black flag
+/// A small map-pin glyph drawn from primitives (circular head, triangular
+/// point) rather than a font character — the bundled/fallback fonts don't
+/// carry a pin symbol, only a flag one, which reads as the wrong icon.
+fn paint_pin_icon(painter: &egui::Painter, center: egui::Pos2, color: Color32) {
+    let head_center = center - egui::vec2(0.0, 2.0);
+    painter.circle_filled(head_center, 3.5, color);
+    let tip = center + egui::vec2(0.0, 5.0);
+    let base_l = head_center + egui::vec2(-3.0, 1.0);
+    let base_r = head_center + egui::vec2(3.0, 1.0);
+    painter.add(egui::Shape::convex_polygon(
+        vec![base_l, base_r, tip],
+        color,
+        Stroke::NONE,
+    ));
+}
 
 enum HeaderOutcome {
     None,
