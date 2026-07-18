@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use super::config::PersistedView;
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus};
 use crate::domain::shelf::Shelf;
 
@@ -54,5 +55,30 @@ impl View {
     /// True when this view shows the library table at all (vs. a stub page).
     pub fn shows_library(&self) -> bool {
         matches!(self, View::AllFics | View::ByStatus(_) | View::Shelf(_))
+    }
+
+    /// Converts to the persistable subset of views, or `None` for `Tasks`
+    /// and `Settings`, which aren't "tabs" worth restoring on next launch.
+    pub fn to_persisted(&self) -> Option<PersistedView> {
+        match self {
+            View::AllFics => Some(PersistedView::AllFics),
+            View::ByStatus(status) => Some(PersistedView::ByStatus(*status)),
+            View::Shelf(id) => Some(PersistedView::Shelf(*id)),
+            View::Tasks | View::Settings => None,
+        }
+    }
+
+    /// Resolves a persisted view against the currently loaded shelves,
+    /// falling back to `None` if a persisted shelf id no longer exists
+    /// (the shelf was deleted since the config was last saved).
+    pub fn from_persisted(persisted: PersistedView, shelves: &[Shelf]) -> Option<Self> {
+        match persisted {
+            PersistedView::AllFics => Some(View::AllFics),
+            PersistedView::ByStatus(status) => Some(View::ByStatus(status)),
+            PersistedView::Shelf(id) => shelves
+                .iter()
+                .any(|s| s.id == id)
+                .then_some(View::Shelf(id)),
+        }
     }
 }

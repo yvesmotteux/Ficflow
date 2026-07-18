@@ -132,12 +132,16 @@ impl FicflowApp {
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
         let app_config = AppConfig::load();
         let sort = app_config.default_sort;
+        let current_view = app_config
+            .last_view
+            .and_then(|pv| View::from_persisted(pv, &cache.shelves))
+            .unwrap_or_default();
         let task_executor = TaskExecutor::spawn(
             config.ao3_urls,
             config.max_retry_cycles,
             config.db_path.clone(),
         );
-        Ok(Self {
+        let mut app = Self {
             connection,
             cache,
             chrome,
@@ -147,7 +151,7 @@ impl FicflowApp {
             search_query: String::new(),
             show_column_picker: false,
             selection: SelectionController::new(),
-            current_view: View::default(),
+            current_view,
             active_modal: ActiveModal::None,
             task_executor,
             quit_confirmed: false,
@@ -155,7 +159,14 @@ impl FicflowApp {
             focus_search_pending: false,
             toasts: Toasts::default(),
             details_panel_width: 320.0,
-        })
+        };
+        // Restoring straight into a shelf view skips the sidebar's
+        // prev/post diff (see `paint_sidebar`) that normally populates
+        // `shelf_members` on a view change, so do it explicitly here.
+        if matches!(app.current_view, View::Shelf(_)) {
+            app.refresh_shelf_members();
+        }
+        Ok(app)
     }
 
     // ---- Read-only accessors ----
@@ -255,6 +266,17 @@ impl FicflowApp {
 
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
+        self.persist_current_view();
+    }
+
+    /// Saves `current_view` into `AppConfig` if it's a restorable
+    /// (library-facing) view. Called from both `open_view` and the
+    /// sidebar's direct `current_view` mutation (`paint_sidebar`).
+    fn persist_current_view(&mut self) {
+        if let Some(persisted) = self.current_view.to_persisted() {
+            self.config.last_view = Some(persisted);
+            self.save_config();
+        }
     }
 
     pub fn refresh_selected(&self) {
@@ -305,7 +327,7 @@ impl FicflowApp {
             Ok(()) => {
                 self.toasts.success("Shelf deleted");
                 if self.current_view == View::Shelf(shelf_id) {
-                    self.current_view = View::AllFics;
+                    self.open_view(View::AllFics);
                     self.cache.shelf_members.clear();
                 }
                 self.cache.reload_shelves(&self.connection);
@@ -793,6 +815,7 @@ impl FicflowApp {
                 self.cache.shelf_members.clear();
             }
             self.prune_selection_to_view();
+            self.persist_current_view();
         }
     }
 
