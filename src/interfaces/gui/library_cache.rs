@@ -126,6 +126,19 @@ impl LibraryCache {
         self.refresh_auto_shelf_members();
     }
 
+    /// Batch form of `replace_fic` — updates every entry first, then
+    /// recomputes auto-shelf membership once instead of once per fic
+    /// (bulk operations like `bulk_set_status` can touch dozens of fics
+    /// at a time, and each recompute is a full shelves × fics scan).
+    pub fn replace_fics(&mut self, updated: Vec<Fanfiction>) {
+        for updated in updated {
+            if let Some(slot) = self.fics.iter_mut().find(|f| f.id == updated.id) {
+                *slot = updated;
+            }
+        }
+        self.refresh_auto_shelf_members();
+    }
+
     pub fn remove_fics(&mut self, ids: &[u64]) {
         self.fics.retain(|f| !ids.contains(&f.id));
         self.refresh_auto_shelf_members();

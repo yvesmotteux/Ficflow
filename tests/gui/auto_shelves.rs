@@ -208,4 +208,22 @@ mod tests {
             .expect("blank name should not block creation");
         assert_eq!(h.app.shelves()[0].name, "Unnamed");
     }
+
+    #[test]
+    fn auto_shelves_are_excluded_from_manual_assignment() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step_n(1);
+
+        h.app.create_shelf("Curated").unwrap();
+        let criteria = AutoShelfCriteria {
+            logic: ClauseLogic::And,
+            clauses: vec![Clause::Tag("Tag 1".to_string())],
+        };
+        h.app.upsert_auto_shelf(None, "Auto", criteria).unwrap();
+
+        let assignable = h.app.assignable_shelves();
+        assert_eq!(assignable.len(), 1);
+        assert_eq!(assignable[0].name, "Curated");
+    }
 }

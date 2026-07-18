@@ -12,7 +12,7 @@ use crate::application::{
     upsert_auto_shelf,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
-use crate::domain::shelf::{AutoShelfCriteria, Shelf};
+use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
@@ -485,9 +485,7 @@ impl FicflowApp {
                 Err(_) => errors += 1,
             }
         }
-        for fic in updated_fics {
-            self.cache.replace_fic(fic);
-        }
+        self.cache.replace_fics(updated_fics);
         (ids.len() - errors, errors)
     }
 
@@ -900,6 +898,19 @@ impl FicflowApp {
         }
     }
 
+    /// Shelves a fic can be manually added to/removed from — excludes
+    /// auto-shelves, whose membership is computed from criteria and
+    /// would just reject the write (same rule the sidebar's
+    /// drag-and-drop already enforces for these two UI surfaces).
+    pub fn assignable_shelves(&self) -> Vec<Shelf> {
+        self.cache
+            .shelves
+            .iter()
+            .filter(|s| !matches!(s.kind, ShelfKind::Auto(_)))
+            .cloned()
+            .collect()
+    }
+
     fn paint_details_panel(&mut self, host: &mut egui::Ui) {
         let Selection::Single(id) = *self.selection.current() else {
             return;
@@ -924,6 +935,7 @@ impl FicflowApp {
         const MAX_W: f32 = 900.0;
         let panel_width = self.details_panel_width.clamp(MIN_W, MAX_W);
 
+        let assignable_shelves = self.assignable_shelves();
         let mut outcome = details_panel::Outcome::None;
         egui::Panel::right("ficflow-details-v2")
             .exact_size(panel_width)
@@ -933,7 +945,7 @@ impl FicflowApp {
                     ui,
                     DetailsState {
                         fic: &fic,
-                        all_shelves: &self.cache.shelves,
+                        all_shelves: &assignable_shelves,
                         selection_shelf_ids: &self.cache.selection_shelf_ids,
                     },
                 );
@@ -975,6 +987,7 @@ impl FicflowApp {
         if selection_ids.is_empty() || !self.current_view.shows_library() {
             return;
         }
+        let assignable_shelves = self.assignable_shelves();
         let mut outcome = selection_bar::Outcome::None;
         egui::Panel::bottom("ficflow-selection-bar")
             .resizable(false)
@@ -984,7 +997,7 @@ impl FicflowApp {
                     SelectionBarState {
                         selection_ids: &selection_ids,
                         current_view: &self.current_view,
-                        all_shelves: &self.cache.shelves,
+                        all_shelves: &assignable_shelves,
                     },
                 );
             });
