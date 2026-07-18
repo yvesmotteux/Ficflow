@@ -161,14 +161,15 @@ impl AppConfig {
     /// Loads the config from disk. Returns `Default` if the file is missing
     /// or unparseable — never blocks startup on config issues.
     pub fn load() -> Self {
-        Self::load_from(config_path())
+        Self::load_from(None)
     }
 
-    /// Same as `load`, but reads from an explicit path instead of the
-    /// platform config dir. Lets embedders and integration tests point at
-    /// a scratch file without touching the real user config.
+    /// Same as `load`, but reads from an explicit path if given, falling
+    /// back to the platform config dir when `path` is `None`. Lets
+    /// embedders and integration tests point at a scratch file without
+    /// touching the real user config.
     pub fn load_from(path: Option<PathBuf>) -> Self {
-        let Some(path) = path else {
+        let Some(path) = path.or_else(config_path) else {
             return Self::default();
         };
         let Ok(text) = std::fs::read_to_string(&path) else {
