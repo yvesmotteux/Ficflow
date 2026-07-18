@@ -1,10 +1,13 @@
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
+use super::super::config::AppConfig;
 use super::super::format::erisian_date;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
-pub fn draw(ui: &mut Ui) {
+pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
+    let mut changed = false;
+
     ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
@@ -28,20 +31,41 @@ pub fn draw(ui: &mut Ui) {
             );
 
             ui.add_space(12.0);
+            ui.label(RichText::new("Display").strong());
+            ui.horizontal(|ui| {
+                let resp = ui.add(
+                    egui::Slider::new(&mut config.text_zoom, 0.75..=2.0)
+                        .step_by(0.05)
+                        .custom_formatter(|n, _| format!("{:.0}%", n * 100.0))
+                        .custom_parser(|s| {
+                            s.trim_end_matches('%')
+                                .trim()
+                                .parse::<f64>()
+                                .ok()
+                                .map(|p| p / 100.0)
+                        })
+                        .text("Text size"),
+                );
+                if resp.changed() {
+                    ui.ctx().set_zoom_factor(config.text_zoom);
+                }
+                if resp.drag_stopped() || resp.lost_focus() {
+                    changed = true;
+                }
+                if ui.button("Reset").clicked() {
+                    config.text_zoom = 1.0;
+                    ui.ctx().set_zoom_factor(1.0);
+                    changed = true;
+                }
+            });
+
+            ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());
             info_row(ui, "Database", db_path_display());
             info_row(ui, "Config", config_path_display());
-
-            ui.add_space(16.0);
-            ui.label(
-                RichText::new(
-                    "Configurable settings (themes, shortcuts, default views) will land here in \
-                future versions.",
-                )
-                .italics()
-                .weak(),
-            );
         });
+
+    changed
 }
 
 fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {

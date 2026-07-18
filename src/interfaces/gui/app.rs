@@ -131,6 +131,7 @@ impl FicflowApp {
         let cache = LibraryCache::load(&connection);
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
         let app_config = AppConfig::load();
+        ctx.set_zoom_factor(app_config.text_zoom.clamp(0.75, 2.0));
         let sort = app_config.default_sort;
         let current_view = app_config
             .last_view
@@ -620,6 +621,23 @@ impl FicflowApp {
         }
     }
 
+    /// Picks up zoom changes from egui's built-in Ctrl/Cmd +/-/0 shortcut
+    /// (which calls `set_zoom_factor` directly, bypassing our code) and
+    /// persists them. Skipped while the Settings slider is on screen —
+    /// its own drag handler already updates `self.config.text_zoom` this
+    /// frame, and reconciling against the one-frame-stale `zoom_factor()`
+    /// here would snap the slider back and cause visible jitter.
+    fn sync_text_zoom(&mut self, ctx: &egui::Context) {
+        if matches!(self.current_view, View::Settings) {
+            return;
+        }
+        let live = ctx.zoom_factor().clamp(0.75, 2.0);
+        if (live - self.config.text_zoom).abs() > f32::EPSILON {
+            self.config.text_zoom = live;
+            self.save_config();
+        }
+    }
+
     fn handle_close_request(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quit_confirmed
@@ -709,6 +727,7 @@ impl FicflowApp {
     pub fn render(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.sync_window_state(&ctx);
+        self.sync_text_zoom(&ctx);
         self.handle_close_request(&ctx);
         self.handle_shortcuts(&ctx);
 
@@ -960,7 +979,9 @@ impl FicflowApp {
                     },
                 );
             } else if matches!(self.current_view, View::Settings) {
-                settings_view::draw(ui);
+                if settings_view::draw(ui, &mut self.config) {
+                    self.save_config();
+                }
             } else {
                 draw_stub_view(ui, &self.current_view);
             }
