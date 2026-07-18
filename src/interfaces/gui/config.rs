@@ -139,14 +139,12 @@ pub struct AppConfig {
 
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
-/// The window's OS-enforced minimum size, in points, at `text_zoom == 1.0`.
-/// eframe multiplies whatever `min_inner_size` we hand it by the current
-/// zoom factor when applying it as the OS-level constraint (unlike
-/// `inner_size`, which eframe itself clamps back down to the monitor's
-/// bounds) — so it must be divided by the active zoom factor before being
-/// handed to egui, to keep the OS-enforced *physical* floor constant
-/// regardless of zoom. See `min_inner_size_for` and `apply_min_inner_size`.
-pub const BASE_MIN_INNER_SIZE: [f32; 2] = [600.0, 400.0];
+/// eframe multiplies `min_inner_size` by the current zoom factor when
+/// enforcing it as the OS-level minimum window size (unlike `inner_size`,
+/// which eframe clamps back down to the monitor's bounds itself) — kept
+/// small enough that even at `TEXT_ZOOM_RANGE`'s max on a scaled display,
+/// the enforced minimum can't exceed a real screen.
+pub const MIN_INNER_SIZE: [f32; 2] = [280.0, 200.0];
 
 fn default_text_zoom() -> f32 {
     1.0
@@ -156,23 +154,12 @@ pub fn clamp_zoom(zoom: f32) -> f32 {
     zoom.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end())
 }
 
-pub fn min_inner_size_for(zoom: f32) -> [f32; 2] {
-    [BASE_MIN_INNER_SIZE[0] / zoom, BASE_MIN_INNER_SIZE[1] / zoom]
-}
-
-/// Reasserts `min_inner_size_for(zoom)` as the OS-level minimum window size.
-pub fn apply_min_inner_size(ctx: &egui::Context, zoom: f32) {
-    let [w, h] = min_inner_size_for(zoom);
-    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(w, h)));
-}
-
-/// Clamps `zoom` to `TEXT_ZOOM_RANGE`, applies it as the egui zoom factor,
-/// and reasserts the compensated OS minimum window size for it. Returns the
-/// clamped value actually applied, so callers can store it back.
+/// Clamps `zoom` to `TEXT_ZOOM_RANGE` and applies it as the egui zoom
+/// factor. Returns the clamped value actually applied, so callers can
+/// store it back.
 pub fn set_zoom(ctx: &egui::Context, zoom: f32) -> f32 {
     let clamped = clamp_zoom(zoom);
     ctx.set_zoom_factor(clamped);
-    apply_min_inner_size(ctx, clamped);
     clamped
 }
 

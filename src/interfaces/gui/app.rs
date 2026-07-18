@@ -631,7 +631,6 @@ impl FicflowApp {
             ctx.set_zoom_factor(clamped);
         }
         if (clamped - self.config.text_zoom).abs() > f32::EPSILON {
-            config::apply_min_inner_size(ctx, clamped);
             self.config.text_zoom = clamped;
             self.save_config();
         }

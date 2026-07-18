@@ -21,11 +21,6 @@ pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
 
 pub fn run_gui() -> ExitCode {
-    // See `config::BASE_MIN_INNER_SIZE`'s doc for why this must be
-    // pre-divided by the persisted zoom before reaching the window builder.
-    let zoom = config::clamp_zoom(AppConfig::load().text_zoom);
-    let min_inner_size = config::min_inner_size_for(zoom);
-
     // Borderless + transparent so the Art Nouveau chrome paints in
     // place of the OS title bar (`FicflowApp::clear_color` returns
     // `[0;4]` so the alpha channel reaches the compositor).
@@ -35,7 +30,7 @@ pub fn run_gui() -> ExitCode {
         .with_decorations(false)
         .with_transparent(true)
         .with_inner_size([1100.0, 700.0])
-        .with_min_inner_size(min_inner_size);
+        .with_min_inner_size(config::MIN_INNER_SIZE);
     match eframe::icon_data::from_png_bytes(assets::ICON_PNG) {
         Ok(icon) => viewport = viewport.with_icon(icon),
         Err(err) => log::warn!("Failed to decode window icon: {}", err),
