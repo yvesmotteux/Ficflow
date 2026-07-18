@@ -1,5 +1,5 @@
 use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
-use crate::domain::shelf::Shelf;
+use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use chrono::{DateTime, Utc};
 use rusqlite::Row;
 
@@ -14,12 +14,35 @@ pub fn row_to_shelf(row: &Row) -> Result<Shelf, rusqlite::Error> {
             rusqlite::Error::InvalidColumnType(4, "created_at".into(), rusqlite::types::Type::Text)
         })?
         .with_timezone(&Utc);
+    let kind_str: String = row.get(5)?;
+    let auto_criteria_json: Option<String> = row.get(6)?;
+    let kind = match kind_str.as_str() {
+        "auto" => {
+            let json = auto_criteria_json.ok_or_else(|| {
+                rusqlite::Error::InvalidColumnType(
+                    6,
+                    "auto_criteria".into(),
+                    rusqlite::types::Type::Text,
+                )
+            })?;
+            let criteria: AutoShelfCriteria = serde_json::from_str(&json).map_err(|_| {
+                rusqlite::Error::InvalidColumnType(
+                    6,
+                    "auto_criteria".into(),
+                    rusqlite::types::Type::Text,
+                )
+            })?;
+            ShelfKind::Auto(criteria)
+        }
+        _ => ShelfKind::Normal,
+    };
     Ok(Shelf {
         id,
         name,
         parent_shelf_id,
         pinned,
         created_at,
+        kind,
     })
 }
 

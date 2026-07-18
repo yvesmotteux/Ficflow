@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::auto_criteria::AutoShelfCriteria;
 use super::entity::Shelf;
 use crate::domain::fanfiction::Fanfiction;
 use crate::error::FicflowError;
@@ -7,6 +8,17 @@ use crate::error::FicflowError;
 pub trait ShelfOps {
     fn create_shelf(&self, name: &str, parent_shelf_id: Option<u64>)
     -> Result<Shelf, FicflowError>;
+    fn create_auto_shelf(
+        &self,
+        name: &str,
+        parent_shelf_id: Option<u64>,
+        criteria: AutoShelfCriteria,
+    ) -> Result<Shelf, FicflowError>;
+    fn update_auto_shelf_criteria(
+        &self,
+        shelf_id: u64,
+        criteria: AutoShelfCriteria,
+    ) -> Result<Shelf, FicflowError>;
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError>;
     fn move_shelf(&self, shelf_id: u64, new_parent: Option<u64>) -> Result<Shelf, FicflowError>;
     fn update_shelf_name(&self, shelf_id: u64, new_name: &str) -> Result<Shelf, FicflowError>;
