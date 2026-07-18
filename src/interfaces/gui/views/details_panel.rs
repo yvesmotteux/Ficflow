@@ -18,6 +18,7 @@ use crate::domain::shelf::Shelf;
 use super::super::format::{format_status, format_thousands};
 use super::super::widgets::shelves_dropdown::{self, DropdownOutcome};
 use super::super::widgets::star_rating;
+use super::modals::shelf_modals::ClauseFieldKind;
 
 pub struct DetailsState<'a> {
     pub fic: &'a Fanfiction,
@@ -40,6 +41,7 @@ pub enum Outcome {
     RemoveFromShelf(u64),
     RequestDelete,
     RequestRefresh,
+    CreateAutoShelfFromTag(ClauseFieldKind, String),
 }
 
 pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
@@ -70,7 +72,10 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         .show_separator_line(true)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 8)))
         .show_inside(ui, |ui| {
-            draw_header(ui, fic);
+            let header = draw_header(ui, fic);
+            if !matches!(header, Outcome::None) {
+                outcome = header;
+            }
         });
 
     // Central scrollable: AO3 Metadata.
@@ -94,7 +99,8 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
 // Header — title, author with AO3-author link, full fic URL
 // ---------------------------------------------------------------------------
 
-fn draw_header(ui: &mut Ui, fic: &Fanfiction) {
+fn draw_header(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
+    let mut outcome = Outcome::None;
     ui.label(RichText::new(&fic.title).heading().strong());
     ui.add_space(2.0);
 
@@ -106,7 +112,14 @@ fn draw_header(ui: &mut Ui, fic: &Fanfiction) {
             if i > 0 {
                 ui.label(",");
             }
-            ui.label(author);
+            let resp = ui.add(egui::Label::new(author).sense(Sense::click()));
+            resp.context_menu(|ui| {
+                if ui.button("Create auto-shelf from this author").clicked() {
+                    outcome =
+                        Outcome::CreateAutoShelfFromTag(ClauseFieldKind::Author, author.clone());
+                    ui.close();
+                }
+            });
             if author != "Anonymous" {
                 // Anonymous works have no real user page, so the arrow is skipped.
                 ui.hyperlink_to(
@@ -120,6 +133,7 @@ fn draw_header(ui: &mut Ui, fic: &Fanfiction) {
     ui.add_space(4.0);
     let url = format!("https://archiveofourown.org/works/{}", fic.id);
     ui.hyperlink_to(RichText::new(&url).small(), &url);
+    outcome
 }
 
 // ---------------------------------------------------------------------------
@@ -327,25 +341,61 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     });
     ui.add_space(6.0);
 
+    let mut tag_shelf_request: Option<(ClauseFieldKind, String)> = None;
+
     if !fic.fandoms.is_empty() {
-        ao3_row(ui, "Fandoms", |ui| bubble_list(ui, "fandoms", &fic.fandoms));
+        ao3_row(ui, "Fandoms", |ui| {
+            bubble_list(
+                ui,
+                "fandoms",
+                &fic.fandoms,
+                Some(ClauseFieldKind::Fandom),
+                &mut tag_shelf_request,
+            )
+        });
     }
     if let Some(rels) = fic.relationships.as_ref().filter(|v| !v.is_empty()) {
         ao3_row(ui, "Relationships", |ui| {
-            bubble_list(ui, "relationships", rels)
+            bubble_list(
+                ui,
+                "relationships",
+                rels,
+                Some(ClauseFieldKind::Relationship),
+                &mut tag_shelf_request,
+            )
         });
     }
     if let Some(chars) = fic.characters.as_ref().filter(|v| !v.is_empty()) {
-        ao3_row(ui, "Characters", |ui| bubble_list(ui, "characters", chars));
+        ao3_row(ui, "Characters", |ui| {
+            bubble_list(
+                ui,
+                "characters",
+                chars,
+                Some(ClauseFieldKind::Character),
+                &mut tag_shelf_request,
+            )
+        });
     }
     if let Some(tags) = fic.tags.as_ref().filter(|v| !v.is_empty()) {
-        ao3_row(ui, "Additional Tags", |ui| bubble_list(ui, "tags", tags));
+        ao3_row(ui, "Additional Tags", |ui| {
+            bubble_list(
+                ui,
+                "tags",
+                tags,
+                Some(ClauseFieldKind::Tag),
+                &mut tag_shelf_request,
+            )
+        });
+    }
+    if let Some((field, value)) = tag_shelf_request {
+        outcome = Outcome::CreateAutoShelfFromTag(field, value);
     }
 
     // Single-value rows.
     ao3_row(ui, "Rating", |ui| {
         ui.label(format_ao3_rating(&fic.rating));
     });
+    let mut ignored_request: Option<(ClauseFieldKind, String)> = None;
     if !fic.warnings.is_empty() {
         let labels: Vec<String> = fic
             .warnings
@@ -353,7 +403,7 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
             .map(|w| format_single_warning(w).to_string())
             .collect();
         ao3_row(ui, "Archive Warning", |ui| {
-            bubble_list(ui, "warnings", &labels)
+            bubble_list(ui, "warnings", &labels, None, &mut ignored_request)
         });
     }
     if let Some(cats) = fic.categories.as_ref().filter(|v| !v.is_empty()) {
@@ -361,7 +411,9 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
             .iter()
             .map(|c| format_category(c).to_string())
             .collect();
-        ao3_row(ui, "Category", |ui| bubble_list(ui, "categories", &labels));
+        ao3_row(ui, "Category", |ui| {
+            bubble_list(ui, "categories", &labels, None, &mut ignored_request)
+        });
     }
     ao3_row(ui, "Words", |ui| {
         ui.label(format_thousands(fic.words));
@@ -427,7 +479,13 @@ fn ao3_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
 /// items shown as bubbles; if there are more, the trailing bubble is
 /// `+N more` and toggles to expanded on click. State is per-section
 /// (keyed by `salt`) and lives in egui temp memory.
-fn bubble_list(ui: &mut Ui, salt: &str, items: &[String]) {
+fn bubble_list(
+    ui: &mut Ui,
+    salt: &str,
+    items: &[String],
+    field: Option<ClauseFieldKind>,
+    tag_shelf_request: &mut Option<(ClauseFieldKind, String)>,
+) {
     const VISIBLE_DEFAULT: usize = 5;
     let id = ui.id().with(("bubble-expand", salt));
     let mut expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
@@ -440,7 +498,15 @@ fn bubble_list(ui: &mut Ui, salt: &str, items: &[String]) {
             items.len().min(VISIBLE_DEFAULT)
         };
         for item in &items[..limit] {
-            bubble(ui, item);
+            let resp = bubble(ui, item, field.is_some());
+            if let Some(field) = field {
+                resp.context_menu(|ui| {
+                    if ui.button("Create auto-shelf from this tag").clicked() {
+                        *tag_shelf_request = Some((field, item.clone()));
+                        ui.close();
+                    }
+                });
+            }
         }
         if items.len() > VISIBLE_DEFAULT {
             let label = if expanded {
@@ -468,18 +534,24 @@ fn bubble_list(ui: &mut Ui, salt: &str, items: &[String]) {
 /// the bubble allocates beyond the panel's clip rect, and the panel
 /// stores the overflowed rect in `PanelState` — egui #8055 then makes
 /// the panel grow by that much every frame until it pegs at the max.
-fn bubble(ui: &mut Ui, text: &str) {
+fn bubble(ui: &mut Ui, text: &str, clickable: bool) -> egui::Response {
     let font = egui::FontId::proportional(12.0);
     let text_color = ui.visuals().text_color();
     let pad = egui::vec2(8.0, 2.0);
     let max_text_w = (ui.max_rect().width() - pad.x * 2.0).max(40.0);
     let galley = layout_break_anywhere(ui, text, font, text_color, max_text_w);
     let size = galley.size() + pad * 2.0;
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let sense = if clickable {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(size, sense);
     let fill = ui.visuals().widgets.inactive.weak_bg_fill;
     ui.painter()
         .rect(rect, 10.0, fill, Stroke::NONE, StrokeKind::Inside);
     ui.painter().galley(rect.min + pad, galley, text_color);
+    resp
 }
 
 fn bubble_clickable(ui: &mut Ui, text: &str) -> egui::Response {

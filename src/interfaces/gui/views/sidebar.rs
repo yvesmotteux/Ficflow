@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use egui::{Color32, RichText, Stroke, StrokeKind, Ui};
 
 use crate::domain::fanfiction::ReadingStatus;
-use crate::domain::shelf::Shelf;
+use crate::domain::shelf::{Shelf, ShelfKind};
 
 use super::super::theme;
 use super::super::view::View;
@@ -34,6 +34,7 @@ pub enum Outcome {
     None,
     OpenCreateShelfModal,
     OpenRenameShelfModal(u64),
+    OpenEditAutoShelfModal(u64),
     OpenDeleteShelfConfirm(u64),
     DropOnShelf {
         shelf_id: u64,
@@ -262,12 +263,16 @@ fn shelf_rows(
         let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
+        let is_auto = matches!(shelf.kind, ShelfKind::Auto(_));
         let (resp, triangle_clicked, pin_clicked) = view_row(
             ui,
             current_view,
             View::Shelf(shelf.id),
             &shelf.name,
-            None,
+            // U+FE0E forces the plain "text" glyph variant rather than a
+            // wider emoji-style rendering, which otherwise bakes in extra
+            // left padding that throws off alignment vs. other icons.
+            is_auto.then_some("\u{2699}\u{FE0E}"),
             Some(count),
             Some(TreeRow {
                 depth,
@@ -294,7 +299,7 @@ fn shelf_rows(
         // both `Vec<u64>` and `ShelfDrag` unconditionally on the same row, in
         // sequence, silently destroyed real `ShelfDrag` drops before the
         // second check ever saw them — nesting a shelf never worked.
-        if resp.dnd_hover_payload::<Vec<u64>>().is_some() {
+        if !is_auto && resp.dnd_hover_payload::<Vec<u64>>().is_some() {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
                 inner,
@@ -308,9 +313,10 @@ fn shelf_rows(
                     fic_ids: (*payload).clone(),
                 };
             }
-        } else if resp
-            .dnd_hover_payload::<ShelfDrag>()
-            .is_some_and(|dragged| dragged.0 != shelf.id)
+        } else if !is_auto
+            && resp
+                .dnd_hover_payload::<ShelfDrag>()
+                .is_some_and(|dragged| dragged.0 != shelf.id)
         {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
             ui.painter().rect_stroke(
@@ -332,6 +338,10 @@ fn shelf_rows(
         resp.context_menu(|ui| {
             if ui.button("Rename shelf").clicked() {
                 *outcome = Outcome::OpenRenameShelfModal(shelf.id);
+                ui.close();
+            }
+            if is_auto && ui.button("Edit criteria").clicked() {
+                *outcome = Outcome::OpenEditAutoShelfModal(shelf.id);
                 ui.close();
             }
             let pin_label = if shelf.pinned {
@@ -465,12 +475,15 @@ fn view_row(
     };
     let icon_col_w = if icon.is_some() { 20.0 } else { 0.0 };
     if let Some(icon) = icon {
+        // Left-aligned rather than centered in the reserved column: some
+        // glyphs (the auto-shelf gear in particular) measure much wider
+        // than their visible ink, so centering by measured width left a
+        // gap before the glyph. Anchoring flush-left, right where a
+        // same-depth row's label would start without an icon, is
+        // deterministic regardless of the glyph's metrics.
         ui.painter().text(
-            egui::pos2(
-                inner_rect.left() + left_pad + indent + tree_col_w + icon_col_w / 2.0,
-                cy,
-            ),
-            egui::Align2::CENTER_CENTER,
+            egui::pos2(inner_rect.left() + left_pad + indent + tree_col_w, cy),
+            egui::Align2::LEFT_CENTER,
             icon,
             body_font.clone(),
             text_color,

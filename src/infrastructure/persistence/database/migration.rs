@@ -70,6 +70,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
             ALTER TABLE shelf ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0;
         "#,
         ),
+        M::up(
+            r#"
+            ALTER TABLE shelf ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal';
+            ALTER TABLE shelf ADD COLUMN auto_criteria TEXT;
+        "#,
+        ),
     ]);
 
     migrations.to_latest(conn)?;

@@ -28,6 +28,9 @@ mod field_updates;
 #[path = "gui/shelves.rs"]
 mod shelves;
 
+#[path = "gui/auto_shelves.rs"]
+mod auto_shelves;
+
 #[path = "gui/bulk.rs"]
 mod bulk;
 

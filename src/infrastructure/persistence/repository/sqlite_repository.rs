@@ -1,5 +1,5 @@
 use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
-use crate::domain::shelf::{MAX_SHELF_DEPTH, Shelf, ShelfOps};
+use crate::domain::shelf::{AutoShelfCriteria, MAX_SHELF_DEPTH, Shelf, ShelfKind, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{row_to_fanfiction, row_to_shelf};
 use chrono::Utc;
@@ -188,11 +188,12 @@ impl<'a> SqliteRepository<'a> {
     }
 }
 
-impl<'a> ShelfOps for SqliteRepository<'a> {
-    fn create_shelf(
+impl<'a> SqliteRepository<'a> {
+    fn insert_shelf_row(
         &self,
         name: &str,
         parent_shelf_id: Option<u64>,
+        kind: ShelfKind,
     ) -> Result<Shelf, FicflowError> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -202,6 +203,11 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         }
         if let Some(parent) = parent_shelf_id {
             self.ensure_shelf_exists(parent)?;
+            if matches!(self.get_shelf_by_id(parent)?.kind, ShelfKind::Auto(_)) {
+                return Err(FicflowError::InvalidInput(
+                    "cannot nest a shelf under an auto-shelf".into(),
+                ));
+            }
             if self.shelf_depth(parent)? >= MAX_SHELF_DEPTH as u32 {
                 return Err(FicflowError::ShelfDepthExceeded {
                     max: MAX_SHELF_DEPTH,
@@ -209,10 +215,22 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
             }
         }
 
+        let (kind_col, criteria_col) = match &kind {
+            ShelfKind::Normal => ("normal", None),
+            ShelfKind::Auto(criteria) => ("auto", Some(serde_json::to_string(criteria)?)),
+        };
+
         let created_at = Utc::now();
         self.conn.execute(
-            "INSERT INTO shelf (name, created_at, parent_shelf_id) VALUES (?1, ?2, ?3)",
-            params![trimmed, created_at.to_rfc3339(), parent_shelf_id],
+            "INSERT INTO shelf (name, created_at, parent_shelf_id, kind, auto_criteria) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                trimmed,
+                created_at.to_rfc3339(),
+                parent_shelf_id,
+                kind_col,
+                criteria_col
+            ],
         )?;
         let id = self.conn.last_insert_rowid() as u64;
         Ok(Shelf {
@@ -221,7 +239,49 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
             parent_shelf_id,
             pinned: false,
             created_at,
+            kind,
         })
+    }
+}
+
+impl<'a> ShelfOps for SqliteRepository<'a> {
+    fn create_shelf(
+        &self,
+        name: &str,
+        parent_shelf_id: Option<u64>,
+    ) -> Result<Shelf, FicflowError> {
+        self.insert_shelf_row(name, parent_shelf_id, ShelfKind::Normal)
+    }
+
+    fn upsert_auto_shelf(
+        &self,
+        shelf_id: Option<u64>,
+        name: &str,
+        parent_shelf_id: Option<u64>,
+        criteria: AutoShelfCriteria,
+    ) -> Result<Shelf, FicflowError> {
+        let name = if name.trim().is_empty() {
+            "Unnamed"
+        } else {
+            name
+        };
+        match shelf_id {
+            None => self.insert_shelf_row(name, parent_shelf_id, ShelfKind::Auto(criteria)),
+            Some(id) => {
+                if !matches!(self.get_shelf_by_id(id)?.kind, ShelfKind::Auto(_)) {
+                    return Err(FicflowError::InvalidInput(
+                        "shelf is not an auto-shelf".into(),
+                    ));
+                }
+                let criteria_json = serde_json::to_string(&criteria)?;
+                self.conn.execute(
+                    "UPDATE shelf SET name = ?2, auto_criteria = ?3 \
+                     WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id, name.trim(), criteria_json],
+                )?;
+                self.get_shelf_by_id(id)
+            }
+        }
     }
 
     fn delete_shelf(&self, shelf_id: u64) -> Result<(), FicflowError> {
@@ -249,6 +309,11 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         if let Some(parent) = new_parent {
             if parent != shelf_id {
                 self.ensure_shelf_exists(parent)?;
+            }
+            if matches!(self.get_shelf_by_id(parent)?.kind, ShelfKind::Auto(_)) {
+                return Err(FicflowError::InvalidInput(
+                    "cannot nest a shelf under an auto-shelf".into(),
+                ));
             }
             let subtree = self.shelf_subtree(shelf_id)?;
             if subtree.iter().any(|(id, _)| *id == parent) {
@@ -296,7 +361,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_shelf_id, pinned, created_at FROM shelf \
+            "SELECT id, name, parent_shelf_id, pinned, created_at, kind, auto_criteria FROM shelf \
              WHERE deleted_at IS NULL \
              ORDER BY pinned DESC, name COLLATE NOCASE",
         )?;
@@ -307,7 +372,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn get_shelf_by_id(&self, shelf_id: u64) -> Result<Shelf, FicflowError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_shelf_id, pinned, created_at FROM shelf \
+            "SELECT id, name, parent_shelf_id, pinned, created_at, kind, auto_criteria FROM shelf \
              WHERE id = ?1 AND deleted_at IS NULL",
         )?;
         stmt.query_row(params![shelf_id], row_to_shelf)
@@ -320,6 +385,11 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     fn add_fic_to_shelf(&self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
         self.ensure_fanfiction_exists(fic_id)?;
         self.ensure_shelf_exists(shelf_id)?;
+        if matches!(self.get_shelf_by_id(shelf_id)?.kind, ShelfKind::Auto(_)) {
+            return Err(FicflowError::InvalidInput(
+                "cannot add fics to an auto-shelf".into(),
+            ));
+        }
 
         let added_at = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -332,6 +402,11 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     fn remove_fic_from_shelf(&self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
         self.ensure_fanfiction_exists(fic_id)?;
         self.ensure_shelf_exists(shelf_id)?;
+        if matches!(self.get_shelf_by_id(shelf_id)?.kind, ShelfKind::Auto(_)) {
+            return Err(FicflowError::InvalidInput(
+                "cannot remove fics from an auto-shelf".into(),
+            ));
+        }
 
         self.conn.execute(
             "DELETE FROM fic_shelf WHERE fic_id = ?1 AND shelf_id = ?2",
@@ -366,7 +441,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.ensure_fanfiction_exists(fic_id)?;
 
         let mut stmt = self.conn.prepare(
-            "SELECT s.id, s.name, s.parent_shelf_id, s.pinned, s.created_at FROM shelf s \
+            "SELECT s.id, s.name, s.parent_shelf_id, s.pinned, s.created_at, s.kind, s.auto_criteria FROM shelf s \
              JOIN fic_shelf fs ON fs.shelf_id = s.id \
              WHERE fs.fic_id = ?1 AND s.deleted_at IS NULL \
              ORDER BY s.name COLLATE NOCASE",

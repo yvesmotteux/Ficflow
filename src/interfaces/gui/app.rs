@@ -3,14 +3,16 @@ use std::path::PathBuf;
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
+use super::auto_shelf;
 use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
     pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
     update_chapters, update_note, update_rating, update_read_count, update_status,
+    upsert_auto_shelf,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
-use crate::domain::shelf::Shelf;
+use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
@@ -27,7 +29,7 @@ use super::theme;
 use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
-use super::views::modals::shelf_modals::{self, CreateState, RenameState};
+use super::views::modals::shelf_modals::{self, AutoShelfState, CreateState, RenameState};
 use super::views::modals::{bulk_modals, column_picker, quit_modal};
 use super::views::settings_view;
 use super::views::tasks_view;
@@ -87,6 +89,7 @@ pub enum ActiveModal {
     None,
     CreateShelf(CreateState),
     RenameShelf(RenameState),
+    AutoShelf(AutoShelfState),
     DeleteShelf(u64),
     DeleteFics(Vec<u64>),
     AddFic(AddFicState),
@@ -182,6 +185,13 @@ impl FicflowApp {
         &self.cache.shelves
     }
 
+    /// Sidebar count for a shelf; 0 for a missing or empty shelf. For
+    /// auto-shelves this comes from the live-computed cache, not
+    /// `fic_shelf` rows.
+    pub fn shelf_count(&self, shelf_id: u64) -> usize {
+        self.cache.shelf_counts.get(&shelf_id).copied().unwrap_or(0)
+    }
+
     pub fn selection(&self) -> &Selection {
         self.selection.current()
     }
@@ -267,6 +277,11 @@ impl FicflowApp {
 
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
+        if matches!(self.current_view, View::Shelf(_)) {
+            self.refresh_shelf_members();
+        } else {
+            self.cache.shelf_members.clear();
+        }
         self.persist_current_view();
     }
 
@@ -317,6 +332,41 @@ impl FicflowApp {
             }
             Err(err) => {
                 self.toasts.error(format!("Couldn't create shelf: {}", err));
+                Err(err)
+            }
+        }
+    }
+
+    /// Creates a new auto-shelf (`shelf_id: None`) or updates an
+    /// existing one's name + criteria (`shelf_id: Some`).
+    pub fn upsert_auto_shelf(
+        &mut self,
+        shelf_id: Option<u64>,
+        name: impl AsRef<str>,
+        criteria: AutoShelfCriteria,
+    ) -> Result<(), FicflowError> {
+        let repo = self.repo();
+        match upsert_auto_shelf::upsert_auto_shelf(&repo, shelf_id, name.as_ref(), None, criteria) {
+            Ok(shelf) => {
+                let verb = if shelf_id.is_some() {
+                    "Updated"
+                } else {
+                    "Created"
+                };
+                self.toasts.success(format!(
+                    "{} auto-shelf \u{201C}{}\u{201D}",
+                    verb, shelf.name
+                ));
+                self.cache.reload_shelves(&self.connection);
+                self.refresh_shelf_counts();
+                if shelf_id.is_some_and(|id| self.current_view == View::Shelf(id)) {
+                    self.refresh_shelf_members();
+                }
+                Ok(())
+            }
+            Err(err) => {
+                self.toasts
+                    .error(format!("Couldn't save auto-shelf: {}", err));
                 Err(err)
             }
         }
@@ -435,9 +485,7 @@ impl FicflowApp {
                 Err(_) => errors += 1,
             }
         }
-        for fic in updated_fics {
-            self.cache.replace_fic(fic);
-        }
+        self.cache.replace_fics(updated_fics);
         (ids.len() - errors, errors)
     }
 
@@ -558,6 +606,9 @@ impl FicflowApp {
             }
             Outcome::RequestRefresh => {
                 self.refresh_selected();
+            }
+            Outcome::CreateAutoShelfFromTag(field, value) => {
+                self.active_modal = ActiveModal::AutoShelf(AutoShelfState::prefilled(field, value));
             }
         }
     }
@@ -809,6 +860,17 @@ impl FicflowApp {
                     self.active_modal = ActiveModal::RenameShelf(RenameState::new(shelf));
                 }
             }
+            sidebar::Outcome::OpenEditAutoShelfModal(id) => {
+                if let Some(state) = self
+                    .cache
+                    .shelves
+                    .iter()
+                    .find(|s| s.id == id)
+                    .and_then(AutoShelfState::from_shelf)
+                {
+                    self.active_modal = ActiveModal::AutoShelf(state);
+                }
+            }
             sidebar::Outcome::OpenDeleteShelfConfirm(id) => {
                 self.active_modal = ActiveModal::DeleteShelf(id);
             }
@@ -836,6 +898,19 @@ impl FicflowApp {
         }
     }
 
+    /// Shelves a fic can be manually added to/removed from — excludes
+    /// auto-shelves, whose membership is computed from criteria and
+    /// would just reject the write (same rule the sidebar's
+    /// drag-and-drop already enforces for these two UI surfaces).
+    pub fn assignable_shelves(&self) -> Vec<Shelf> {
+        self.cache
+            .shelves
+            .iter()
+            .filter(|s| !matches!(s.kind, ShelfKind::Auto(_)))
+            .cloned()
+            .collect()
+    }
+
     fn paint_details_panel(&mut self, host: &mut egui::Ui) {
         let Selection::Single(id) = *self.selection.current() else {
             return;
@@ -860,6 +935,7 @@ impl FicflowApp {
         const MAX_W: f32 = 900.0;
         let panel_width = self.details_panel_width.clamp(MIN_W, MAX_W);
 
+        let assignable_shelves = self.assignable_shelves();
         let mut outcome = details_panel::Outcome::None;
         egui::Panel::right("ficflow-details-v2")
             .exact_size(panel_width)
@@ -869,7 +945,7 @@ impl FicflowApp {
                     ui,
                     DetailsState {
                         fic: &fic,
-                        all_shelves: &self.cache.shelves,
+                        all_shelves: &assignable_shelves,
                         selection_shelf_ids: &self.cache.selection_shelf_ids,
                     },
                 );
@@ -911,6 +987,7 @@ impl FicflowApp {
         if selection_ids.is_empty() || !self.current_view.shows_library() {
             return;
         }
+        let assignable_shelves = self.assignable_shelves();
         let mut outcome = selection_bar::Outcome::None;
         egui::Panel::bottom("ficflow-selection-bar")
             .resizable(false)
@@ -920,7 +997,7 @@ impl FicflowApp {
                     SelectionBarState {
                         selection_ids: &selection_ids,
                         current_view: &self.current_view,
-                        all_shelves: &self.cache.shelves,
+                        all_shelves: &assignable_shelves,
                     },
                 );
             });
@@ -1033,7 +1110,16 @@ impl FicflowApp {
             None,
             Close,
             CreateShelf(String),
-            RenameShelf { shelf_id: u64, new_name: String },
+            SwitchToAutoShelf,
+            UpsertAutoShelf {
+                shelf_id: Option<u64>,
+                name: String,
+                criteria: AutoShelfCriteria,
+            },
+            RenameShelf {
+                shelf_id: u64,
+                new_name: String,
+            },
             DeleteShelf(u64),
             DeleteFics(Vec<u64>),
             AddFic(String),
@@ -1042,7 +1128,8 @@ impl FicflowApp {
         let action = match &mut self.active_modal {
             ActiveModal::None => ModalAction::None,
             ActiveModal::CreateShelf(state) => match shelf_modals::draw_create(ctx, state) {
-                shelf_modals::Outcome::Submit(name) => ModalAction::CreateShelf(name),
+                shelf_modals::Outcome::SubmitNormal(name) => ModalAction::CreateShelf(name),
+                shelf_modals::Outcome::SwitchToAuto => ModalAction::SwitchToAutoShelf,
                 shelf_modals::Outcome::Cancel => ModalAction::Close,
                 shelf_modals::Outcome::None => ModalAction::None,
             },
@@ -1053,6 +1140,22 @@ impl FicflowApp {
                 shelf_modals::RenameOutcome::Cancel => ModalAction::Close,
                 shelf_modals::RenameOutcome::None => ModalAction::None,
             },
+            ActiveModal::AutoShelf(state) => {
+                let distinct_values = auto_shelf::build_distinct_values(&self.cache.fics);
+                match shelf_modals::draw_auto_shelf(ctx, state, &distinct_values) {
+                    shelf_modals::AutoShelfOutcome::Submit {
+                        shelf_id,
+                        name,
+                        criteria,
+                    } => ModalAction::UpsertAutoShelf {
+                        shelf_id,
+                        name,
+                        criteria,
+                    },
+                    shelf_modals::AutoShelfOutcome::Cancel => ModalAction::Close,
+                    shelf_modals::AutoShelfOutcome::None => ModalAction::None,
+                }
+            }
             ActiveModal::DeleteShelf(id) => {
                 match shelf_modals::draw_delete_confirm(ctx, *id, &self.cache.shelves) {
                     shelf_modals::DeleteOutcome::Confirm(id) => ModalAction::DeleteShelf(id),
@@ -1085,6 +1188,17 @@ impl FicflowApp {
             ModalAction::Close => self.active_modal = ActiveModal::None,
             ModalAction::CreateShelf(name) => {
                 let _ = self.create_shelf(name);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::SwitchToAutoShelf => {
+                self.active_modal = ActiveModal::AutoShelf(AutoShelfState::new());
+            }
+            ModalAction::UpsertAutoShelf {
+                shelf_id,
+                name,
+                criteria,
+            } => {
+                let _ = self.upsert_auto_shelf(shelf_id, name, criteria);
                 self.active_modal = ActiveModal::None;
             }
             ModalAction::RenameShelf { shelf_id, new_name } => {

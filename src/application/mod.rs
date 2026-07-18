@@ -42,4 +42,5 @@ pub mod update_note;
 pub mod update_rating;
 pub mod update_read_count;
 pub mod update_status;
+pub mod upsert_auto_shelf;
 pub mod wipe_db;
