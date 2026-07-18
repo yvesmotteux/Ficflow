@@ -17,6 +17,7 @@
 #![allow(dead_code)] // Suppress warnings for harness helpers used by future test files
 
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use rusqlite::Connection;
@@ -26,6 +27,14 @@ use ficflow::interfaces::gui::{FicflowApp, FicflowConfig};
 
 use crate::common::fixtures;
 
+/// `AppConfig` reads `XDG_CONFIG_HOME` (via `dirs_next`, Linux-only — this
+/// suite only runs on Linux, see `.github/workflows/test.yml`) to find
+/// `config.toml`; overriding it per-harness keeps tests off the developer's
+/// real `~/.config/ficflow/config.toml`. It's process-global state, so this
+/// lock serializes every `GuiHarness` for the harness's whole lifetime
+/// (held via the guard below) instead of gating just the `set_var` call.
+static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
 pub struct GuiHarness {
     pub app: FicflowApp,
     pub ctx: egui::Context,
@@ -33,12 +42,12 @@ pub struct GuiHarness {
     /// Lets tests seed fixtures and assert against the underlying DB.
     pub conn: Connection,
     pub db_path: PathBuf,
-    /// Scratch GUI-preferences file this harness's app reads/writes —
-    /// exposed so tests can rebuild a `FicflowApp` against the same file
-    /// to exercise config persistence across a simulated restart.
-    pub config_path: PathBuf,
     /// Held so the temp file doesn't get unlinked until the harness drops.
     _temp_dir: TempDir,
+    /// Keeps `XDG_CONFIG_HOME` pinned to this harness's scratch dir for as
+    /// long as the harness lives — released (and the lock freed for the
+    /// next test) on drop.
+    _config_env_guard: MutexGuard<'static, ()>,
 }
 
 impl GuiHarness {
@@ -60,13 +69,22 @@ impl GuiHarness {
         db_path: PathBuf,
         temp_dir: TempDir,
     ) -> Self {
+        // A poisoned lock (previous test panicked while holding it) is
+        // still safe to reuse here — we're about to overwrite the env var
+        // ourselves regardless of what state it was left in.
+        let config_env_guard = CONFIG_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // SAFETY: serialized by `CONFIG_ENV_LOCK`, held for this harness's
+        // whole lifetime, so no other thread reads/writes the env at the
+        // same time.
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+
         let ctx = egui::Context::default();
-        let config_path = temp_dir.path().join("config.toml");
         let config = FicflowConfig {
             db_path: Some(db_path.clone()),
-            // Scratch file next to the temp DB so tests never touch the
-            // developer's real `~/.config/ficflow/config.toml`.
-            config_path: Some(config_path.clone()),
             ao3_urls,
             // Fail-fast: tests should never sit through the production
             // 2- or 3-cycle retry storm.
@@ -79,17 +97,17 @@ impl GuiHarness {
             ctx,
             conn,
             db_path,
-            config_path,
             _temp_dir: temp_dir,
+            _config_env_guard: config_env_guard,
         }
     }
 
     /// Rebuilds `self.app` against the same DB and config file, simulating
-    /// an app restart. `self.conn` and `self.ctx` are unaffected.
+    /// an app restart. `self.conn`, `self.ctx`, and the `XDG_CONFIG_HOME`
+    /// override are unaffected.
     pub fn restart(&mut self, ao3_urls: Vec<String>) {
         let config = FicflowConfig {
             db_path: Some(self.db_path.clone()),
-            config_path: Some(self.config_path.clone()),
             ao3_urls,
             max_retry_cycles: 1,
         };
