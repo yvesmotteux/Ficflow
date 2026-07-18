@@ -42,3 +42,6 @@ mod quit_confirm;
 
 #[path = "gui/columns.rs"]
 mod columns;
+
+#[path = "gui/last_view.rs"]
+mod last_view;

@@ -13,8 +13,20 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::fanfiction::ReadingStatus;
+
 const CONFIG_FILE: &str = "config.toml";
 const APP_DIR: &str = "ficflow";
+
+/// Serializable shadow of the library-facing `View` variants — the ones
+/// worth restoring on next launch. `Tasks` and `Settings` are transient
+/// pages, not "tabs", so they're deliberately excluded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PersistedView {
+    AllFics,
+    ByStatus(ReadingStatus),
+    Shelf(u64),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColumnKey {
@@ -115,6 +127,10 @@ pub struct AppConfig {
     pub window_maximized: bool,
     #[serde(default)]
     pub window_fullscreen: bool,
+    /// The library/shelf tab that was open when the app last quit, so it
+    /// reopens the same one next launch.
+    #[serde(default)]
+    pub last_view: Option<PersistedView>,
 }
 
 impl Default for AppConfig {
@@ -136,6 +152,7 @@ impl Default for AppConfig {
             default_sort: SortPref::default(),
             window_maximized: false,
             window_fullscreen: false,
+            last_view: None,
         }
     }
 }
@@ -144,7 +161,14 @@ impl AppConfig {
     /// Loads the config from disk. Returns `Default` if the file is missing
     /// or unparseable — never blocks startup on config issues.
     pub fn load() -> Self {
-        let Some(path) = config_path() else {
+        Self::load_from(config_path())
+    }
+
+    /// Same as `load`, but reads from an explicit path instead of the
+    /// platform config dir. Lets embedders and integration tests point at
+    /// a scratch file without touching the real user config.
+    pub fn load_from(path: Option<PathBuf>) -> Self {
+        let Some(path) = path else {
             return Self::default();
         };
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -180,8 +204,8 @@ impl AppConfig {
     }
 
     /// Writes the config to disk, creating parent directories as needed.
-    pub fn save(&self) -> io::Result<()> {
-        let Some(path) = config_path() else {
+    pub fn save(&self, path: Option<PathBuf>) -> io::Result<()> {
+        let Some(path) = path.or_else(config_path) else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "no config directory available on this platform",

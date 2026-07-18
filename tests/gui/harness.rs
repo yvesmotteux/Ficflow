@@ -33,6 +33,10 @@ pub struct GuiHarness {
     /// Lets tests seed fixtures and assert against the underlying DB.
     pub conn: Connection,
     pub db_path: PathBuf,
+    /// Scratch GUI-preferences file this harness's app reads/writes —
+    /// exposed so tests can rebuild a `FicflowApp` against the same file
+    /// to exercise config persistence across a simulated restart.
+    pub config_path: PathBuf,
     /// Held so the temp file doesn't get unlinked until the harness drops.
     _temp_dir: TempDir,
 }
@@ -57,8 +61,12 @@ impl GuiHarness {
         temp_dir: TempDir,
     ) -> Self {
         let ctx = egui::Context::default();
+        let config_path = temp_dir.path().join("config.toml");
         let config = FicflowConfig {
             db_path: Some(db_path.clone()),
+            // Scratch file next to the temp DB so tests never touch the
+            // developer's real `~/.config/ficflow/config.toml`.
+            config_path: Some(config_path.clone()),
             ao3_urls,
             // Fail-fast: tests should never sit through the production
             // 2- or 3-cycle retry storm.
@@ -71,8 +79,22 @@ impl GuiHarness {
             ctx,
             conn,
             db_path,
+            config_path,
             _temp_dir: temp_dir,
         }
+    }
+
+    /// Rebuilds `self.app` against the same DB and config file, simulating
+    /// an app restart. `self.conn` and `self.ctx` are unaffected.
+    pub fn restart(&mut self, ao3_urls: Vec<String>) {
+        let config = FicflowConfig {
+            db_path: Some(self.db_path.clone()),
+            config_path: Some(self.config_path.clone()),
+            ao3_urls,
+            max_retry_cycles: 1,
+        };
+        self.app = FicflowApp::with_config(&self.ctx, config)
+            .expect("FicflowApp::with_config failed on restart");
     }
 
     /// Run one frame with no input. Discards `FullOutput` — tests that

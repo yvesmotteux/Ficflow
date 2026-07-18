@@ -41,6 +41,9 @@ pub struct FicflowApp {
     cache: LibraryCache,
     chrome: FrameChrome,
     config: AppConfig,
+    /// Where `config` is written back to; `None` means the platform
+    /// config dir. See `FicflowConfig::config_path`.
+    config_path: Option<PathBuf>,
     /// Gate so the persisted maximized / fullscreen state is applied
     /// once at first frame and not re-fired every paint.
     initial_window_state_applied: bool,
@@ -98,6 +101,10 @@ pub enum ActiveModal {
 #[derive(Clone)]
 pub struct FicflowConfig {
     pub db_path: Option<PathBuf>,
+    /// Explicit path for the GUI-preferences TOML file. `None` uses the
+    /// platform config dir (`AppConfig`'s default); tests point this at a
+    /// scratch file so they don't touch the real user config.
+    pub config_path: Option<PathBuf>,
     pub ao3_urls: Vec<String>,
     pub max_retry_cycles: u32,
 }
@@ -107,6 +114,7 @@ impl Default for FicflowConfig {
         let (ao3_urls, max_retry_cycles) = ao3_urls_from_env();
         Self {
             db_path: None,
+            config_path: None,
             ao3_urls,
             max_retry_cycles,
         }
@@ -130,8 +138,12 @@ impl FicflowApp {
         };
         let cache = LibraryCache::load(&connection);
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
-        let app_config = AppConfig::load();
+        let app_config = AppConfig::load_from(config.config_path.clone());
         let sort = app_config.default_sort;
+        let current_view = app_config
+            .last_view
+            .and_then(|pv| View::from_persisted(pv, &cache.shelves))
+            .unwrap_or_default();
         let task_executor = TaskExecutor::spawn(
             config.ao3_urls,
             config.max_retry_cycles,
@@ -142,12 +154,13 @@ impl FicflowApp {
             cache,
             chrome,
             config: app_config,
+            config_path: config.config_path.clone(),
             initial_window_state_applied: false,
             sort,
             search_query: String::new(),
             show_column_picker: false,
             selection: SelectionController::new(),
-            current_view: View::default(),
+            current_view,
             active_modal: ActiveModal::None,
             task_executor,
             quit_confirmed: false,
@@ -255,6 +268,10 @@ impl FicflowApp {
 
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
+        if let Some(persisted) = self.current_view.to_persisted() {
+            self.config.last_view = Some(persisted);
+            self.save_config();
+        }
     }
 
     pub fn refresh_selected(&self) {
@@ -305,7 +322,7 @@ impl FicflowApp {
             Ok(()) => {
                 self.toasts.success("Shelf deleted");
                 if self.current_view == View::Shelf(shelf_id) {
-                    self.current_view = View::AllFics;
+                    self.open_view(View::AllFics);
                     self.cache.shelf_members.clear();
                 }
                 self.cache.reload_shelves(&self.connection);
@@ -480,7 +497,7 @@ impl FicflowApp {
     }
 
     fn save_config(&self) {
-        if let Err(err) = self.config.save() {
+        if let Err(err) = self.config.save(self.config_path.clone()) {
             log::warn!("Failed to save config: {}", err);
         }
     }
