@@ -291,7 +291,7 @@ fn shelf_rows(
             ui.painter().rect_stroke(
                 inner,
                 4.0,
-                Stroke::new(2.0, Color32::from_rgb(120, 200, 120)),
+                Stroke::new(2.0_f32, Color32::from_rgb(120, 200, 120)),
                 StrokeKind::Inside,
             );
         }
@@ -310,7 +310,7 @@ fn shelf_rows(
             ui.painter().rect_stroke(
                 inner,
                 4.0,
-                Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+                Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
                 StrokeKind::Inside,
             );
         }
@@ -585,7 +585,7 @@ fn shelves_header(ui: &mut Ui) -> HeaderOutcome {
         ui.painter().rect_stroke(
             inner,
             4.0,
-            Stroke::new(2.0, Color32::from_rgb(120, 160, 220)),
+            Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
             StrokeKind::Inside,
         );
     }
