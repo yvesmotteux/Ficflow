@@ -38,13 +38,11 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
                 let can_shrink = config.text_zoom > *TEXT_ZOOM_RANGE.start();
                 let can_grow = config.text_zoom < *TEXT_ZOOM_RANGE.end();
                 if ui.add_enabled(can_shrink, egui::Button::new("−")).clicked() {
-                    config.text_zoom = config::set_zoom(ui.ctx(), config.text_zoom - ZOOM_STEP);
-                    changed = true;
+                    apply_zoom(config, &mut changed, ui.ctx(), config.text_zoom - ZOOM_STEP);
                 }
                 ui.label(format!("{:.0}%", config.text_zoom * 100.0));
                 if ui.add_enabled(can_grow, egui::Button::new("+")).clicked() {
-                    config.text_zoom = config::set_zoom(ui.ctx(), config.text_zoom + ZOOM_STEP);
-                    changed = true;
+                    apply_zoom(config, &mut changed, ui.ctx(), config.text_zoom + ZOOM_STEP);
                 }
                 ui.label("Text size");
                 let at_default = (config.text_zoom - 1.0).abs() <= f32::EPSILON;
@@ -52,8 +50,7 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
                     .add_enabled(!at_default, egui::Button::new("Reset"))
                     .clicked()
                 {
-                    config.text_zoom = config::set_zoom(ui.ctx(), 1.0);
-                    changed = true;
+                    apply_zoom(config, &mut changed, ui.ctx(), 1.0);
                 }
             });
             ui.label(RichText::new("Or use Ctrl/Cmd +/-/0.").weak().italics());
@@ -65,6 +62,11 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
         });
 
     changed
+}
+
+fn apply_zoom(config: &mut AppConfig, changed: &mut bool, ctx: &egui::Context, zoom: f32) {
+    config.text_zoom = config::set_zoom(ctx, zoom);
+    *changed = true;
 }
 
 fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {

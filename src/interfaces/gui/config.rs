@@ -144,12 +144,13 @@ fn default_text_zoom() -> f32 {
 }
 
 pub fn clamp_zoom(zoom: f32) -> f32 {
-    zoom.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end())
+    if zoom.is_finite() {
+        zoom.clamp(*TEXT_ZOOM_RANGE.start(), *TEXT_ZOOM_RANGE.end())
+    } else {
+        default_text_zoom()
+    }
 }
 
-/// Clamps `zoom` to `TEXT_ZOOM_RANGE` and applies it as the egui zoom
-/// factor. Returns the clamped value actually applied, so callers can
-/// store it back.
 pub fn set_zoom(ctx: &egui::Context, zoom: f32) -> f32 {
     let clamped = clamp_zoom(zoom);
     ctx.set_zoom_factor(clamped);
