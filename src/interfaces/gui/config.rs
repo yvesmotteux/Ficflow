@@ -139,6 +139,17 @@ pub struct AppConfig {
     pub text_zoom: f32,
 }
 
+pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.75..=2.0;
+
+/// The window's OS-enforced minimum size, in points, at `text_zoom == 1.0`.
+/// eframe multiplies whatever `min_inner_size` we hand it by the current
+/// zoom factor when applying it as the OS-level constraint (unlike
+/// `inner_size`, which eframe itself clamps back down to the monitor's
+/// bounds) — so call sites must divide this by the active zoom factor
+/// before handing it to egui, to keep the OS-enforced *physical* floor
+/// constant regardless of zoom. See `FicflowApp::apply_min_inner_size`.
+pub const BASE_MIN_INNER_SIZE: [f32; 2] = [600.0, 400.0];
+
 fn default_text_zoom() -> f32 {
     1.0
 }

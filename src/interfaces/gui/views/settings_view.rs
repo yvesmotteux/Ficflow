@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
-use super::super::config::AppConfig;
+use super::super::config::{AppConfig, BASE_MIN_INNER_SIZE, TEXT_ZOOM_RANGE};
 use super::super::format::erisian_date;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
@@ -34,7 +34,7 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
             ui.label(RichText::new("Display").strong());
             ui.horizontal(|ui| {
                 let resp = ui.add(
-                    egui::Slider::new(&mut config.text_zoom, 0.75..=2.0)
+                    egui::Slider::new(&mut config.text_zoom, TEXT_ZOOM_RANGE)
                         .step_by(0.05)
                         .custom_formatter(|n, _| format!("{:.0}%", n * 100.0))
                         .custom_parser(|s| {
@@ -47,14 +47,14 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
                         .text("Text size"),
                 );
                 if resp.changed() {
-                    ui.ctx().set_zoom_factor(config.text_zoom);
+                    apply_zoom(ui.ctx(), config.text_zoom);
                 }
                 if resp.drag_stopped() || resp.lost_focus() {
                     changed = true;
                 }
                 if ui.button("Reset").clicked() {
                     config.text_zoom = 1.0;
-                    ui.ctx().set_zoom_factor(1.0);
+                    apply_zoom(ui.ctx(), 1.0);
                     changed = true;
                 }
             });
@@ -66,6 +66,17 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
         });
 
     changed
+}
+
+/// Sets the zoom factor and, in the same step, reasserts the OS-enforced
+/// minimum window size compensated for it — see `FicflowApp::apply_min_inner_size`
+/// for why eframe needs this counteracted on every zoom change.
+fn apply_zoom(ctx: &egui::Context, zoom: f32) {
+    ctx.set_zoom_factor(zoom);
+    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+        BASE_MIN_INNER_SIZE[0] / zoom,
+        BASE_MIN_INNER_SIZE[1] / zoom,
+    )));
 }
 
 fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {
