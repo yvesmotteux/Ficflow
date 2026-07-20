@@ -269,10 +269,7 @@ fn shelf_rows(
             current_view,
             View::Shelf(shelf.id),
             &shelf.name,
-            // U+FE0E forces the plain "text" glyph variant rather than a
-            // wider emoji-style rendering, which otherwise bakes in extra
-            // left padding that throws off alignment vs. other icons.
-            is_auto.then_some("\u{2699}\u{FE0E}"),
+            is_auto.then_some("\u{2699}"),
             Some(count),
             Some(TreeRow {
                 depth,

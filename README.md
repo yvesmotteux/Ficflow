@@ -83,7 +83,10 @@ cargo build --release
 - [x] Ficflow remembers which library/shelf tab was open when closed and reopens the same one
 - [x] Ability to choose the text size / zoom level in the settings
 - [x] New feature of auto-shelves (based on ships, fandoms, relationship,...)
+- [ ] Dark/White toggle in settings (dark, light, or follow computer theme)
+- [ ] Review Del behaviour while on a shelf
 - [ ] Fix alignment of the pinned icon
+- [ ] Fix behaviour for long notes
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
 - [ ] Release the software on the AUR (can we make both the CLI and GUI work at the same time?)
 - [ ] Import/Export database to create backups
