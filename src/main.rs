@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use std::process::ExitCode;
 
 use ficflow::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
