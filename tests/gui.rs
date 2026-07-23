@@ -51,3 +51,6 @@ mod last_view;
 
 #[path = "gui/theme.rs"]
 mod theme;
+
+#[path = "gui/shelf_delete_key.rs"]
+mod shelf_delete_key;
