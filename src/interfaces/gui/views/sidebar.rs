@@ -199,15 +199,12 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                                 .or_default()
                                 .push(shelf);
                         }
-                        shelf_rows(
-                            ui,
-                            current_view,
-                            &children,
+                        let ctx = ShelfCtx {
+                            children: &children,
                             shelf_counts,
-                            None,
-                            0,
-                            &mut outcome,
-                        );
+                            pin_reserve: pin_reserve(ui, &children, shelf_counts, None),
+                        };
+                        shelf_rows(ui, current_view, &ctx, None, 0, &mut outcome);
                     }
                 });
         });
@@ -244,25 +241,67 @@ struct TreeRow {
     depth: usize,
     expanded: Option<bool>,
     pinned: bool,
+    // Shared across every shelf this frame so all pins line up in one
+    // column, driven by the widest visible count badge rather than each
+    // row's own count.
+    pin_reserve: f32,
+}
+
+// The trailing reserve (right edge to pin left edge) shared by every shelf so
+// all pins line up in one column instead of tracking each row's own count.
+// Driven by the widest count badge among *visible* shelves, mirroring
+// `shelf_rows`' collapse-aware walk.
+fn pin_reserve(
+    ui: &Ui,
+    children: &HashMap<Option<u64>, Vec<&Shelf>>,
+    shelf_counts: &HashMap<u64, usize>,
+    parent: Option<u64>,
+) -> f32 {
+    let Some(siblings) = children.get(&parent) else {
+        return 0.0;
+    };
+    let count_font = egui::FontId::proportional(12.0);
+    let mut reserve = 0.0_f32;
+    for shelf in siblings {
+        let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
+        let galley_x = ui
+            .painter()
+            .layout_no_wrap(count.to_string(), count_font.clone(), Color32::PLACEHOLDER)
+            .size()
+            .x;
+        reserve = reserve.max(RIGHT_GAP + galley_x + 10.0 + 4.0);
+
+        let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
+        let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
+        if !collapsed {
+            reserve = reserve.max(pin_reserve(ui, children, shelf_counts, Some(shelf.id)));
+        }
+    }
+    reserve
+}
+
+struct ShelfCtx<'a> {
+    children: &'a HashMap<Option<u64>, Vec<&'a Shelf>>,
+    shelf_counts: &'a HashMap<u64, usize>,
+    pin_reserve: f32,
 }
 
 fn shelf_rows(
     ui: &mut Ui,
     current_view: &mut View,
-    children: &HashMap<Option<u64>, Vec<&Shelf>>,
-    shelf_counts: &HashMap<u64, usize>,
+    ctx: &ShelfCtx,
     parent: Option<u64>,
     depth: usize,
     outcome: &mut Outcome,
 ) {
-    let Some(siblings) = children.get(&parent) else {
+    let Some(siblings) = ctx.children.get(&parent) else {
         return;
     };
     for shelf in siblings {
-        let has_children = children.contains_key(&Some(shelf.id));
+        let has_children = ctx.children.contains_key(&Some(shelf.id));
         let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
-        let count = shelf_counts.get(&shelf.id).copied().unwrap_or(0);
+        let count = ctx.shelf_counts.get(&shelf.id).copied().unwrap_or(0);
         let is_auto = matches!(shelf.kind, ShelfKind::Auto(_));
         let (resp, triangle_clicked, pin_clicked) = view_row(
             ui,
@@ -275,6 +314,7 @@ fn shelf_rows(
                 depth,
                 expanded: has_children.then_some(!collapsed),
                 pinned: shelf.pinned,
+                pin_reserve: ctx.pin_reserve,
             }),
         );
         if triangle_clicked {
@@ -357,15 +397,7 @@ fn shelf_rows(
         });
 
         if has_children && !collapsed {
-            shelf_rows(
-                ui,
-                current_view,
-                children,
-                shelf_counts,
-                Some(shelf.id),
-                depth + 1,
-                outcome,
-            );
+            shelf_rows(ui, current_view, ctx, Some(shelf.id), depth + 1, outcome);
         }
     }
 }
@@ -450,13 +482,15 @@ fn view_row(
     // changes width.
     const PIN_COL_W: f32 = 16.0;
     const PIN_GAP: f32 = 4.0;
-    let pin_rect = tree.map(|_| {
+    // Shelf pins align to a shared column (the widest visible count) rather
+    // than each row's own count, so they line up cleanly.
+    let pin_rect = tree.map(|t| {
         let size = egui::vec2(PIN_COL_W, PIN_COL_W);
-        let x = inner_rect.right() - count_reserve - PIN_GAP - size.x;
+        let x = inner_rect.right() - t.pin_reserve - PIN_GAP - size.x;
         egui::Rect::from_min_size(egui::pos2(x, cy - size.y / 2.0), size)
     });
-    let total_reserve = match pin_rect {
-        Some(_) => count_reserve + PIN_GAP + PIN_COL_W,
+    let total_reserve = match tree {
+        Some(t) => t.pin_reserve + PIN_GAP + PIN_COL_W,
         None => count_reserve,
     };
 
