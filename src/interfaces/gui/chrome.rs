@@ -154,9 +154,10 @@ impl FrameChrome {
             ),
         ];
 
+        let tint = theme::frame_tint(&ctx.global_style().visuals);
         for (dest, src) in tiles {
             if dest.width() > 0.0 && dest.height() > 0.0 {
-                painter.image(texture.id(), dest, src, Color32::WHITE);
+                painter.image(texture.id(), dest, src, tint);
             }
         }
     }
@@ -359,6 +360,7 @@ impl FrameChrome {
             .fixed_pos(origin)
             .interactable(true)
             .show(ui.ctx(), |area_ui| {
+                let accent = theme::accent(&area_ui.ctx().global_style().visuals);
                 for (i, button) in buttons.iter().enumerate() {
                     let rect = Rect::from_min_size(
                         Pos2::new(
@@ -373,9 +375,9 @@ impl FrameChrome {
                         area_ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                     }
                     let fill = if resp.is_pointer_button_down_on() {
-                        Color32::from_rgba_unmultiplied(0xC9, 0xC4, 0xBC, 80)
+                        Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 80)
                     } else if hover {
-                        Color32::from_rgba_unmultiplied(0xC9, 0xC4, 0xBC, 40)
+                        Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 40)
                     } else {
                         Color32::TRANSPARENT
                     };
@@ -384,7 +386,7 @@ impl FrameChrome {
                         rect,
                         4.0,
                         fill,
-                        Stroke::new(1.0_f32, theme::ACCENT),
+                        Stroke::new(1.0_f32, accent),
                         StrokeKind::Inside,
                     );
                     painter.text(
@@ -392,7 +394,7 @@ impl FrameChrome {
                         egui::Align2::CENTER_CENTER,
                         button.label,
                         egui::FontId::proportional(11.0),
-                        theme::ACCENT,
+                        accent,
                     );
                     if resp.clicked() {
                         (button.action)(area_ui.ctx());

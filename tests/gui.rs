@@ -48,3 +48,6 @@ mod columns;
 
 #[path = "gui/last_view.rs"]
 mod last_view;
+
+#[path = "gui/theme.rs"]
+mod theme;

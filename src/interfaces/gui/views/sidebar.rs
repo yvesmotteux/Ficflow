@@ -537,7 +537,7 @@ fn view_row(
 
     // Pin toggle icon, painted on top of the label like the count badge.
     // Only shown for pinned shelves, or on hover so unpinned shelves don't
-    // clutter the row — `theme::ACCENT` rather than the selection blue so
+    // clutter the row — `theme::accent` rather than the selection blue so
     // it stays visible when the row itself is selected/highlighted.
     let mut pin_clicked = false;
     if let (Some(pin_rect), Some(TreeRow { pinned, .. })) = (pin_rect, tree) {
@@ -545,7 +545,7 @@ fn view_row(
         pin_clicked = pin_resp.clicked();
         if pinned || resp.hovered() || pin_resp.hovered() {
             let color = if pinned {
-                theme::ACCENT
+                theme::accent(ui.visuals())
             } else {
                 ui.style().visuals.weak_text_color()
             };

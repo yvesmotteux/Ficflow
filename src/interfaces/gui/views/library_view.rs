@@ -262,8 +262,12 @@ fn header_cell(
             Layout::centered_and_justified(egui::Direction::LeftToRight),
             |ui| {
                 ui.add(
-                    egui::Label::new(RichText::new(text).strong().color(theme::ACCENT))
-                        .selectable(false),
+                    egui::Label::new(
+                        RichText::new(text)
+                            .strong()
+                            .color(theme::accent(ui.visuals())),
+                    )
+                    .selectable(false),
                 );
             },
         );
@@ -292,7 +296,11 @@ fn header_cell(
                 egui::Order::Foreground,
                 egui::Id::new("column-reorder-indicator"),
             ))
-            .vline(x, rect.y_range(), Stroke::new(2.0_f32, theme::ACCENT));
+            .vline(
+                x,
+                rect.y_range(),
+                Stroke::new(2.0_f32, theme::accent(&resp.ctx.global_style().visuals)),
+            );
     }
     if let Some(dragged) = resp.dnd_release_payload::<ColumnKey>()
         && *dragged != column
@@ -444,7 +452,7 @@ fn is_centered_column(col: ColumnKey) -> bool {
 /// horizontally with its content rect. Fill must be opaque so the
 /// blue row-selection background doesn't bleed through and shift hue.
 fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
-    let palette = status_palette(status);
+    let palette = status_palette(status, ui.visuals().dark_mode);
     let text = format_status(status);
     let body_font = egui::TextStyle::Body.resolve(ui.style());
     let galley = ui
@@ -470,34 +478,28 @@ fn render_status_pill(ui: &mut Ui, status: &ReadingStatus) {
 }
 
 struct StatusPalette {
-    /// Opaque dark tint for the pill background.
+    /// Opaque tint for the pill background.
     fill: Color32,
     /// Saturated hue for the outline and text.
     accent: Color32,
 }
 
-fn status_palette(status: &ReadingStatus) -> StatusPalette {
-    match status {
-        ReadingStatus::InProgress => StatusPalette {
-            fill: Color32::from_rgb(20, 30, 50),
-            accent: Color32::from_rgb(59, 130, 246),
-        },
-        ReadingStatus::Read => StatusPalette {
-            fill: Color32::from_rgb(20, 35, 25),
-            accent: Color32::from_rgb(34, 197, 94),
-        },
-        ReadingStatus::PlanToRead => StatusPalette {
-            fill: Color32::from_rgb(35, 25, 50),
-            accent: Color32::from_rgb(168, 85, 247),
-        },
-        ReadingStatus::Paused => StatusPalette {
-            fill: Color32::from_rgb(40, 30, 15),
-            accent: Color32::from_rgb(245, 158, 11),
-        },
-        ReadingStatus::Abandoned => StatusPalette {
-            fill: Color32::from_rgb(45, 20, 20),
-            accent: Color32::from_rgb(239, 68, 68),
-        },
+fn status_palette(status: &ReadingStatus, dark_mode: bool) -> StatusPalette {
+    let (fill, accent) = match (status, dark_mode) {
+        (ReadingStatus::InProgress, true) => ((20, 30, 50), (59, 130, 246)),
+        (ReadingStatus::InProgress, false) => ((219, 234, 254), (29, 78, 216)),
+        (ReadingStatus::Read, true) => ((20, 35, 25), (34, 197, 94)),
+        (ReadingStatus::Read, false) => ((220, 252, 231), (21, 128, 61)),
+        (ReadingStatus::PlanToRead, true) => ((35, 25, 50), (168, 85, 247)),
+        (ReadingStatus::PlanToRead, false) => ((243, 232, 255), (126, 34, 206)),
+        (ReadingStatus::Paused, true) => ((40, 30, 15), (245, 158, 11)),
+        (ReadingStatus::Paused, false) => ((254, 243, 199), (180, 83, 9)),
+        (ReadingStatus::Abandoned, true) => ((45, 20, 20), (239, 68, 68)),
+        (ReadingStatus::Abandoned, false) => ((254, 226, 226), (185, 28, 28)),
+    };
+    StatusPalette {
+        fill: Color32::from_rgb(fill.0, fill.1, fill.2),
+        accent: Color32::from_rgb(accent.0, accent.1, accent.2),
     }
 }
 

@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use egui::{Align, Layout, RichText, ScrollArea, Ui};
 
 use super::super::tasks::{TaskExecutor, TaskKind, TaskState, TaskStatus};
+use super::super::theme;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum TaskFilter {
@@ -102,19 +103,21 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                                 ui.label("Running");
                             }
                             TaskStatus::Done => {
-                                ui.label(
-                                    RichText::new("Done")
-                                        .color(egui::Color32::from_rgb(120, 200, 120)),
-                                );
+                                ui.label(RichText::new("Done").color(theme::pick(
+                                    ui.visuals(),
+                                    egui::Color32::from_rgb(120, 200, 120),
+                                    egui::Color32::from_rgb(30, 130, 60),
+                                )));
                             }
                             TaskStatus::Failed(_) => {
                                 if ui.button("Retry").clicked() {
                                     executor.retry(task.id);
                                 }
-                                ui.label(
-                                    RichText::new("Failed")
-                                        .color(egui::Color32::from_rgb(220, 100, 100)),
-                                );
+                                ui.label(RichText::new("Failed").color(theme::pick(
+                                    ui.visuals(),
+                                    egui::Color32::from_rgb(220, 100, 100),
+                                    egui::Color32::from_rgb(185, 40, 40),
+                                )));
                             }
                         }
                     });
@@ -123,9 +126,11 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                 // wrapped to the panel width.
                 if let TaskStatus::Failed(msg) = &task.status {
                     ui.add(
-                        egui::Label::new(
-                            RichText::new(msg).color(egui::Color32::from_rgb(220, 100, 100)),
-                        )
+                        egui::Label::new(RichText::new(msg).color(theme::pick(
+                            ui.visuals(),
+                            egui::Color32::from_rgb(220, 100, 100),
+                            egui::Color32::from_rgb(185, 40, 40),
+                        )))
                         .wrap()
                         .selectable(true),
                     );
