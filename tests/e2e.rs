@@ -310,4 +310,92 @@ mod tests {
 
         Ok(())
     }
+
+    fn binary_path() -> PathBuf {
+        env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("debug")
+            .join("ficflow")
+    }
+
+    fn write_config_with_library_path(config_home: &Path, library_path: &Path) {
+        let cfg = ficflow::interfaces::gui::AppConfig {
+            library_path: Some(library_path.to_path_buf()),
+            ..ficflow::interfaces::gui::AppConfig::default()
+        };
+        let dir = config_home.join("ficflow");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            toml::to_string_pretty(&cfg).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn run_cli(args: &[&str], config_home: &Path, db_env: Option<&Path>) -> (String, i32) {
+        let mut cmd = Command::new(binary_path());
+        cmd.env("XDG_CONFIG_HOME", config_home)
+            .env_remove("FICFLOW_DB_PATH");
+        if let Some(path) = db_env {
+            cmd.env("FICFLOW_DB_PATH", path);
+        }
+        for arg in args {
+            cmd.arg(arg);
+        }
+        let output = cmd.output().expect("Failed to execute command");
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        (stdout, output.status.code().unwrap_or(0))
+    }
+
+    #[test]
+    fn cli_reads_and_writes_the_configured_library_path() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let lib_dir = TempDir::new()?;
+        let configured_db = lib_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &configured_db);
+
+        let (_, create_status) =
+            run_cli(&["shelf", "create", "Configured"], config_home.path(), None);
+        assert_eq!(create_status, 0);
+        assert!(
+            configured_db.exists(),
+            "CLI should create the DB at the configured path"
+        );
+
+        let (list_out, _) = run_cli(&["shelf", "list"], config_home.path(), None);
+        assert!(
+            list_out.contains("Configured"),
+            "CLI should read back from the configured library; got: {}",
+            list_out
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ficflow_db_path_env_overrides_the_configured_library_path() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let config_lib = TempDir::new()?;
+        let configured_db = config_lib.path().join("configured.db");
+        write_config_with_library_path(config_home.path(), &configured_db);
+
+        let env_lib = TempDir::new()?;
+        let env_db = env_lib.path().join("env.db");
+
+        let (_, status) = run_cli(
+            &["shelf", "create", "FromEnv"],
+            config_home.path(),
+            Some(&env_db),
+        );
+        assert_eq!(status, 0);
+        assert!(
+            env_db.exists(),
+            "env override should decide the library path"
+        );
+        assert!(
+            !configured_db.exists(),
+            "configured path must be ignored when FICFLOW_DB_PATH is set"
+        );
+        Ok(())
+    }
 }

@@ -16,9 +16,7 @@ use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
-use crate::infrastructure::persistence::database::connection::{
-    establish_connection, open_configured_db,
-};
+use crate::infrastructure::persistence::database::connection::open_configured_db;
 
 use super::chrome::FrameChrome;
 use super::library_cache::LibraryCache;
@@ -128,13 +126,14 @@ impl FicflowApp {
     /// `Connection: !Send`.
     pub fn with_config(ctx: &egui::Context, config: FicflowConfig) -> Result<Self, InitError> {
         theme::install(ctx);
-        let connection = match &config.db_path {
-            Some(path) => open_configured_db(path).map_err(InitError::Database)?,
-            None => establish_connection().map_err(InitError::Database)?,
+        let mut app_config = AppConfig::load();
+        let db_path = match &config.db_path {
+            Some(path) => path.clone(),
+            None => app_config.resolved_db_path().map_err(InitError::Database)?,
         };
+        let connection = open_configured_db(&db_path).map_err(InitError::Database)?;
         let cache = LibraryCache::load(&connection);
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
-        let mut app_config = AppConfig::load();
         app_config.text_zoom = config::set_zoom(ctx, app_config.text_zoom);
         config::set_theme(ctx, app_config.theme);
         let sort = app_config.default_sort;
@@ -142,11 +141,8 @@ impl FicflowApp {
             .last_view
             .and_then(|pv| View::from_persisted(pv, &cache.shelves))
             .unwrap_or_default();
-        let task_executor = TaskExecutor::spawn(
-            config.ao3_urls,
-            config.max_retry_cycles,
-            config.db_path.clone(),
-        );
+        let task_executor =
+            TaskExecutor::spawn(config.ao3_urls, config.max_retry_cycles, db_path.clone());
         let mut app = Self {
             connection,
             cache,

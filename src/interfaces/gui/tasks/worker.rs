@@ -8,9 +8,7 @@ use crate::application::check_updates::check_fic_updates;
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
-use crate::infrastructure::persistence::database::connection::{
-    establish_connection, open_configured_db,
-};
+use crate::infrastructure::persistence::database::connection::open_configured_db;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
 use super::{TaskStatus, WorkerCommand, WorkerInbox};
@@ -20,15 +18,11 @@ pub fn run(
     inbox: Arc<WorkerInbox>,
     urls: Vec<String>,
     max_cycles: u32,
-    db_path: Option<PathBuf>,
+    db_path: PathBuf,
 ) {
-    // Mirror the GUI's connection override so the worker writes land in
-    // the same SQLite file the GUI reads from.
-    let conn_result = match db_path {
-        Some(ref path) => open_configured_db(path),
-        None => establish_connection(),
-    };
-    let conn = match conn_result {
+    // Open the same SQLite file the GUI reads from so the worker's writes
+    // are visible to subsequent reads.
+    let conn = match open_configured_db(&db_path) {
         Ok(c) => c,
         Err(err) => {
             log::error!("task worker couldn't open DB: {}", err);
