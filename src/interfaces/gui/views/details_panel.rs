@@ -53,17 +53,43 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
 
     let mut outcome = Outcome::None;
 
-    // Bottom-pinned: Your Info (status / chapter / reads / rating /
-    // notes / shelves dropdown / Delete Fic).
-    egui::Panel::bottom("details-your-info")
-        .resizable(true)
-        .default_size(280.0)
+    // Bottom-pinned: Delete Fic. Registered first so it claims the
+    // lowest band and stays visible regardless of how the sections
+    // above are sized or scrolled.
+    egui::Panel::bottom("details-delete")
+        .resizable(false)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
         .show_inside(ui, |ui| {
-            let bottom = draw_your_info(ui, fic, all_shelves, selection_shelf_ids);
-            if !matches!(bottom, Outcome::None) {
-                outcome = bottom;
-            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let delete_btn =
+                    egui::Button::new(RichText::new("\u{1F5D1}  Delete Fic").color(Color32::WHITE))
+                        .fill(Color32::from_rgb(150, 35, 35));
+                if ui.add(delete_btn).clicked() {
+                    outcome = Outcome::RequestDelete;
+                }
+            });
+        });
+
+    // Bottom: Your Info (status / chapter / reads / rating / shelves /
+    // notes). Starts compact so an empty note leaves little dead space,
+    // stays user-resizable via the drag handle, and can be dragged up to
+    // just below the fic header + "AO3 METADATA" heading — the reserve
+    // keeps those visible so the section can't grow over them.
+    let max_h = (ui.available_height() - 150.0).max(180.0);
+    egui::Panel::bottom("details-your-info")
+        .resizable(true)
+        .default_size(180.0)
+        .size_range(120.0..=max_h)
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
+        .show_inside(ui, |ui| {
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let bottom = draw_your_info(ui, fic, all_shelves, selection_shelf_ids);
+                    if !matches!(bottom, Outcome::None) {
+                        outcome = bottom;
+                    }
+                });
         });
 
     // Top-pinned header (title, author with link, fic URL).
@@ -197,16 +223,6 @@ fn draw_your_info(
     if let Some(value) = draw_note(ui, fic) {
         outcome = Outcome::SetNote(value);
     }
-
-    ui.add_space(8.0);
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let delete_btn =
-            egui::Button::new(RichText::new("\u{1F5D1}  Delete Fic").color(Color32::WHITE))
-                .fill(Color32::from_rgb(150, 35, 35));
-        if ui.add(delete_btn).clicked() {
-            outcome = Outcome::RequestDelete;
-        }
-    });
 
     outcome
 }
