@@ -56,6 +56,9 @@ pub struct FicflowApp {
     selection: SelectionController,
     current_view: View,
     active_modal: ActiveModal,
+    /// A Library button was clicked this frame; the native picker is opened
+    /// from `ui()` next, where the window handle is available to parent it.
+    pending_library_request: Option<settings_view::LibraryRequest>,
     task_executor: TaskExecutor,
     quit_confirmed: bool,
     task_filter: TaskFilter,
@@ -163,6 +166,7 @@ impl FicflowApp {
             selection: SelectionController::new(),
             current_view,
             active_modal: ActiveModal::None,
+            pending_library_request: None,
             task_executor,
             quit_confirmed: false,
             task_filter: TaskFilter::default(),
@@ -592,6 +596,39 @@ impl FicflowApp {
         }
     }
 
+    /// Opens the native folder/file picker for a Library action, parented to
+    /// our own window so the portal dialog stacks above Ficflow instead of
+    /// behind it. Called from `ui()`, the only place with a window handle.
+    fn open_library_picker(
+        &mut self,
+        request: settings_view::LibraryRequest,
+        frame: &eframe::Frame,
+    ) {
+        let start_dir = self.current_db_path.parent().map(|p| p.to_path_buf());
+        match request {
+            settings_view::LibraryRequest::ChangeLocation => {
+                let mut dialog = rfd::FileDialog::new().set_parent(frame);
+                if let Some(dir) = &start_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                if let Some(folder) = dialog.pick_folder() {
+                    self.change_library_location(folder);
+                }
+            }
+            settings_view::LibraryRequest::Restore => {
+                let mut dialog = rfd::FileDialog::new()
+                    .add_filter("SQLite database", &["db"])
+                    .set_parent(frame);
+                if let Some(dir) = &start_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                if let Some(backup) = dialog.pick_file() {
+                    self.active_modal = ActiveModal::ConfirmRestore(backup);
+                }
+            }
+        }
+    }
+
     /// Move the library into `folder`, keeping the current file name. If a
     /// library already lives there, adopt it in place rather than
     /// overwriting. Takes effect on the next restart.
@@ -835,8 +872,11 @@ fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
 }
 
 impl eframe::App for FicflowApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.render(ui);
+        if let Some(request) = self.pending_library_request.take() {
+            self.open_library_picker(request, frame);
+        }
     }
 
     /// Transparent so the chrome's painted edges show through the
@@ -1140,14 +1180,10 @@ impl FicflowApp {
                 if outcome.config_changed {
                     self.save_config();
                 }
-                match outcome.action {
-                    Some(settings_view::LibraryAction::ChangeLocation(folder)) => {
-                        self.change_library_location(folder);
-                    }
-                    Some(settings_view::LibraryAction::Restore(backup)) => {
-                        self.active_modal = ActiveModal::ConfirmRestore(backup);
-                    }
-                    None => {}
+                // The native picker is opened later from `ui()`, which holds
+                // the window handle needed to parent the dialog above us.
+                if outcome.request.is_some() {
+                    self.pending_library_request = outcome.request;
                 }
             } else {
                 draw_stub_view(ui, &self.current_view);

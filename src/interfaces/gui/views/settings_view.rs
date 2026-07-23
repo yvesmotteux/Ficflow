@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
@@ -9,19 +9,22 @@ use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
 const ZOOM_STEP: f32 = 0.1;
 
-pub enum LibraryAction {
-    ChangeLocation(PathBuf),
-    Restore(PathBuf),
+/// A click on one of the Library buttons. The native file picker is opened
+/// by the app layer (which owns the window handle needed to parent the
+/// dialog), not here.
+pub enum LibraryRequest {
+    ChangeLocation,
+    Restore,
 }
 
 pub struct SettingsOutcome {
     pub config_changed: bool,
-    pub action: Option<LibraryAction>,
+    pub request: Option<LibraryRequest>,
 }
 
 pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> SettingsOutcome {
     let mut changed = false;
-    let mut action = None;
+    let mut request = None;
 
     ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -85,25 +88,12 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> Sett
             ui.add_space(12.0);
             ui.label(RichText::new("Library").strong());
             info_row(ui, "Location", current_db_path.display().to_string());
-            let start_dir = current_db_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf();
             ui.horizontal(|ui| {
-                if ui.button("Change location…").clicked()
-                    && let Some(folder) = rfd::FileDialog::new()
-                        .set_directory(&start_dir)
-                        .pick_folder()
-                {
-                    action = Some(LibraryAction::ChangeLocation(folder));
+                if ui.button("Change location…").clicked() {
+                    request = Some(LibraryRequest::ChangeLocation);
                 }
-                if ui.button("Restore from backup…").clicked()
-                    && let Some(file) = rfd::FileDialog::new()
-                        .add_filter("SQLite database", &["db"])
-                        .set_directory(&start_dir)
-                        .pick_file()
-                {
-                    action = Some(LibraryAction::Restore(file));
+                if ui.button("Restore from backup…").clicked() {
+                    request = Some(LibraryRequest::Restore);
                 }
             });
             ui.label(
@@ -123,7 +113,7 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> Sett
 
     SettingsOutcome {
         config_changed: changed,
-        action,
+        request,
     }
 }
 
