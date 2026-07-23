@@ -83,7 +83,7 @@ cargo build --release
 - [x] Ficflow remembers which library/shelf tab was open when closed and reopens the same one
 - [x] Ability to choose the text size / zoom level in the settings
 - [x] New feature of auto-shelves (based on ships, fandoms, relationship,...)
-- [ ] Dark/White toggle in settings (dark, light, or follow computer theme)
+- [x] Dark/White toggle in settings (dark, light, or follow computer theme)
 - [ ] Review Del behaviour while on a shelf
 - [ ] Fix alignment of the pinned icon
 - [ ] Fix behaviour for long notes

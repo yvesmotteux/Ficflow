@@ -55,7 +55,8 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
             });
             ui.label(RichText::new("Or use Ctrl/Cmd +/-/0.").weak().italics());
 
-            ui.add_space(6.0);
+            ui.add_space(12.0);
+            ui.label(RichText::new("Theme").strong());
             ui.horizontal(|ui| {
                 for choice in ThemeChoice::ALL {
                     if ui
@@ -68,7 +69,6 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
                         changed = true;
                     }
                 }
-                ui.label("Theme");
             });
 
             ui.add_space(12.0);
