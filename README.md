@@ -87,7 +87,7 @@ cargo build --release
 - [x] Review Del behaviour while on a shelf
 - [ ] Fix alignment of the pinned icon
 - [ ] Fix behaviour for long notes
-- [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
+- [x] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
 - [ ] Release the software on the AUR (can we make both the CLI and GUI work at the same time?)
 - [ ] Import/Export database to create backups
 - [ ] In the settings, after the version, display some warning in red if a newer version is available

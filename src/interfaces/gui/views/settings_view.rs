@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
@@ -7,8 +9,19 @@ use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
 const ZOOM_STEP: f32 = 0.1;
 
-pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
+pub enum LibraryAction {
+    ChangeLocation(PathBuf),
+    Restore(PathBuf),
+}
+
+pub struct SettingsOutcome {
+    pub config_changed: bool,
+    pub action: Option<LibraryAction>,
+}
+
+pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> SettingsOutcome {
     let mut changed = false;
+    let mut action = None;
 
     ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -72,12 +85,48 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
             });
 
             ui.add_space(12.0);
+            ui.label(RichText::new("Library").strong());
+            info_row(ui, "Location", current_db_path.display().to_string());
+            let start_dir = current_db_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
+            ui.horizontal(|ui| {
+                if ui.button("Change location…").clicked()
+                    && let Some(folder) = rfd::FileDialog::new()
+                        .set_directory(&start_dir)
+                        .pick_folder()
+                {
+                    action = Some(LibraryAction::ChangeLocation(folder));
+                }
+                if ui.button("Restore from backup…").clicked()
+                    && let Some(file) = rfd::FileDialog::new()
+                        .add_filter("SQLite database", &["db"])
+                        .set_directory(&start_dir)
+                        .pick_file()
+                {
+                    action = Some(LibraryAction::Restore(file));
+                }
+            });
+            ui.label(
+                RichText::new(
+                    "Copy this file elsewhere to back up your library. Restore replaces your \
+                    current library with a backup .db, copying it here without changing the \
+                    location above. Changes take effect after a restart.",
+                )
+                .weak()
+                .italics(),
+            );
+
+            ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());
-            info_row(ui, "Database", db_path_display());
             info_row(ui, "Config", config_path_display());
         });
 
-    changed
+    SettingsOutcome {
+        config_changed: changed,
+        action,
+    }
 }
 
 fn apply_zoom(config: &mut AppConfig, changed: &mut bool, ctx: &egui::Context, zoom: f32) {
@@ -91,18 +140,6 @@ fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {
         ui.add(egui::Label::new(value).selectable(true).truncate())
     })
     .inner
-}
-
-/// Database path, mirroring `establish_connection()`'s logic so what we show
-/// is what the app actually uses.
-fn db_path_display() -> String {
-    if let Ok(path) = std::env::var("FICFLOW_DB_PATH") {
-        return format!("{}  (from FICFLOW_DB_PATH)", path);
-    }
-    match dirs_next::data_local_dir().map(|d| d.join("ficflow").join("fanfictions.db")) {
-        Some(p) => p.display().to_string(),
-        None => "<unavailable>".to_string(),
-    }
 }
 
 fn config_path_display() -> String {

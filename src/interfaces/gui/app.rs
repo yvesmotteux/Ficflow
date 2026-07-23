@@ -16,7 +16,9 @@ use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
-use crate::infrastructure::persistence::database::connection::open_configured_db;
+use crate::infrastructure::persistence::database::connection::{
+    open_configured_db, relocate_library, restore_backup,
+};
 
 use super::chrome::FrameChrome;
 use super::library_cache::LibraryCache;
@@ -28,7 +30,7 @@ use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
 use super::views::modals::shelf_modals::{self, AutoShelfState, CreateState, RenameState};
-use super::views::modals::{bulk_modals, column_picker, quit_modal};
+use super::views::modals::{bulk_modals, column_picker, quit_modal, restore_modal};
 use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
@@ -38,6 +40,10 @@ use super::views::{
 
 pub struct FicflowApp {
     connection: Connection,
+    /// The library file the live `connection` was opened from. Also the
+    /// source when the user relocates the library and the target that a
+    /// restored backup is copied over.
+    current_db_path: PathBuf,
     cache: LibraryCache,
     chrome: FrameChrome,
     config: AppConfig,
@@ -93,6 +99,7 @@ pub enum ActiveModal {
     RemoveOrDeleteFics { ids: Vec<u64>, shelf_id: u64 },
     AddFic(AddFicState),
     ConfirmQuit,
+    ConfirmRestore(PathBuf),
 }
 
 /// Explicit wiring so embedders and integration tests can inject a
@@ -145,6 +152,7 @@ impl FicflowApp {
             TaskExecutor::spawn(config.ao3_urls, config.max_retry_cycles, db_path.clone());
         let mut app = Self {
             connection,
+            current_db_path: db_path,
             cache,
             chrome,
             config: app_config,
@@ -581,6 +589,52 @@ impl FicflowApp {
     fn save_config(&self) {
         if let Err(err) = self.config.save() {
             log::warn!("Failed to save config: {}", err);
+        }
+    }
+
+    /// Move the library into `folder`, keeping the current file name. If a
+    /// library already lives there, adopt it in place rather than
+    /// overwriting. Takes effect on the next restart.
+    fn change_library_location(&mut self, folder: PathBuf) {
+        let Some(file_name) = self.current_db_path.file_name() else {
+            return;
+        };
+        let target = folder.join(file_name);
+        if target == self.current_db_path {
+            return;
+        }
+        let result = if target.exists() {
+            Ok(())
+        } else {
+            relocate_library(&self.current_db_path, &target)
+        };
+        match result {
+            Ok(()) => {
+                self.config.library_path = Some(target.clone());
+                self.current_db_path = target;
+                self.save_config();
+                self.toasts
+                    .info("Library location updated — restart Ficflow to load it.");
+            }
+            Err(err) => {
+                self.toasts
+                    .error(format!("Couldn't move the library: {}", err));
+            }
+        }
+    }
+
+    /// Copy a backup over the current library, leaving the configured
+    /// location unchanged. Takes effect on the next restart.
+    fn restore_library_backup(&mut self, backup: PathBuf) {
+        match restore_backup(&backup, &self.current_db_path) {
+            Ok(()) => {
+                self.toasts
+                    .info("Backup restored — restart Ficflow to load it.");
+            }
+            Err(err) => {
+                self.toasts
+                    .error(format!("Couldn't restore the backup: {}", err));
+            }
         }
     }
 
@@ -1082,8 +1136,18 @@ impl FicflowApp {
                     },
                 );
             } else if matches!(self.current_view, View::Settings) {
-                if settings_view::draw(ui, &mut self.config) {
+                let outcome = settings_view::draw(ui, &mut self.config, &self.current_db_path);
+                if outcome.config_changed {
                     self.save_config();
+                }
+                match outcome.action {
+                    Some(settings_view::LibraryAction::ChangeLocation(folder)) => {
+                        self.change_library_location(folder);
+                    }
+                    Some(settings_view::LibraryAction::Restore(backup)) => {
+                        self.active_modal = ActiveModal::ConfirmRestore(backup);
+                    }
+                    None => {}
                 }
             } else {
                 draw_stub_view(ui, &self.current_view);
@@ -1155,6 +1219,7 @@ impl FicflowApp {
                 shelf_id: u64,
             },
             AddFic(String),
+            RestoreBackup(PathBuf),
             Quit,
         }
         let action = match &mut self.active_modal {
@@ -1234,6 +1299,11 @@ impl FicflowApp {
                     quit_modal::Outcome::None => ModalAction::None,
                 }
             }
+            ActiveModal::ConfirmRestore(backup) => match restore_modal::draw_confirm(ctx, backup) {
+                restore_modal::Outcome::Confirm => ModalAction::RestoreBackup(backup.clone()),
+                restore_modal::Outcome::Cancel => ModalAction::Close,
+                restore_modal::Outcome::None => ModalAction::None,
+            },
         };
         match action {
             ModalAction::None => {}
@@ -1272,6 +1342,10 @@ impl FicflowApp {
             }
             ModalAction::AddFic(input) => {
                 self.task_executor.enqueue_add(input);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::RestoreBackup(backup) => {
+                self.restore_library_backup(backup);
                 self.active_modal = ActiveModal::None;
             }
             ModalAction::Quit => {
