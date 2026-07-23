@@ -596,6 +596,21 @@ impl FicflowApp {
         }
     }
 
+    /// Fold the write-ahead log back into the main database file on exit so a
+    /// cleanly-closed library is a single self-contained `.db` — this empties
+    /// the `-wal` sidecar and makes "copy the file to back it up" reliable.
+    /// Best-effort: the worker thread may still hold the WAL open, in which
+    /// case SQLite still flushes committed frames into the `.db` even if it
+    /// can't fully truncate the log.
+    fn checkpoint_wal(&self) {
+        if let Err(err) = self
+            .connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        {
+            log::warn!("Failed to checkpoint the database on exit: {}", err);
+        }
+    }
+
     /// Opens the native folder/file picker for a Library action, parented to
     /// our own window so the portal dialog stacks above Ficflow instead of
     /// behind it. Called from `ui()`, the only place with a window handle.
@@ -883,6 +898,10 @@ impl eframe::App for FicflowApp {
     /// borderless undecorated window (see NativeOptions in `mod.rs`).
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn on_exit(&mut self) {
+        self.checkpoint_wal();
     }
 }
 
