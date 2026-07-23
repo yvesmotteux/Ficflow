@@ -1,4 +1,4 @@
 pub mod connection;
 pub mod migration;
 
-pub use connection::establish_connection;
+pub use connection::{open_configured_db, relocate_library, restore_backup};

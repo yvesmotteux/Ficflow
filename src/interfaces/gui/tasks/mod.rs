@@ -79,8 +79,8 @@ pub struct TaskExecutor {
 impl TaskExecutor {
     /// Worker opens its own SQLite connection (`Connection: !Send`); it
     /// must point at the same file as the GUI's so writes are visible
-    /// to subsequent reads. `None` falls through to `establish_connection()`.
-    pub fn spawn(urls: Vec<String>, max_cycles: u32, db_path: Option<PathBuf>) -> Self {
+    /// to subsequent reads, hence the shared `db_path`.
+    pub fn spawn(urls: Vec<String>, max_cycles: u32, db_path: PathBuf) -> Self {
         let inbox = Arc::new(WorkerInbox::new());
         let (tx, rx) = mpsc::channel();
         let worker_inbox = Arc::clone(&inbox);

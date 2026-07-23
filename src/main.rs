@@ -3,7 +3,8 @@
 use std::process::ExitCode;
 
 use ficflow::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
-use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, establish_connection};
+use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, open_configured_db};
+use ficflow::interfaces::gui::AppConfig;
 
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -18,7 +19,10 @@ fn main() -> ExitCode {
         // synchronous and trait-object-based.
         let (urls, max_cycles) = ao3_urls_from_env();
         let fetcher = Ao3Fetcher::new(urls, max_cycles).expect("Failed to create Ao3Fetcher");
-        let conn = establish_connection().expect("Failed to establish database connection");
+        let db_path = AppConfig::load()
+            .resolved_db_path()
+            .expect("Failed to resolve library path");
+        let conn = open_configured_db(&db_path).expect("Failed to establish database connection");
         let repository = SqliteRepository::new(&conn);
         ficflow::interfaces::cli::run_cli(&fetcher, &repository)
     }

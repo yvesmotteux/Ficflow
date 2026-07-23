@@ -17,7 +17,7 @@ use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
 use crate::infrastructure::persistence::database::connection::{
-    establish_connection, open_configured_db,
+    open_configured_db, relocate_library, restore_backup,
 };
 
 use super::chrome::FrameChrome;
@@ -30,7 +30,7 @@ use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
 use super::views::modals::shelf_modals::{self, AutoShelfState, CreateState, RenameState};
-use super::views::modals::{bulk_modals, column_picker, quit_modal};
+use super::views::modals::{bulk_modals, column_picker, quit_modal, restore_modal};
 use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
@@ -40,6 +40,10 @@ use super::views::{
 
 pub struct FicflowApp {
     connection: Connection,
+    /// The library file the live `connection` was opened from. Also the
+    /// source when the user relocates the library and the target that a
+    /// restored backup is copied over.
+    current_db_path: PathBuf,
     cache: LibraryCache,
     chrome: FrameChrome,
     config: AppConfig,
@@ -52,6 +56,9 @@ pub struct FicflowApp {
     selection: SelectionController,
     current_view: View,
     active_modal: ActiveModal,
+    /// A Library button was clicked this frame; the native picker is opened
+    /// from `ui()` next, where the window handle is available to parent it.
+    pending_library_request: Option<settings_view::LibraryRequest>,
     task_executor: TaskExecutor,
     quit_confirmed: bool,
     task_filter: TaskFilter,
@@ -95,6 +102,7 @@ pub enum ActiveModal {
     RemoveOrDeleteFics { ids: Vec<u64>, shelf_id: u64 },
     AddFic(AddFicState),
     ConfirmQuit,
+    ConfirmRestore(PathBuf),
 }
 
 /// Explicit wiring so embedders and integration tests can inject a
@@ -128,13 +136,14 @@ impl FicflowApp {
     /// `Connection: !Send`.
     pub fn with_config(ctx: &egui::Context, config: FicflowConfig) -> Result<Self, InitError> {
         theme::install(ctx);
-        let connection = match &config.db_path {
-            Some(path) => open_configured_db(path).map_err(InitError::Database)?,
-            None => establish_connection().map_err(InitError::Database)?,
+        let mut app_config = AppConfig::load();
+        let db_path = match &config.db_path {
+            Some(path) => path.clone(),
+            None => app_config.resolved_db_path().map_err(InitError::Database)?,
         };
+        let connection = open_configured_db(&db_path).map_err(InitError::Database)?;
         let cache = LibraryCache::load(&connection);
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
-        let mut app_config = AppConfig::load();
         app_config.text_zoom = config::set_zoom(ctx, app_config.text_zoom);
         config::set_theme(ctx, app_config.theme);
         let sort = app_config.default_sort;
@@ -142,13 +151,11 @@ impl FicflowApp {
             .last_view
             .and_then(|pv| View::from_persisted(pv, &cache.shelves))
             .unwrap_or_default();
-        let task_executor = TaskExecutor::spawn(
-            config.ao3_urls,
-            config.max_retry_cycles,
-            config.db_path.clone(),
-        );
+        let task_executor =
+            TaskExecutor::spawn(config.ao3_urls, config.max_retry_cycles, db_path.clone());
         let mut app = Self {
             connection,
+            current_db_path: db_path,
             cache,
             chrome,
             config: app_config,
@@ -159,6 +166,7 @@ impl FicflowApp {
             selection: SelectionController::new(),
             current_view,
             active_modal: ActiveModal::None,
+            pending_library_request: None,
             task_executor,
             quit_confirmed: false,
             task_filter: TaskFilter::default(),
@@ -588,6 +596,100 @@ impl FicflowApp {
         }
     }
 
+    /// Fold the write-ahead log back into the main database file on exit so a
+    /// cleanly-closed library is a single self-contained `.db` — this empties
+    /// the `-wal` sidecar and makes "copy the file to back it up" reliable.
+    /// Best-effort: the worker thread may still hold the WAL open, in which
+    /// case SQLite still flushes committed frames into the `.db` even if it
+    /// can't fully truncate the log.
+    fn checkpoint_wal(&self) {
+        if let Err(err) = self
+            .connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        {
+            log::warn!("Failed to checkpoint the database on exit: {}", err);
+        }
+    }
+
+    /// Opens the native folder/file picker for a Library action, parented to
+    /// our own window so the portal dialog stacks above Ficflow instead of
+    /// behind it. Called from `ui()`, the only place with a window handle.
+    fn open_library_picker(
+        &mut self,
+        request: settings_view::LibraryRequest,
+        frame: &eframe::Frame,
+    ) {
+        let start_dir = self.current_db_path.parent().map(|p| p.to_path_buf());
+        match request {
+            settings_view::LibraryRequest::ChangeLocation => {
+                let mut dialog = rfd::FileDialog::new().set_parent(frame);
+                if let Some(dir) = &start_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                if let Some(folder) = dialog.pick_folder() {
+                    self.change_library_location(folder);
+                }
+            }
+            settings_view::LibraryRequest::Restore => {
+                let mut dialog = rfd::FileDialog::new()
+                    .add_filter("SQLite database", &["db"])
+                    .set_parent(frame);
+                if let Some(dir) = &start_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                if let Some(backup) = dialog.pick_file() {
+                    self.active_modal = ActiveModal::ConfirmRestore(backup);
+                }
+            }
+        }
+    }
+
+    /// Move the library into `folder`, keeping the current file name. If a
+    /// library already lives there, adopt it in place rather than
+    /// overwriting. Takes effect on the next restart.
+    fn change_library_location(&mut self, folder: PathBuf) {
+        let Some(file_name) = self.current_db_path.file_name() else {
+            return;
+        };
+        let target = folder.join(file_name);
+        if target == self.current_db_path {
+            return;
+        }
+        let result = if target.exists() {
+            Ok(())
+        } else {
+            relocate_library(&self.current_db_path, &target)
+        };
+        match result {
+            Ok(()) => {
+                self.config.library_path = Some(target.clone());
+                self.current_db_path = target;
+                self.save_config();
+                self.toasts
+                    .info("Library location updated — restart Ficflow to load it.");
+            }
+            Err(err) => {
+                self.toasts
+                    .error(format!("Couldn't move the library: {}", err));
+            }
+        }
+    }
+
+    /// Copy a backup over the current library, leaving the configured
+    /// location unchanged. Takes effect on the next restart.
+    fn restore_library_backup(&mut self, backup: PathBuf) {
+        match restore_backup(&backup, &self.current_db_path) {
+            Ok(()) => {
+                self.toasts
+                    .info("Backup restored — restart Ficflow to load it.");
+            }
+            Err(err) => {
+                self.toasts
+                    .error(format!("Couldn't restore the backup: {}", err));
+            }
+        }
+    }
+
     fn dispatch_details_outcome(&mut self, fic_id: u64, outcome: details_panel::Outcome) {
         use details_panel::Outcome;
         match outcome {
@@ -785,14 +887,21 @@ fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
 }
 
 impl eframe::App for FicflowApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.render(ui);
+        if let Some(request) = self.pending_library_request.take() {
+            self.open_library_picker(request, frame);
+        }
     }
 
     /// Transparent so the chrome's painted edges show through the
     /// borderless undecorated window (see NativeOptions in `mod.rs`).
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn on_exit(&mut self) {
+        self.checkpoint_wal();
     }
 }
 
@@ -1086,8 +1195,14 @@ impl FicflowApp {
                     },
                 );
             } else if matches!(self.current_view, View::Settings) {
-                if settings_view::draw(ui, &mut self.config) {
+                let outcome = settings_view::draw(ui, &mut self.config, &self.current_db_path);
+                if outcome.config_changed {
                     self.save_config();
+                }
+                // The native picker is opened later from `ui()`, which holds
+                // the window handle needed to parent the dialog above us.
+                if outcome.request.is_some() {
+                    self.pending_library_request = outcome.request;
                 }
             } else {
                 draw_stub_view(ui, &self.current_view);
@@ -1159,6 +1274,7 @@ impl FicflowApp {
                 shelf_id: u64,
             },
             AddFic(String),
+            RestoreBackup(PathBuf),
             Quit,
         }
         let action = match &mut self.active_modal {
@@ -1238,6 +1354,11 @@ impl FicflowApp {
                     quit_modal::Outcome::None => ModalAction::None,
                 }
             }
+            ActiveModal::ConfirmRestore(backup) => match restore_modal::draw_confirm(ctx, backup) {
+                restore_modal::Outcome::Confirm => ModalAction::RestoreBackup(backup.clone()),
+                restore_modal::Outcome::Cancel => ModalAction::Close,
+                restore_modal::Outcome::None => ModalAction::None,
+            },
         };
         match action {
             ModalAction::None => {}
@@ -1276,6 +1397,10 @@ impl FicflowApp {
             }
             ModalAction::AddFic(input) => {
                 self.task_executor.enqueue_add(input);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::RestoreBackup(backup) => {
+                self.restore_library_backup(backup);
                 self.active_modal = ActiveModal::None;
             }
             ModalAction::Quit => {

@@ -33,6 +33,7 @@ egui_extras = "0.34"
 egui-notify = "0.22"
 toml = "1"
 resvg = "0.47"
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 
 [dev-dependencies]
 httpmock = "0.8.3"

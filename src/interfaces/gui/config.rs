@@ -1,21 +1,29 @@
-//! Persistent GUI preferences stored as TOML at the platform's config
+//! Persistent app preferences stored as TOML at the platform's config
 //! dir (`~/.config/ficflow/config.toml` on Linux). Holds visible
 //! columns, the default sort for the library table, the
-//! maximized/fullscreen window state, the text-zoom level, and the
-//! theme choice — read at startup, written when the user changes them.
+//! maximized/fullscreen window state, the text-zoom level, the theme
+//! choice, and the library location — read at startup, written when the
+//! user changes them.
 //!
-//! Lives under `interfaces/gui/` because every field here is a GUI
-//! concern: column visibility, sort direction, and window state have
-//! no meaning to the CLI.
+//! Lives under `interfaces/gui/` because almost every field is a GUI
+//! concern with no meaning to the CLI. The one exception is
+//! `library_path`: it's the single source of truth for where the
+//! database lives, so both the GUI and the CLI resolve it through
+//! `resolved_db_path`.
 
+use std::env;
 use std::io;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 use crate::domain::fanfiction::ReadingStatus;
+use crate::error::FicflowError;
+
+const DB_PATH_ENV: &str = "FICFLOW_DB_PATH";
 
 const CONFIG_FILE: &str = "config.toml";
+const DB_FILE: &str = "fanfictions.db";
 const APP_DIR: &str = "ficflow";
 
 /// Serializable shadow of the library-facing `View` variants — the ones
@@ -165,6 +173,10 @@ pub struct AppConfig {
     pub text_zoom: f32,
     #[serde(default)]
     pub theme: ThemeChoice,
+    /// Where the library database lives. `None` means the platform
+    /// default. Shared with the CLI via `resolved_db_path`.
+    #[serde(default)]
+    pub library_path: Option<PathBuf>,
 }
 
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
@@ -213,6 +225,7 @@ impl Default for AppConfig {
             last_view: None,
             text_zoom: 1.0,
             theme: ThemeChoice::System,
+            library_path: None,
         }
     }
 }
@@ -233,6 +246,19 @@ impl AppConfig {
                 log::warn!("Ignoring unparseable config at {:?}: {}", path, err);
                 Self::default()
             }
+        }
+    }
+
+    /// The effective library path, in precedence order: the
+    /// `FICFLOW_DB_PATH` env override, then the configured `library_path`,
+    /// then the platform default.
+    pub fn resolved_db_path(&self) -> Result<PathBuf, FicflowError> {
+        if let Ok(path) = env::var(DB_PATH_ENV) {
+            return Ok(PathBuf::from(path));
+        }
+        match &self.library_path {
+            Some(path) => Ok(path.clone()),
+            None => default_db_path(),
         }
     }
 
@@ -275,4 +301,14 @@ impl AppConfig {
 
 fn config_path() -> Option<PathBuf> {
     dirs_next::config_dir().map(|d| d.join(APP_DIR).join(CONFIG_FILE))
+}
+
+/// The platform default library path (`~/.local/share/ficflow/fanfictions.db`
+/// on Linux), used when neither `FICFLOW_DB_PATH` nor `library_path` is set.
+fn default_db_path() -> Result<PathBuf, FicflowError> {
+    let mut path = dirs_next::data_local_dir()
+        .ok_or_else(|| FicflowError::Other("Failed to determine user data directory".into()))?;
+    path.push(APP_DIR);
+    path.push(DB_FILE);
+    Ok(path)
 }
