@@ -149,6 +149,26 @@ impl GuiHarness {
         })
     }
 
+    /// Run one frame with a single key press injected, so shortcut
+    /// handlers (`handle_shortcuts`) see `key_pressed(key)` this frame.
+    pub fn step_with_key(&mut self, key: egui::Key) {
+        let mut raw_input = egui::RawInput {
+            max_texture_side: Some(8192),
+            ..Default::default()
+        };
+        raw_input.events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        });
+        let app = &mut self.app;
+        let _ = self.ctx.run_ui(raw_input, |ui| {
+            app.render(ui);
+        });
+    }
+
     pub fn step_n(&mut self, n: usize) {
         for _ in 0..n {
             self.step();

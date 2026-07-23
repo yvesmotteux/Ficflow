@@ -92,6 +92,7 @@ pub enum ActiveModal {
     AutoShelf(AutoShelfState),
     DeleteShelf(u64),
     DeleteFics(Vec<u64>),
+    RemoveOrDeleteFics { ids: Vec<u64>, shelf_id: u64 },
     AddFic(AddFicState),
     ConfirmQuit,
 }
@@ -248,6 +249,19 @@ impl FicflowApp {
 
     pub fn confirm_quit_open(&self) -> bool {
         matches!(self.active_modal, ActiveModal::ConfirmQuit)
+    }
+
+    pub fn delete_fics_open(&self) -> bool {
+        matches!(self.active_modal, ActiveModal::DeleteFics(_))
+    }
+
+    /// `Some(shelf_id)` when the "remove from shelf vs delete" chooser is
+    /// the open modal.
+    pub fn remove_or_delete_shelf(&self) -> Option<u64> {
+        match self.active_modal {
+            ActiveModal::RemoveOrDeleteFics { shelf_id, .. } => Some(shelf_id),
+            _ => None,
+        }
     }
 
     pub fn task_states(&self) -> Vec<crate::interfaces::gui::tasks::TaskState> {
@@ -516,6 +530,13 @@ impl FicflowApp {
                 .count()
         });
         (ids.len() - errors, errors)
+    }
+
+    fn is_normal_shelf(&self, shelf_id: u64) -> bool {
+        self.cache
+            .shelves
+            .iter()
+            .any(|s| s.id == shelf_id && matches!(s.kind, ShelfKind::Normal))
     }
 
     pub fn set_search(&mut self, query: impl Into<String>) {
@@ -1133,6 +1154,10 @@ impl FicflowApp {
             },
             DeleteShelf(u64),
             DeleteFics(Vec<u64>),
+            RemoveFicsFromShelf {
+                ids: Vec<u64>,
+                shelf_id: u64,
+            },
             AddFic(String),
             Quit,
         }
@@ -1181,6 +1206,26 @@ impl FicflowApp {
                     bulk_modals::DeleteOutcome::None => ModalAction::None,
                 }
             }
+            ActiveModal::RemoveOrDeleteFics { ids, shelf_id } => {
+                let shelf_id = *shelf_id;
+                let shelf_name = self
+                    .cache
+                    .shelves
+                    .iter()
+                    .find(|s| s.id == shelf_id)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("shelf");
+                match bulk_modals::draw_remove_or_delete(ctx, ids, shelf_name, &self.cache.fics) {
+                    bulk_modals::RemoveOrDeleteOutcome::RemoveFromShelf(ids) => {
+                        ModalAction::RemoveFicsFromShelf { ids, shelf_id }
+                    }
+                    bulk_modals::RemoveOrDeleteOutcome::DeleteEverywhere(ids) => {
+                        ModalAction::DeleteFics(ids)
+                    }
+                    bulk_modals::RemoveOrDeleteOutcome::Cancel => ModalAction::Close,
+                    bulk_modals::RemoveOrDeleteOutcome::None => ModalAction::None,
+                }
+            }
             ActiveModal::AddFic(state) => match add_fic_dialog::draw(ctx, state) {
                 add_fic_dialog::Outcome::Submit(input) => ModalAction::AddFic(input),
                 add_fic_dialog::Outcome::Cancel => ModalAction::Close,
@@ -1222,6 +1267,11 @@ impl FicflowApp {
             }
             ModalAction::DeleteFics(ids) => {
                 self.handle_bulk_delete(&ids);
+                self.active_modal = ActiveModal::None;
+            }
+            ModalAction::RemoveFicsFromShelf { ids, shelf_id } => {
+                let (succeeded, failed) = self.bulk_remove_from_shelf(&ids, shelf_id);
+                self.toast_bulk_result("Removed from shelf", succeeded, failed);
                 self.active_modal = ActiveModal::None;
             }
             ModalAction::AddFic(input) => {
@@ -1508,8 +1558,22 @@ impl FicflowApp {
 
         if pressed_delete {
             let selected_fics = self.selection.ids_vec();
-            if !selected_fics.is_empty() && self.current_view.shows_library() {
-                self.active_modal = ActiveModal::DeleteFics(selected_fics);
+            if !selected_fics.is_empty() {
+                if let View::Shelf(shelf_id) = &self.current_view {
+                    let shelf_id = *shelf_id;
+                    if self.is_normal_shelf(shelf_id) {
+                        self.active_modal = ActiveModal::RemoveOrDeleteFics {
+                            ids: selected_fics,
+                            shelf_id,
+                        };
+                    } else {
+                        // Auto-shelf membership is derived, not stored, so
+                        // there's nothing to remove from → delete-only.
+                        self.active_modal = ActiveModal::DeleteFics(selected_fics);
+                    }
+                } else if self.current_view.shows_library() {
+                    self.active_modal = ActiveModal::DeleteFics(selected_fics);
+                }
             } else if let View::Shelf(shelf_id) = &self.current_view {
                 // No fic selection on a shelf view → Delete targets the
                 // shelf itself.

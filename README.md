@@ -84,7 +84,7 @@ cargo build --release
 - [x] Ability to choose the text size / zoom level in the settings
 - [x] New feature of auto-shelves (based on ships, fandoms, relationship,...)
 - [x] Dark/White toggle in settings (dark, light, or follow computer theme)
-- [ ] Review Del behaviour while on a shelf
+- [x] Review Del behaviour while on a shelf
 - [ ] Fix alignment of the pinned icon
 - [ ] Fix behaviour for long notes
 - [ ] Possibility to choose the location of the library (defaults to appdata/ ~/.ficflow like now), with persistence of that config
