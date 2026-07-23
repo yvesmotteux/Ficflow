@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use egui::{Color32, Context, FontData, FontDefinitions, FontFamily};
+use egui::{Color32, Context, FontData, FontDefinitions, FontFamily, Visuals};
 
 use super::assets;
 
@@ -9,6 +9,26 @@ use super::assets;
 /// wordmark and view-title heading so decorative type reads in the
 /// same family as the frame border.
 pub const ACCENT: Color32 = Color32::from_rgb(0xC9, 0xC4, 0xBC);
+
+const ACCENT_LIGHT_MODE: Color32 = Color32::from_rgb(0x6B, 0x64, 0x58);
+
+/// Multiplied against the frame texture at paint time; chosen so
+/// `ACCENT × FRAME_TINT_LIGHT_MODE / 255` lands on `ACCENT_LIGHT_MODE`,
+/// keeping the frame and decorative type in the same family in light
+/// mode without a second SVG.
+const FRAME_TINT_LIGHT_MODE: Color32 = Color32::from_rgb(0x87, 0x82, 0x79);
+
+pub fn accent(visuals: &Visuals) -> Color32 {
+    pick(visuals, ACCENT, ACCENT_LIGHT_MODE)
+}
+
+pub fn frame_tint(visuals: &Visuals) -> Color32 {
+    pick(visuals, Color32::WHITE, FRAME_TINT_LIGHT_MODE)
+}
+
+pub fn pick(visuals: &Visuals, dark: Color32, light: Color32) -> Color32 {
+    if visuals.dark_mode { dark } else { light }
+}
 
 pub const NEUE_FAMILY: &str = "neue";
 pub const COMFORTAA_FAMILY: &str = "comfortaa";

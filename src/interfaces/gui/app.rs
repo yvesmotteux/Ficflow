@@ -830,7 +830,7 @@ impl FicflowApp {
                         egui::RichText::new("FICFLOW")
                             .family(egui::FontFamily::Name(theme::NEUE_FAMILY.into()))
                             .size(20.0)
-                            .color(theme::ACCENT),
+                            .color(theme::accent(ui.visuals())),
                     )
                     .selectable(false),
                 );
@@ -1284,7 +1284,7 @@ impl FicflowApp {
                     egui::RichText::new(view_title)
                         .family(egui::FontFamily::Name(theme::NEUE_FAMILY.into()))
                         .size(20.0)
-                        .color(theme::ACCENT),
+                        .color(theme::accent(ui.visuals())),
                 )
                 .selectable(false),
             );
