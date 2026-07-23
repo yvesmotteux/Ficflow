@@ -27,8 +27,6 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> Sett
         .auto_shrink([false; 2])
         .show(ui, |ui| {
             ui.add_space(8.0);
-            ui.heading("Settings");
-            ui.add_space(12.0);
 
             ui.label(RichText::new("Application").strong());
             info_row(ui, "Version", VERSION.to_string());
