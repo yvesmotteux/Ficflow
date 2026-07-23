@@ -19,11 +19,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::fanfiction::ReadingStatus;
 use crate::error::FicflowError;
-use crate::infrastructure::persistence::database::connection::default_db_path;
 
 const DB_PATH_ENV: &str = "FICFLOW_DB_PATH";
 
 const CONFIG_FILE: &str = "config.toml";
+const DB_FILE: &str = "fanfictions.db";
 const APP_DIR: &str = "ficflow";
 
 /// Serializable shadow of the library-facing `View` variants — the ones
@@ -301,4 +301,14 @@ impl AppConfig {
 
 fn config_path() -> Option<PathBuf> {
     dirs_next::config_dir().map(|d| d.join(APP_DIR).join(CONFIG_FILE))
+}
+
+/// The platform default library path (`~/.local/share/ficflow/fanfictions.db`
+/// on Linux), used when neither `FICFLOW_DB_PATH` nor `library_path` is set.
+fn default_db_path() -> Result<PathBuf, FicflowError> {
+    let mut path = dirs_next::data_local_dir()
+        .ok_or_else(|| FicflowError::Other("Failed to determine user data directory".into()))?;
+    path.push(APP_DIR);
+    path.push(DB_FILE);
+    Ok(path)
 }

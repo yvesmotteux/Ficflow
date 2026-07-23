@@ -1,26 +1,12 @@
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::database::migration::run_migrations;
-use dirs_next::data_local_dir;
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const DB_FILE: &str = "fanfictions.db";
-
 // SQLite writes two sidecar files next to the database in WAL mode; any move
 // or delete of the database has to account for them.
 const SIDECAR_SUFFIXES: [&str; 2] = ["-wal", "-shm"];
-
-/// The platform default library path (`~/.local/share/ficflow/fanfictions.db`
-/// on Linux) — used when no `FICFLOW_DB_PATH` env override and no configured
-/// location are set.
-pub fn default_db_path() -> Result<PathBuf, FicflowError> {
-    let mut path = data_local_dir()
-        .ok_or_else(|| FicflowError::Other("Failed to determine user data directory".into()))?;
-    path.push("ficflow");
-    path.push(DB_FILE);
-    Ok(path)
-}
 
 // Single canonical path to obtain a ready-to-use Connection: create the parent
 // directory, open, migrate, then enable FK enforcement and WAL journaling.
