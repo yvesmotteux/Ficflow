@@ -4,7 +4,7 @@ use egui_notify::Toasts;
 use rusqlite::Connection;
 
 use super::auto_shelf;
-use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref};
+use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref, ThemeChoice};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
     pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
@@ -135,6 +135,7 @@ impl FicflowApp {
         let chrome = FrameChrome::new().map_err(InitError::Chrome)?;
         let mut app_config = AppConfig::load();
         app_config.text_zoom = config::set_zoom(ctx, app_config.text_zoom);
+        config::set_theme(ctx, app_config.theme);
         let sort = app_config.default_sort;
         let current_view = app_config
             .last_view
@@ -214,6 +215,16 @@ impl FicflowApp {
 
     pub fn set_sort(&mut self, column: ColumnKey, direction: SortDirection) {
         self.sort = SortPref { column, direction };
+    }
+
+    pub fn theme_choice(&self) -> ThemeChoice {
+        self.config.theme
+    }
+
+    pub fn set_theme(&mut self, ctx: &egui::Context, choice: ThemeChoice) {
+        self.config.theme = choice;
+        config::set_theme(ctx, choice);
+        self.save_config();
     }
 
     pub fn visible_ids(&self) -> Vec<u64> {

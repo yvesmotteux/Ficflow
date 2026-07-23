@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
-use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE};
+use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE, ThemeChoice};
 use super::super::format::erisian_date;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
@@ -54,6 +54,22 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig) -> bool {
                 }
             });
             ui.label(RichText::new("Or use Ctrl/Cmd +/-/0.").weak().italics());
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                for choice in ThemeChoice::ALL {
+                    if ui
+                        .selectable_label(config.theme == choice, choice.label())
+                        .clicked()
+                        && config.theme != choice
+                    {
+                        config.theme = choice;
+                        config::set_theme(ui.ctx(), choice);
+                        changed = true;
+                    }
+                }
+                ui.label("Theme");
+            });
 
             ui.add_space(12.0);
             ui.label(RichText::new("Paths").strong());

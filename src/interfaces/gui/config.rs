@@ -1,8 +1,8 @@
 //! Persistent GUI preferences stored as TOML at the platform's config
 //! dir (`~/.config/ficflow/config.toml` on Linux). Holds visible
 //! columns, the default sort for the library table, the
-//! maximized/fullscreen window state, and the text-zoom level — read
-//! at startup, written when the user changes them.
+//! maximized/fullscreen window state, the text-zoom level, and the
+//! theme choice — read at startup, written when the user changes them.
 //!
 //! Lives under `interfaces/gui/` because every field here is a GUI
 //! concern: column visibility, sort direction, and window state have
@@ -93,6 +93,34 @@ impl ColumnKey {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ThemeChoice {
+    Dark,
+    Clear,
+    #[default]
+    System,
+}
+
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::System, ThemeChoice::Clear, ThemeChoice::Dark];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeChoice::System => "System",
+            ThemeChoice::Clear => "Clear",
+            ThemeChoice::Dark => "Dark",
+        }
+    }
+
+    fn preference(self) -> egui::ThemePreference {
+        match self {
+            ThemeChoice::System => egui::ThemePreference::System,
+            ThemeChoice::Clear => egui::ThemePreference::Light,
+            ThemeChoice::Dark => egui::ThemePreference::Dark,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortDirection {
     Ascending,
@@ -135,6 +163,8 @@ pub struct AppConfig {
     /// against a hand-edited config file.
     #[serde(default = "default_text_zoom")]
     pub text_zoom: f32,
+    #[serde(default)]
+    pub theme: ThemeChoice,
 }
 
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
@@ -155,6 +185,10 @@ pub fn set_zoom(ctx: &egui::Context, zoom: f32) -> f32 {
     let clamped = clamp_zoom(zoom);
     ctx.set_zoom_factor(clamped);
     clamped
+}
+
+pub fn set_theme(ctx: &egui::Context, choice: ThemeChoice) {
+    ctx.set_theme(choice.preference());
 }
 
 impl Default for AppConfig {
@@ -178,6 +212,7 @@ impl Default for AppConfig {
             window_fullscreen: false,
             last_view: None,
             text_zoom: 1.0,
+            theme: ThemeChoice::System,
         }
     }
 }
