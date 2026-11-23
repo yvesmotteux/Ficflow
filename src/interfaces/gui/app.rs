@@ -67,22 +67,13 @@ pub struct FicflowApp {
     toasts: Toasts,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InitError {
+    #[error("database init failed: {0}")]
     Database(FicflowError),
+    #[error("chrome SVG init failed: {0}")]
     Chrome(resvg::usvg::Error),
 }
-
-impl std::fmt::Display for InitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            InitError::Database(e) => write!(f, "database init failed: {}", e),
-            InitError::Chrome(e) => write!(f, "chrome SVG init failed: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for InitError {}
 
 /// Mutually-exclusive set of modal windows: only one can be open at a time.
 pub enum ActiveModal {
@@ -169,9 +160,7 @@ impl FicflowApp {
         // Restoring straight into a shelf view skips the sidebar's
         // prev/post diff (see `paint_sidebar`) that normally populates
         // `shelf_members` on a view change, so do it explicitly here.
-        if matches!(app.current_view, View::Shelf(_)) {
-            app.refresh_shelf_members();
-        }
+        app.refresh_shelf_members();
         Ok(app)
     }
 
@@ -302,11 +291,7 @@ impl FicflowApp {
 
     pub fn open_view(&mut self, view: View) {
         self.current_view = view;
-        if matches!(self.current_view, View::Shelf(_)) {
-            self.refresh_shelf_members();
-        } else {
-            self.cache.shelf_members.clear();
-        }
+        self.refresh_shelf_members();
         self.persist_current_view();
     }
 
@@ -322,7 +307,7 @@ impl FicflowApp {
 
     pub fn refresh_selected(&self) {
         if let Selection::Single(id) = *self.selection.current()
-            && let Some(fic) = self.cache.fics.iter().find(|f| f.id == id)
+            && let Some(fic) = self.cache.fic(id)
         {
             self.task_executor.enqueue_refresh(id, fic.title.clone());
         }
@@ -336,20 +321,12 @@ impl FicflowApp {
     }
 
     pub fn create_shelf(&mut self, name: impl AsRef<str>) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        match create_shelf(&repo, name.as_ref(), None) {
-            Ok(shelf) => {
-                self.toasts
-                    .success(format!("Created shelf \u{201C}{}\u{201D}", shelf.name));
-                self.cache.reload_shelves(&self.connection);
-                self.refresh_shelf_counts();
-                Ok(())
-            }
-            Err(err) => {
-                self.toasts.error(format!("Couldn't create shelf: {}", err));
-                Err(err)
-            }
-        }
+        self.shelf_op(
+            "create shelf",
+            |repo| create_shelf(repo, name.as_ref(), None),
+            |shelf| format!("Created shelf \u{201C}{}\u{201D}", shelf.name),
+        )
+        .map(drop)
     }
 
     /// Creates a new auto-shelf (`shelf_id: None`) or updates an
@@ -360,50 +337,32 @@ impl FicflowApp {
         name: impl AsRef<str>,
         criteria: AutoShelfCriteria,
     ) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        match upsert_auto_shelf::upsert_auto_shelf(&repo, shelf_id, name.as_ref(), None, criteria) {
-            Ok(shelf) => {
-                let verb = if shelf_id.is_some() {
-                    "Updated"
-                } else {
-                    "Created"
-                };
-                self.toasts.success(format!(
-                    "{} auto-shelf \u{201C}{}\u{201D}",
-                    verb, shelf.name
-                ));
-                self.cache.reload_shelves(&self.connection);
-                self.refresh_shelf_counts();
-                if shelf_id.is_some_and(|id| self.current_view == View::Shelf(id)) {
-                    self.refresh_shelf_members();
-                }
-                Ok(())
-            }
-            Err(err) => {
-                self.toasts
-                    .error(format!("Couldn't save auto-shelf: {}", err));
-                Err(err)
-            }
-        }
+        let verb = if shelf_id.is_some() {
+            "Updated"
+        } else {
+            "Created"
+        };
+        self.shelf_op(
+            "save auto-shelf",
+            |repo| {
+                upsert_auto_shelf::upsert_auto_shelf(repo, shelf_id, name.as_ref(), None, criteria)
+            },
+            |shelf| format!("{} auto-shelf \u{201C}{}\u{201D}", verb, shelf.name),
+        )?;
+        self.refresh_shelf_members();
+        Ok(())
     }
 
     pub fn delete_shelf(&mut self, shelf_id: u64) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        match delete_shelf::delete_shelf(&repo, shelf_id) {
-            Ok(()) => {
-                self.toasts.success("Shelf deleted");
-                if self.current_view == View::Shelf(shelf_id) {
-                    self.open_view(View::AllFics);
-                }
-                self.cache.reload_shelves(&self.connection);
-                self.refresh_shelf_counts();
-                Ok(())
-            }
-            Err(err) => {
-                self.toasts.error(format!("Couldn't delete shelf: {}", err));
-                Err(err)
-            }
+        self.shelf_op(
+            "delete shelf",
+            |repo| delete_shelf::delete_shelf(repo, shelf_id),
+            |()| "Shelf deleted".to_string(),
+        )?;
+        if self.current_view == View::Shelf(shelf_id) {
+            self.open_view(View::AllFics);
         }
+        Ok(())
     }
 
     pub fn move_shelf(
@@ -411,48 +370,36 @@ impl FicflowApp {
         shelf_id: u64,
         new_parent: Option<u64>,
     ) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        match move_shelf::move_shelf(&repo, shelf_id, new_parent) {
-            Ok(shelf) => {
-                self.toasts
-                    .success(format!("Moved shelf \u{201C}{}\u{201D}", shelf.name));
-                self.cache.reload_shelves(&self.connection);
-                self.refresh_shelf_counts();
-                if matches!(self.current_view, View::Shelf(_)) {
-                    self.refresh_shelf_members();
-                }
-                Ok(())
-            }
-            Err(err) => {
-                self.toasts.error(format!("Couldn't move shelf: {}", err));
-                Err(err)
-            }
-        }
+        self.shelf_op(
+            "move shelf",
+            |repo| move_shelf::move_shelf(repo, shelf_id, new_parent),
+            |shelf| format!("Moved shelf \u{201C}{}\u{201D}", shelf.name),
+        )?;
+        self.refresh_shelf_members();
+        Ok(())
     }
 
     pub fn toggle_pin_shelf(&mut self, shelf_id: u64) -> Result<(), FicflowError> {
-        let Some(shelf) = self.cache.shelves.iter().find(|s| s.id == shelf_id) else {
-            return Err(FicflowError::ShelfNotFound { shelf_id });
-        };
-        let repo = self.repo();
-        let result = if shelf.pinned {
-            unpin_shelf(&repo, shelf_id)
-        } else {
-            pin_shelf(&repo, shelf_id)
-        };
-        match result {
-            Ok(shelf) => {
+        let pinned = self
+            .cache
+            .shelf(shelf_id)
+            .ok_or(FicflowError::ShelfNotFound { shelf_id })?
+            .pinned;
+        self.shelf_op(
+            "update shelf",
+            |repo| {
+                if pinned {
+                    unpin_shelf(repo, shelf_id)
+                } else {
+                    pin_shelf(repo, shelf_id)
+                }
+            },
+            |shelf| {
                 let verb = if shelf.pinned { "Pinned" } else { "Unpinned" };
-                self.toasts
-                    .success(format!("{} shelf \u{201C}{}\u{201D}", verb, shelf.name));
-                self.cache.reload_shelves(&self.connection);
-                Ok(())
-            }
-            Err(err) => {
-                self.toasts.error(format!("Couldn't update shelf: {}", err));
-                Err(err)
-            }
-        }
+                format!("{} shelf \u{201C}{}\u{201D}", verb, shelf.name)
+            },
+        )
+        .map(drop)
     }
 
     pub fn rename_shelf(
@@ -460,19 +407,32 @@ impl FicflowApp {
         shelf_id: u64,
         new_name: impl AsRef<str>,
     ) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        match rename_shelf(&repo, shelf_id, new_name.as_ref()) {
-            Ok(shelf) => {
-                self.toasts
-                    .success(format!("Renamed shelf to \u{201C}{}\u{201D}", shelf.name));
+        self.shelf_op(
+            "rename shelf",
+            |repo| rename_shelf(repo, shelf_id, new_name.as_ref()),
+            |shelf| format!("Renamed shelf to \u{201C}{}\u{201D}", shelf.name),
+        )
+        .map(drop)
+    }
+
+    fn shelf_op<T>(
+        &mut self,
+        action: &str,
+        op: impl FnOnce(&SqliteRepository<'_>) -> Result<T, FicflowError>,
+        success_message: impl FnOnce(&T) -> String,
+    ) -> Result<T, FicflowError> {
+        let result = op(&self.repo());
+        match &result {
+            Ok(value) => {
+                self.toasts.success(success_message(value));
                 self.cache.reload_shelves(&self.connection);
-                Ok(())
+                self.refresh_shelf_counts();
             }
             Err(err) => {
-                self.toasts.error(format!("Couldn't rename shelf: {}", err));
-                Err(err)
+                self.toasts.error(format!("Couldn't {}: {}", action, err));
             }
         }
+        result
     }
 
     pub fn add_fic_to_shelf(&mut self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
@@ -533,24 +493,15 @@ impl FicflowApp {
     }
 
     pub fn set_status(&mut self, fic_id: u64, status: ReadingStatus) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        let updated = update_status::update_reading_status(&repo, fic_id, status)?;
-        self.cache.replace_fic(updated);
-        Ok(())
+        self.update_fic(|repo| update_status::update_reading_status(repo, fic_id, status))
     }
 
     pub fn set_last_chapter(&mut self, fic_id: u64, chapter: u32) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        let updated = update_chapters::update_last_chapter_read(&repo, fic_id, chapter)?;
-        self.cache.replace_fic(updated);
-        Ok(())
+        self.update_fic(|repo| update_chapters::update_last_chapter_read(repo, fic_id, chapter))
     }
 
     pub fn set_read_count(&mut self, fic_id: u64, count: u32) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        let updated = update_read_count::update_read_count(&repo, fic_id, count)?;
-        self.cache.replace_fic(updated);
-        Ok(())
+        self.update_fic(|repo| update_read_count::update_read_count(repo, fic_id, count))
     }
 
     pub fn set_user_rating(
@@ -558,15 +509,18 @@ impl FicflowApp {
         fic_id: u64,
         rating: Option<UserRating>,
     ) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        let updated = update_rating::update_user_rating(&repo, fic_id, rating)?;
-        self.cache.replace_fic(updated);
-        Ok(())
+        self.update_fic(|repo| update_rating::update_user_rating(repo, fic_id, rating))
     }
 
     pub fn set_note(&mut self, fic_id: u64, note: Option<&str>) -> Result<(), FicflowError> {
-        let repo = self.repo();
-        let updated = update_note::update_personal_note(&repo, fic_id, note)?;
+        self.update_fic(|repo| update_note::update_personal_note(repo, fic_id, note))
+    }
+
+    fn update_fic(
+        &mut self,
+        op: impl FnOnce(&SqliteRepository<'_>) -> Result<Fanfiction, FicflowError>,
+    ) -> Result<(), FicflowError> {
+        let updated = op(&self.repo())?;
         self.cache.replace_fic(updated);
         Ok(())
     }
@@ -673,57 +627,31 @@ impl FicflowApp {
 
     fn dispatch_details_outcome(&mut self, fic_id: u64, outcome: details_panel::Outcome) {
         use details_panel::Outcome;
-        match outcome {
-            Outcome::None => {}
-            Outcome::SetStatus(status) => {
-                if let Err(err) = self.set_status(fic_id, status) {
-                    self.toasts
-                        .error(format!("Couldn't update status: {}", err));
-                }
-            }
-            Outcome::SetLastChapter(n) => {
-                if let Err(err) = self.set_last_chapter(fic_id, n) {
-                    self.toasts
-                        .error(format!("Couldn't update chapter: {}", err));
-                }
-            }
-            Outcome::SetReadCount(n) => {
-                if let Err(err) = self.set_read_count(fic_id, n) {
-                    self.toasts
-                        .error(format!("Couldn't update read count: {}", err));
-                }
-            }
+        let (action, result) = match outcome {
+            Outcome::None => return,
+            Outcome::SetStatus(status) => ("update status", self.set_status(fic_id, status)),
+            Outcome::SetLastChapter(n) => ("update chapter", self.set_last_chapter(fic_id, n)),
+            Outcome::SetReadCount(n) => ("update read count", self.set_read_count(fic_id, n)),
             Outcome::SetUserRating(rating) => {
-                if let Err(err) = self.set_user_rating(fic_id, rating) {
-                    self.toasts
-                        .error(format!("Couldn't update rating: {}", err));
-                }
+                ("update rating", self.set_user_rating(fic_id, rating))
             }
-            Outcome::SetNote(value) => {
-                if let Err(err) = self.set_note(fic_id, value.as_deref()) {
-                    self.toasts.error(format!("Couldn't update note: {}", err));
-                }
-            }
+            Outcome::SetNote(value) => ("update note", self.set_note(fic_id, value.as_deref())),
             Outcome::AddToShelf(shelf_id) => {
-                if let Err(err) = self.add_fic_to_shelf(fic_id, shelf_id) {
-                    self.toasts.error(format!("Couldn't add to shelf: {}", err));
-                }
+                ("add to shelf", self.add_fic_to_shelf(fic_id, shelf_id))
             }
-            Outcome::RemoveFromShelf(shelf_id) => {
-                if let Err(err) = self.remove_fic_from_shelf(fic_id, shelf_id) {
-                    self.toasts
-                        .error(format!("Couldn't remove from shelf: {}", err));
-                }
-            }
-            Outcome::RequestDelete => {
-                self.delete_selected();
-            }
-            Outcome::RequestRefresh => {
-                self.refresh_selected();
-            }
+            Outcome::RemoveFromShelf(shelf_id) => (
+                "remove from shelf",
+                self.remove_fic_from_shelf(fic_id, shelf_id),
+            ),
+            Outcome::RequestDelete => return self.delete_selected(),
+            Outcome::RequestRefresh => return self.refresh_selected(),
             Outcome::CreateAutoShelfFromTag(field, value) => {
                 self.active_modal = ActiveModal::AutoShelf(AutoShelfState::prefilled(field, value));
+                return;
             }
+        };
+        if let Err(err) = result {
+            self.toasts.error(format!("Couldn't {}: {}", action, err));
         }
     }
 
@@ -977,18 +905,12 @@ impl FicflowApp {
                 self.active_modal = ActiveModal::CreateShelf(CreateState::default());
             }
             sidebar::Outcome::OpenRenameShelfModal(id) => {
-                if let Some(shelf) = self.cache.shelves.iter().find(|s| s.id == id) {
+                if let Some(shelf) = self.cache.shelf(id) {
                     self.active_modal = ActiveModal::RenameShelf(RenameState::new(shelf));
                 }
             }
             sidebar::Outcome::OpenEditAutoShelfModal(id) => {
-                if let Some(state) = self
-                    .cache
-                    .shelves
-                    .iter()
-                    .find(|s| s.id == id)
-                    .and_then(AutoShelfState::from_shelf)
-                {
+                if let Some(state) = self.cache.shelf(id).and_then(AutoShelfState::from_shelf) {
                     self.active_modal = ActiveModal::AutoShelf(state);
                 }
             }
@@ -996,7 +918,8 @@ impl FicflowApp {
                 self.active_modal = ActiveModal::DeleteShelf(id);
             }
             sidebar::Outcome::DropOnShelf { shelf_id, fic_ids } => {
-                self.handle_drop_on_shelf(shelf_id, &fic_ids);
+                let (succeeded, failed) = self.bulk_add_to_shelf(&fic_ids, shelf_id);
+                self.toast_bulk_result("Added to shelf", succeeded, failed);
             }
             sidebar::Outcome::MoveShelf {
                 shelf_id,
@@ -1009,11 +932,7 @@ impl FicflowApp {
             }
         }
         if self.current_view != prev_view {
-            if matches!(self.current_view, View::Shelf(_)) {
-                self.refresh_shelf_members();
-            } else {
-                self.cache.shelf_members.clear();
-            }
+            self.refresh_shelf_members();
             self.prune_selection_to_view();
             self.persist_current_view();
         }
@@ -1041,7 +960,7 @@ impl FicflowApp {
         }
         // Clone so the immutable borrow on `cache.fics` releases before
         // dispatching outcomes through `&mut self`.
-        let Some(fic) = self.cache.fics.iter().find(|f| f.id == id).cloned() else {
+        let Some(fic) = self.cache.fic(id).cloned() else {
             return;
         };
 
@@ -1168,7 +1087,7 @@ impl FicflowApp {
         }
         // Selected fic got deleted this frame: drop the orphan selection.
         if let Selection::Single(id) = *self.selection.current()
-            && !self.cache.fics.iter().any(|f| f.id == id)
+            && self.cache.fic(id).is_none()
         {
             self.clear_selection();
         }
@@ -1268,9 +1187,7 @@ impl FicflowApp {
                 let shelf_id = *shelf_id;
                 let shelf_name = self
                     .cache
-                    .shelves
-                    .iter()
-                    .find(|s| s.id == shelf_id)
+                    .shelf(shelf_id)
                     .map(|s| s.name.as_str())
                     .unwrap_or("shelf");
                 match bulk_modals::draw_remove_or_delete(ctx, ids, shelf_name, &self.cache.fics) {
@@ -1363,9 +1280,7 @@ impl FicflowApp {
                     .success(format!("Added \u{201C}{}\u{201D}", title));
             }
             self.cache.reload_fics(&self.connection);
-            if matches!(self.current_view, View::Shelf(_)) {
-                self.refresh_shelf_members();
-            }
+            self.refresh_shelf_members();
             self.refresh_selection_shelf_ids();
         }
         let refreshes = self.task_executor.take_refreshes();
@@ -1373,9 +1288,7 @@ impl FicflowApp {
             self.toasts
                 .success(format!("Refreshed {} fanfiction(s)", refreshes.len()));
             self.cache.reload_fics(&self.connection);
-            if matches!(self.current_view, View::Shelf(_)) {
-                self.refresh_shelf_members();
-            }
+            self.refresh_shelf_members();
         }
         if self.task_executor.has_running() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -1509,9 +1422,7 @@ impl FicflowApp {
             match payload.as_slice() {
                 [single] => self
                     .cache
-                    .fics
-                    .iter()
-                    .find(|f| f.id == *single)
+                    .fic(*single)
                     .map(|f| f.title.clone())
                     .unwrap_or_else(|| "(unknown)".to_string()),
                 ids => format!("{} fanfictions", ids.len()),
@@ -1520,9 +1431,7 @@ impl FicflowApp {
             column.label().to_string()
         } else if let Some(dragged) = egui::DragAndDrop::payload::<sidebar::ShelfDrag>(ctx) {
             self.cache
-                .shelves
-                .iter()
-                .find(|s| s.id == dragged.0)
+                .shelf(dragged.0)
                 .map(|s| s.name.clone())
                 .unwrap_or_else(|| "(unknown)".to_string())
         } else {
@@ -1545,25 +1454,6 @@ impl FicflowApp {
 }
 
 impl FicflowApp {
-    fn handle_drop_on_shelf(&mut self, shelf_id: u64, fic_ids: &[u64]) {
-        let attempted = fic_ids.len();
-        let errors = self.mutate(|repo| {
-            fic_ids
-                .iter()
-                .filter(|id| add_to_shelf(repo, **id, shelf_id).is_err())
-                .count()
-        });
-        if errors == 0 {
-            self.toasts
-                .success(format!("Added {} fanfiction(s) to shelf", attempted));
-        } else if errors == attempted {
-            self.toasts.error(format!("All {} drops failed", attempted));
-        } else {
-            self.toasts
-                .error(format!("{}/{} drops failed", errors, attempted));
-        }
-    }
-
     fn handle_bulk_delete(&mut self, ids: &[u64]) {
         let total = ids.len();
         let deleted: Vec<u64> = self.mutate(|repo| {
