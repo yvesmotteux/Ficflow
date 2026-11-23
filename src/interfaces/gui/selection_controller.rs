@@ -67,12 +67,8 @@ impl SelectionController {
                 .iter()
                 .position(|f| f.id == anchor_id)
                 .unwrap_or(clicked_idx);
-            let (start, end) = if anchor_idx <= clicked_idx {
-                (anchor_idx, clicked_idx)
-            } else {
-                (clicked_idx, anchor_idx)
-            };
-            let ids: Vec<u64> = visible[start..=end].iter().map(|f| f.id).collect();
+            let range = anchor_idx.min(clicked_idx)..=anchor_idx.max(clicked_idx);
+            let ids: Vec<u64> = visible[range].iter().map(|f| f.id).collect();
             self.selection = ids.into();
             // Don't move the anchor — keeps successive shift-clicks consistent.
         } else if mods.command {
@@ -102,25 +98,14 @@ impl SelectionController {
         if !view.shows_library() {
             self.clear();
         } else {
-            let visible_ids: Vec<u64> = match &self.selection {
-                Selection::None => Vec::new(),
-                Selection::Single(id) => fics
-                    .iter()
-                    .find(|f| f.id == *id)
-                    .filter(|f| view.includes(f, shelf_members))
-                    .map(|f| f.id)
-                    .into_iter()
-                    .collect(),
-                Selection::Multi(ids) => ids
-                    .iter()
-                    .filter_map(|id| {
-                        fics.iter()
-                            .find(|f| f.id == *id)
-                            .filter(|f| view.includes(f, shelf_members))
-                            .map(|f| f.id)
-                    })
-                    .collect(),
-            };
+            let visible_ids: Vec<u64> = self
+                .ids_vec()
+                .into_iter()
+                .filter(|id| {
+                    fics.iter()
+                        .any(|f| f.id == *id && view.includes(f, shelf_members))
+                })
+                .collect();
             self.selection = visible_ids.into();
             if matches!(self.selection, Selection::None) {
                 self.last_clicked_id = None;

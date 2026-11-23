@@ -32,7 +32,7 @@ pub fn shelves_dropdown(
     let fill = ui.visuals().extreme_bg_color;
 
     // Outer field (the "closed" state). Allocate a row of full available
-    // width and ~26 px tall, paint a TextEdit-style frame, then lay out
+    // width and 28 px tall, paint a TextEdit-style frame, then lay out
     // chips + caret inside.
     let avail = ui.available_width();
     let height = 28.0;
@@ -40,7 +40,7 @@ pub fn shelves_dropdown(
     ui.painter()
         .rect(rect, 4.0, fill, stroke, StrokeKind::Inside);
 
-    // Caret cell on the right (16 px). Click toggles the popup.
+    // Caret cell on the right (20 px). Click toggles the popup.
     let caret_w = 20.0;
     let caret_rect = egui::Rect::from_min_size(
         egui::pos2(rect.right() - caret_w, rect.top()),
@@ -87,9 +87,8 @@ pub fn shelves_dropdown(
         let close_w = 14.0;
         let chip_w = label_w + 8.0 + close_w + 8.0;
         if x + chip_w > max_x {
-            // No more horizontal room — last chip is followed by an
-            // ellipsis-style indicator. Skip silently for simplicity:
-            // user can scroll the popup to see the full list.
+            // No more horizontal room: stop here; the popup lists every
+            // shelf.
             break;
         }
 

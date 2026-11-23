@@ -124,7 +124,7 @@ impl FicflowApp {
     /// opens its own connection to the same `db_path` since
     /// `Connection: !Send`.
     pub fn with_config(ctx: &egui::Context, config: FicflowConfig) -> Result<Self, InitError> {
-        theme::install(ctx);
+        theme::install_fonts(ctx);
         let mut app_config = AppConfig::load();
         let db_path = match &config.db_path {
             Some(path) => path.clone(),

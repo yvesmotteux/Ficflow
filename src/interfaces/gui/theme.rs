@@ -33,11 +33,7 @@ pub fn pick(visuals: &Visuals, dark: Color32, light: Color32) -> Color32 {
 pub const NEUE_FAMILY: &str = "neue";
 pub const COMFORTAA_FAMILY: &str = "comfortaa";
 
-pub fn install(ctx: &Context) {
-    install_fonts(ctx);
-}
-
-fn install_fonts(ctx: &Context) {
+pub fn install_fonts(ctx: &Context) {
     let mut fonts = FontDefinitions::default();
 
     fonts.font_data.insert(
