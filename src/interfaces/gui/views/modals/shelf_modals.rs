@@ -152,13 +152,7 @@ fn draw_clause_builder(
                 ComboBox::from_id_salt(("auto-shelf-status", i))
                     .selected_text(format_status(&row.status))
                     .show_ui(ui, |ui| {
-                        for status in [
-                            ReadingStatus::InProgress,
-                            ReadingStatus::Read,
-                            ReadingStatus::PlanToRead,
-                            ReadingStatus::Paused,
-                            ReadingStatus::Abandoned,
-                        ] {
+                        for status in ReadingStatus::ALL {
                             ui.selectable_value(&mut row.status, status, format_status(&status));
                         }
                     });

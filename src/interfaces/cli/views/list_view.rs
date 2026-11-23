@@ -53,7 +53,7 @@ pub fn render_fanfiction_list(fanfictions: &[Fanfiction]) -> String {
             TableCell::new(authors),
             TableCell::new(fandoms),
             TableCell::new_with_alignment(
-                formatter::format_word_count(fic.words),
+                formatter::format_thousands(fic.words),
                 1,
                 Alignment::Right,
             ),

@@ -1,17 +1,15 @@
 pub mod url_parser;
 pub mod formatter {
-    pub fn format_word_count(words: u32) -> String {
-        let mut result = String::new();
-        let words_str = words.to_string();
-        let len = words_str.len();
-
-        for (i, c) in words_str.chars().enumerate() {
-            if i > 0 && (len - i).is_multiple_of(3) {
-                result.push(',');
+    /// `12345 → "12,345"`.
+    pub fn format_thousands(n: u32) -> String {
+        let digits = n.to_string();
+        let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i).is_multiple_of(3) {
+                out.push(',');
             }
-            result.push(c);
+            out.push(c);
         }
-
-        result
+        out
     }
 }

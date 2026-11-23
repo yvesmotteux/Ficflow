@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use super::config::PersistedView;
+use super::format::format_status;
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus};
 use crate::domain::shelf::Shelf;
 
@@ -23,13 +24,7 @@ impl View {
     pub fn header_title(&self, shelves: &[Shelf]) -> String {
         match self {
             View::AllFics => "ALL FICTIONS".to_string(),
-            View::ByStatus(status) => match status {
-                ReadingStatus::InProgress => "IN PROGRESS".to_string(),
-                ReadingStatus::Read => "READ".to_string(),
-                ReadingStatus::PlanToRead => "PLAN TO READ".to_string(),
-                ReadingStatus::Paused => "PAUSED".to_string(),
-                ReadingStatus::Abandoned => "ABANDONED".to_string(),
-            },
+            View::ByStatus(status) => format_status(status).to_uppercase(),
             View::Shelf(id) => shelves
                 .iter()
                 .find(|s| s.id == *id)

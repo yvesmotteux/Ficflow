@@ -25,7 +25,9 @@ impl TryFrom<u8> for UserRating {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString, PartialEq)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, Display, EnumString, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub enum Rating {
     NotRated,
     General,
