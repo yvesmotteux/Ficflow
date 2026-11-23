@@ -4,10 +4,8 @@
 //! application stack — domain → application → infrastructure →
 //! interfaces — through the same code paths a user clicks.
 //!
-//! `egui_kittest` would be the ideal harness, but it has no release
-//! that targets egui 0.29 (earliest is 0.30). We're pinned to 0.29 for
-//! the chrome work that ships in Phase 12, so the tests build a small
-//! custom harness on top of plain `egui::Context::run` instead — see
+//! The tests use a small custom harness on top of plain
+//! `egui::Context::run` rather than `egui_kittest` — see
 //! `tests/gui/harness.rs`.
 
 #[path = "common/mod.rs"]

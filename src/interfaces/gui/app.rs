@@ -273,8 +273,8 @@ impl FicflowApp {
     // DragValue, star widget). A test calling `set_status(id, Read)`
     // proves `update_reading_status` lands in the DB; it does not
     // prove the status combo emits `Read` for its "Read" entry.
-    // Closing that gap needs an event-injection harness incompatible
-    // with the pinned egui 0.29.
+    // Closing that gap needs an event-injection harness such as
+    // egui_kittest.
 
     pub fn submit_add_fic(&self, input: impl Into<String>) {
         self.task_executor.enqueue_add(input.into());
@@ -404,7 +404,6 @@ impl FicflowApp {
                 self.toasts.success("Shelf deleted");
                 if self.current_view == View::Shelf(shelf_id) {
                     self.open_view(View::AllFics);
-                    self.cache.shelf_members.clear();
                 }
                 self.cache.reload_shelves(&self.connection);
                 self.refresh_shelf_counts();
@@ -771,7 +770,7 @@ impl FicflowApp {
         result
     }
 
-    /// eframe 0.29's window persistence drops `maximized` — track it
+    /// eframe's window persistence drops `maximized` — track it
     /// ourselves: re-apply on first frame, then persist on toggle.
     fn sync_window_state(&mut self, ctx: &egui::Context) {
         if !self.initial_window_state_applied {
@@ -1127,39 +1126,39 @@ impl FicflowApp {
         egui::CentralPanel::default().show(host, |ui| {
             self.draw_central_header(ui, &view_title);
             ui.add_space(6.0);
-            if self.current_view.shows_library() {
-                table_outcome = library_view::draw(
-                    ui,
-                    LibraryViewState {
-                        fics: &self.cache.fics,
-                        sort: &mut self.sort,
-                        search_query: &self.search_query,
-                        visible_columns: &self.config.visible_columns,
-                        selection: &mut self.selection,
-                        view: &self.current_view,
-                        shelf_members: &self.cache.shelf_members,
-                    },
-                );
-            } else if matches!(self.current_view, View::Tasks) {
-                tasks_view::draw(
+            match self.current_view {
+                View::AllFics | View::ByStatus(_) | View::Shelf(_) => {
+                    table_outcome = library_view::draw(
+                        ui,
+                        LibraryViewState {
+                            fics: &self.cache.fics,
+                            sort: &mut self.sort,
+                            search_query: &self.search_query,
+                            visible_columns: &self.config.visible_columns,
+                            selection: &mut self.selection,
+                            view: &self.current_view,
+                            shelf_members: &self.cache.shelf_members,
+                        },
+                    );
+                }
+                View::Tasks => tasks_view::draw(
                     ui,
                     TasksViewState {
                         executor: &self.task_executor,
                         filter: &mut self.task_filter,
                     },
-                );
-            } else if matches!(self.current_view, View::Settings) {
-                let outcome = settings_view::draw(ui, &mut self.config, &self.current_db_path);
-                if outcome.config_changed {
-                    self.save_config();
+                ),
+                View::Settings => {
+                    let outcome = settings_view::draw(ui, &mut self.config, &self.current_db_path);
+                    if outcome.config_changed {
+                        self.save_config();
+                    }
+                    // The native picker is opened later from `ui()`, which holds
+                    // the window handle needed to parent the dialog above us.
+                    if outcome.request.is_some() {
+                        self.pending_library_request = outcome.request;
+                    }
                 }
-                // The native picker is opened later from `ui()`, which holds
-                // the window handle needed to parent the dialog above us.
-                if outcome.request.is_some() {
-                    self.pending_library_request = outcome.request;
-                }
-            } else {
-                draw_stub_view(ui, &self.current_view);
             }
             // Empty-area click-sink. Table rows have their own click
             // sense, so the panel's outer response never fires below
@@ -1597,15 +1596,6 @@ impl FicflowApp {
         }
         self.clear_selection();
     }
-}
-
-fn draw_stub_view(ui: &mut egui::Ui, _view: &View) {
-    ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new("Nothing to show here yet.")
-            .italics()
-            .weak(),
-    );
 }
 
 impl FicflowApp {

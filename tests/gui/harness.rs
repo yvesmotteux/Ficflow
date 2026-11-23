@@ -11,7 +11,7 @@
 //!  - `wait_for_tasks(max_frames)` — poll until background fetches finish
 //!  - `app` (public field) — direct access to FicflowApp for state
 //!    inspection and for triggering UI flows by mutating modal state
-//!    (e.g. open the Add-Fic modal then submit), since plain egui 0.29
+//!    (e.g. open the Add-Fic modal then submit), since plain egui
 //!    doesn't give us a clean event-injection API the way kittest does
 
 #![allow(dead_code)] // Suppress warnings for harness helpers used by future test files
@@ -117,7 +117,7 @@ impl GuiHarness {
 
     /// Run one frame with no input. Discards `FullOutput`.
     pub fn step(&mut self) {
-        // The Phase 12 chrome rasterises its SVG atlas to a 4096x5462
+        // The window chrome rasterises its SVG atlas to a 4096x5462
         // texture; egui's `RawInput::default().max_texture_side` is
         // 2048, which would panic the upload. Production gets a much
         // larger limit from the wgpu adapter; mirror that in tests.

@@ -156,7 +156,7 @@ pub struct AppConfig {
     pub default_sort: SortPref,
     /// Tracked alongside the eframe-managed window size/position so a
     /// maximized or fullscreen window comes back the same way next launch.
-    /// eframe 0.29 only persists fullscreen for us, not maximized — and
+    /// eframe only persists fullscreen for us, not maximized — and
     /// even fullscreen tracking is fragile across WMs — so we record both
     /// here and re-apply on the first frame.
     #[serde(default)]
