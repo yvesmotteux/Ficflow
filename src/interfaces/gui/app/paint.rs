@@ -50,11 +50,13 @@ impl FicflowApp {
         self.draw_drag_preview(&ctx);
         self.toasts.show(&ctx);
 
-        // Force a steady repaint cadence so hover state recovers after
-        // an OS-managed move/resize — winit doesn't forward a
-        // pointer-enter event back, so egui's hover bookkeeping otherwise
-        // goes stale until the user wiggles the mouse.
-        ctx.request_repaint();
+        // A slow repaint heartbeat so hover state recovers after an
+        // OS-managed move/resize — winit doesn't forward a pointer-enter
+        // event back, so egui's hover bookkeeping otherwise goes stale
+        // until the user wiggles the mouse. Input, animations and toasts
+        // request their own repaints, so idle frames don't need to run
+        // continuously.
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 
     pub(super) fn paint_header(&self, host: &mut egui::Ui) {
