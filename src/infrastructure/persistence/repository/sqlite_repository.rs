@@ -2,8 +2,21 @@ use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
 use crate::domain::shelf::{AutoShelfCriteria, MAX_SHELF_DEPTH, Shelf, ShelfKind, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{row_to_fanfiction, row_to_shelf};
+use std::collections::HashMap;
+
 use chrono::Utc;
 use rusqlite::{Connection, params};
+
+const SHELF_COLUMNS: &str =
+    "s.id, s.name, s.parent_shelf_id, s.pinned, s.created_at, s.kind, s.auto_criteria";
+
+const SUBTREE_CTE: &str = "WITH RECURSIVE subtree(id, depth) AS ( \
+         SELECT id, 0 FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
+         UNION \
+         SELECT s.id, subtree.depth + 1 FROM shelf s \
+         JOIN subtree ON s.parent_shelf_id = subtree.id \
+         WHERE s.deleted_at IS NULL \
+     ) ";
 
 pub struct SqliteRepository<'a> {
     conn: &'a Connection,
@@ -15,7 +28,7 @@ impl<'a> SqliteRepository<'a> {
     }
 }
 
-impl<'a> FanfictionOps for SqliteRepository<'a> {
+impl FanfictionOps for SqliteRepository<'_> {
     fn save_fanfiction(&self, fic: &Fanfiction) -> Result<(), FicflowError> {
         let authors = serde_json::to_string(&fic.authors)?;
         let categories = serde_json::to_string(&fic.categories)?;
@@ -153,7 +166,7 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
     }
 }
 
-impl<'a> SqliteRepository<'a> {
+impl SqliteRepository<'_> {
     fn ensure_fanfiction_exists(&self, fic_id: u64) -> Result<(), FicflowError> {
         let count: u64 = self.conn.query_row(
             "SELECT COUNT(*) FROM fanfiction WHERE id = ?1 AND deleted_at IS NULL",
@@ -178,6 +191,13 @@ impl<'a> SqliteRepository<'a> {
         Ok(())
     }
 
+    fn reject_auto(&self, shelf_id: u64, message: &str) -> Result<(), FicflowError> {
+        match self.get_shelf_by_id(shelf_id)?.kind {
+            ShelfKind::Auto(_) => Err(FicflowError::InvalidInput(message.into())),
+            ShelfKind::Normal => Ok(()),
+        }
+    }
+
     /// 1 for a root shelf, parent's depth + 1 below it.
     fn shelf_depth(&self, shelf_id: u64) -> Result<u32, FicflowError> {
         let depth: i64 = self.conn.query_row(
@@ -198,25 +218,16 @@ impl<'a> SqliteRepository<'a> {
     /// `(id, depth-below-shelf_id)` for the shelf and every non-deleted
     /// descendant; the shelf itself is at depth 0.
     fn shelf_subtree(&self, shelf_id: u64) -> Result<Vec<(u64, u32)>, FicflowError> {
-        let mut stmt = self.conn.prepare(
-            "WITH RECURSIVE subtree(id, depth) AS ( \
-                 SELECT id, 0 FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
-                 UNION \
-                 SELECT s.id, subtree.depth + 1 FROM shelf s \
-                 JOIN subtree ON s.parent_shelf_id = subtree.id \
-                 WHERE s.deleted_at IS NULL \
-             ) \
-             SELECT id, depth FROM subtree",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{SUBTREE_CTE} SELECT id, depth FROM subtree"))?;
         let rows = stmt.query_map(params![shelf_id], |r| {
             Ok((r.get::<_, u64>(0)?, r.get::<_, u32>(1)?))
         })?;
         rows.collect::<Result<_, _>>()
             .map_err(FicflowError::Database)
     }
-}
 
-impl<'a> SqliteRepository<'a> {
     fn insert_shelf_row(
         &self,
         name: &str,
@@ -230,12 +241,7 @@ impl<'a> SqliteRepository<'a> {
             ));
         }
         if let Some(parent) = parent_shelf_id {
-            self.ensure_shelf_exists(parent)?;
-            if matches!(self.get_shelf_by_id(parent)?.kind, ShelfKind::Auto(_)) {
-                return Err(FicflowError::InvalidInput(
-                    "cannot nest a shelf under an auto-shelf".into(),
-                ));
-            }
+            self.reject_auto(parent, "cannot nest a shelf under an auto-shelf")?;
             if self.shelf_depth(parent)? >= MAX_SHELF_DEPTH as u32 {
                 return Err(FicflowError::ShelfDepthExceeded {
                     max: MAX_SHELF_DEPTH,
@@ -272,7 +278,7 @@ impl<'a> SqliteRepository<'a> {
     }
 }
 
-impl<'a> ShelfOps for SqliteRepository<'a> {
+impl ShelfOps for SqliteRepository<'_> {
     fn create_shelf(
         &self,
         name: &str,
@@ -296,7 +302,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         match shelf_id {
             None => self.insert_shelf_row(name, parent_shelf_id, ShelfKind::Auto(criteria)),
             Some(id) => {
-                if !matches!(self.get_shelf_by_id(id)?.kind, ShelfKind::Auto(_)) {
+                if matches!(self.get_shelf_by_id(id)?.kind, ShelfKind::Normal) {
                     return Err(FicflowError::InvalidInput(
                         "shelf is not an auto-shelf".into(),
                     ));
@@ -335,14 +341,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     fn move_shelf(&self, shelf_id: u64, new_parent: Option<u64>) -> Result<Shelf, FicflowError> {
         self.ensure_shelf_exists(shelf_id)?;
         if let Some(parent) = new_parent {
-            if parent != shelf_id {
-                self.ensure_shelf_exists(parent)?;
-            }
-            if matches!(self.get_shelf_by_id(parent)?.kind, ShelfKind::Auto(_)) {
-                return Err(FicflowError::InvalidInput(
-                    "cannot nest a shelf under an auto-shelf".into(),
-                ));
-            }
+            self.reject_auto(parent, "cannot nest a shelf under an auto-shelf")?;
             let subtree = self.shelf_subtree(shelf_id)?;
             if subtree.iter().any(|(id, _)| *id == parent) {
                 return Err(FicflowError::ShelfCycle);
@@ -388,21 +387,20 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     }
 
     fn list_shelves(&self) -> Result<Vec<Shelf>, FicflowError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_shelf_id, pinned, created_at, kind, auto_criteria FROM shelf \
-             WHERE deleted_at IS NULL \
-             ORDER BY pinned DESC, name COLLATE NOCASE",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SHELF_COLUMNS} FROM shelf s \
+             WHERE s.deleted_at IS NULL \
+             ORDER BY s.pinned DESC, s.name COLLATE NOCASE"
+        ))?;
         let rows = stmt.query_map([], row_to_shelf)?;
         let shelves = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(shelves)
     }
 
     fn get_shelf_by_id(&self, shelf_id: u64) -> Result<Shelf, FicflowError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, name, parent_shelf_id, pinned, created_at, kind, auto_criteria FROM shelf \
-             WHERE id = ?1 AND deleted_at IS NULL",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SHELF_COLUMNS} FROM shelf s WHERE s.id = ?1 AND s.deleted_at IS NULL"
+        ))?;
         stmt.query_row(params![shelf_id], row_to_shelf)
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => FicflowError::ShelfNotFound { shelf_id },
@@ -412,12 +410,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn add_fic_to_shelf(&self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
         self.ensure_fanfiction_exists(fic_id)?;
-        self.ensure_shelf_exists(shelf_id)?;
-        if matches!(self.get_shelf_by_id(shelf_id)?.kind, ShelfKind::Auto(_)) {
-            return Err(FicflowError::InvalidInput(
-                "cannot add fics to an auto-shelf".into(),
-            ));
-        }
+        self.reject_auto(shelf_id, "cannot add fics to an auto-shelf")?;
 
         let added_at = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -429,12 +422,7 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
 
     fn remove_fic_from_shelf(&self, fic_id: u64, shelf_id: u64) -> Result<(), FicflowError> {
         self.ensure_fanfiction_exists(fic_id)?;
-        self.ensure_shelf_exists(shelf_id)?;
-        if matches!(self.get_shelf_by_id(shelf_id)?.kind, ShelfKind::Auto(_)) {
-            return Err(FicflowError::InvalidInput(
-                "cannot remove fics from an auto-shelf".into(),
-            ));
-        }
+        self.reject_auto(shelf_id, "cannot remove fics from an auto-shelf")?;
 
         self.conn.execute(
             "DELETE FROM fic_shelf WHERE fic_id = ?1 AND shelf_id = ?2",
@@ -446,20 +434,14 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     fn list_fics_in_shelf(&self, shelf_id: u64) -> Result<Vec<Fanfiction>, FicflowError> {
         self.ensure_shelf_exists(shelf_id)?;
 
-        let mut stmt = self.conn.prepare(
-            "WITH RECURSIVE subtree(id) AS ( \
-                 SELECT id FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
-                 UNION \
-                 SELECT s.id FROM shelf s \
-                 JOIN subtree ON s.parent_shelf_id = subtree.id \
-                 WHERE s.deleted_at IS NULL \
-             ) \
+        let mut stmt = self.conn.prepare(&format!(
+            "{SUBTREE_CTE} \
              SELECT DISTINCT f.* FROM fanfiction f \
              JOIN fic_shelf fs ON fs.fic_id = f.id \
              JOIN subtree ON subtree.id = fs.shelf_id \
              WHERE f.deleted_at IS NULL \
-             ORDER BY f.title",
-        )?;
+             ORDER BY f.title"
+        ))?;
         let rows = stmt.query_map(params![shelf_id], row_to_fanfiction)?;
         let fics = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(fics)
@@ -468,12 +450,12 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
     fn list_shelves_for_fic(&self, fic_id: u64) -> Result<Vec<Shelf>, FicflowError> {
         self.ensure_fanfiction_exists(fic_id)?;
 
-        let mut stmt = self.conn.prepare(
-            "SELECT s.id, s.name, s.parent_shelf_id, s.pinned, s.created_at, s.kind, s.auto_criteria FROM shelf s \
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SHELF_COLUMNS} FROM shelf s \
              JOIN fic_shelf fs ON fs.shelf_id = s.id \
              WHERE fs.fic_id = ?1 AND s.deleted_at IS NULL \
-             ORDER BY s.name COLLATE NOCASE",
-        )?;
+             ORDER BY s.name COLLATE NOCASE"
+        ))?;
         let rows = stmt.query_map(params![fic_id], row_to_shelf)?;
         let shelves = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(shelves)
@@ -483,24 +465,20 @@ impl<'a> ShelfOps for SqliteRepository<'a> {
         self.ensure_shelf_exists(shelf_id)?;
 
         let count: i64 = self.conn.query_row(
-            "WITH RECURSIVE subtree(id) AS ( \
-                 SELECT id FROM shelf WHERE id = ?1 AND deleted_at IS NULL \
-                 UNION \
-                 SELECT s.id FROM shelf s \
-                 JOIN subtree ON s.parent_shelf_id = subtree.id \
-                 WHERE s.deleted_at IS NULL \
-             ) \
-             SELECT COUNT(DISTINCT fs.fic_id) FROM fic_shelf fs \
-             JOIN fanfiction f ON f.id = fs.fic_id \
-             JOIN subtree ON subtree.id = fs.shelf_id \
-             WHERE f.deleted_at IS NULL",
+            &format!(
+                "{SUBTREE_CTE} \
+                 SELECT COUNT(DISTINCT fs.fic_id) FROM fic_shelf fs \
+                 JOIN fanfiction f ON f.id = fs.fic_id \
+                 JOIN subtree ON subtree.id = fs.shelf_id \
+                 WHERE f.deleted_at IS NULL"
+            ),
             params![shelf_id],
             |row| row.get(0),
         )?;
         Ok(count as usize)
     }
 
-    fn count_fics_per_shelf(&self) -> Result<std::collections::HashMap<u64, usize>, FicflowError> {
+    fn count_fics_per_shelf(&self) -> Result<HashMap<u64, usize>, FicflowError> {
         let mut stmt = self.conn.prepare(
             "WITH RECURSIVE anc(ancestor, node) AS ( \
                  SELECT id, id FROM shelf WHERE deleted_at IS NULL \
