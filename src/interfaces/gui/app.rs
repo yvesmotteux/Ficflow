@@ -330,19 +330,9 @@ impl FicflowApp {
 
     pub fn delete_selected(&mut self) {
         let ids = self.selection.ids_vec();
-        if ids.is_empty() {
-            return;
+        if !ids.is_empty() {
+            self.handle_bulk_delete(&ids);
         }
-        let surviving: Vec<u64> = self.mutate(|repo| {
-            ids.iter()
-                .filter_map(|id| match delete_fic::delete_fic(repo, *id) {
-                    Ok(()) => Some(*id),
-                    Err(_) => None,
-                })
-                .collect()
-        });
-        self.cache.remove_fics(&surviving);
-        self.clear_selection();
     }
 
     pub fn create_shelf(&mut self, name: impl AsRef<str>) -> Result<(), FicflowError> {
@@ -727,7 +717,6 @@ impl FicflowApp {
             }
             Outcome::RequestDelete => {
                 self.delete_selected();
-                self.toasts.success("Fanfiction deleted");
             }
             Outcome::RequestRefresh => {
                 self.refresh_selected();
@@ -1577,19 +1566,21 @@ impl FicflowApp {
 
     fn handle_bulk_delete(&mut self, ids: &[u64]) {
         let total = ids.len();
-        let surviving: Vec<u64> = self.mutate(|repo| {
+        let deleted: Vec<u64> = self.mutate(|repo| {
             ids.iter()
-                .filter_map(|id| match delete_fic::delete_fic(repo, *id) {
-                    Ok(()) => Some(*id),
-                    Err(_) => None,
-                })
+                .filter(|id| delete_fic::delete_fic(repo, **id).is_ok())
+                .copied()
                 .collect()
         });
-        let errors = total - surviving.len();
-        self.cache.remove_fics(&surviving);
-        if errors == 0 {
+        let errors = total - deleted.len();
+        self.cache.remove_fics(&deleted);
+        if errors == 0 && total == 1 {
+            self.toasts.success("Fanfiction deleted");
+        } else if errors == 0 {
             self.toasts
                 .success(format!("Deleted {} fanfictions", total));
+        } else if total == 1 {
+            self.toasts.error("Couldn't delete the fanfiction");
         } else {
             self.toasts
                 .error(format!("{}/{} deletions failed", errors, total));
