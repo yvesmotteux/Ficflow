@@ -220,7 +220,7 @@ mod tests {
 
     /// C19 — drag-drop semantics: dropping a multi-fic payload on a
     /// shelf should add every fic in the payload. We don't simulate
-    /// pixel-level drag (egui 0.29 makes that painful without
+    /// pixel-level drag (plain egui makes that painful without
     /// kittest), but the dispatch path the GUI uses is just a loop of
     /// `add_to_shelf` calls — the same code path `add_fic_to_shelf`
     /// drives — so iterating the test ids in the test exercises it.

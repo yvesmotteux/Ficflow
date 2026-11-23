@@ -214,8 +214,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
 
 // BMP-only Unicode glyphs that render in egui's default font stack (Noto
 // Emoji is bundled, so symbols outside Ubuntu-Light fall back cleanly).
-// Phase 12 is the natural place to swap these for proper SVG icons that
-// match the Art Nouveau chrome.
+// Candidates for proper SVG icons that match the Art Nouveau chrome.
 const LIBRARY_ICON_ALL: &str = "\u{25C6}"; // ◆ filled diamond
 const LIBRARY_ICON_IN_PROGRESS: &str = "\u{25B6}"; // ▶
 const LIBRARY_ICON_READ: &str = "\u{2713}"; // ✓
