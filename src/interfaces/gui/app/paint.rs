@@ -380,7 +380,7 @@ impl FicflowApp {
                 }
                 let add_label = if compact { "+" } else { "+ Add Fic" };
                 if ui.button(add_label).on_hover_text("Add Fic").clicked() {
-                    self.active_modal = ActiveModal::AddFic(AddFicState::new());
+                    self.active_modal = ActiveModal::AddFic(AddFicState::default());
                 }
             });
         });
