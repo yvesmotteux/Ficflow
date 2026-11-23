@@ -59,7 +59,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
     egui::Panel::bottom("details-delete")
         .resizable(false)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let delete_btn =
                     egui::Button::new(RichText::new("\u{1F5D1}  Delete Fic").color(Color32::WHITE))
@@ -81,7 +81,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         .default_size(180.0)
         .size_range(120.0..=max_h)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -97,7 +97,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         .resizable(false)
         .show_separator_line(true)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 8)))
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             let header = draw_header(ui, fic);
             if !matches!(header, Outcome::None) {
                 outcome = header;
@@ -107,7 +107,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
     // Central scrollable: AO3 Metadata.
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 4)))
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
@@ -300,7 +300,7 @@ fn draw_rating(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<UserRating>> {
 /// across frames and resets when the user switches fic. Returns only
 /// on focus-loss commit — the DB write is per-edit-session.
 fn draw_note(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<String>> {
-    let id = ui.id().with(("note-draft", fic.id));
+    let id = ui.scope_id().with(("note-draft", fic.id));
     let initial = fic.personal_note.clone().unwrap_or_default();
     let mut buf: String = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or(initial);
 
@@ -503,7 +503,7 @@ fn bubble_list(
     tag_shelf_request: &mut Option<(ClauseFieldKind, String)>,
 ) {
     const VISIBLE_DEFAULT: usize = 5;
-    let id = ui.id().with(("bubble-expand", salt));
+    let id = ui.scope_id().with(("bubble-expand", salt));
     let mut expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
 
     ui.horizontal_wrapped(|ui| {
@@ -547,9 +547,7 @@ fn bubble_list(
 /// `break_anywhere = true` on the layout job: AO3 tags can contain
 /// long unbreakable segments (slash-joined character names, etc.).
 /// Without it the layouter renders the text wider than `max_text_w`,
-/// the bubble allocates beyond the panel's clip rect, and the panel
-/// stores the overflowed rect in `PanelState` — egui #8055 then makes
-/// the panel grow by that much every frame until it pegs at the max.
+/// the bubble allocates beyond the panel's clip rect.
 fn bubble(ui: &mut Ui, text: &str, clickable: bool) -> egui::Response {
     let font = egui::FontId::proportional(12.0);
     let text_color = ui.visuals().text_color();

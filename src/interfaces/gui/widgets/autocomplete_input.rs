@@ -7,7 +7,7 @@ use egui::{Popup, PopupCloseBehavior, Response, Ui};
 
 pub fn draw(
     ui: &mut Ui,
-    id_salt: impl std::hash::Hash,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
     text: &mut String,
     options: &[String],
 ) -> Response {
@@ -29,7 +29,7 @@ pub fn draw(
     // (including on a suggestion below it), *within the same frame* as
     // that click. Gating visibility on `resp.has_focus()` meant the
     // popup vanished before the click could ever reach a suggestion.
-    let popup_id = ui.id().with(("autocomplete-popup", &id_salt));
+    let popup_id = ui.scope_id().with(("autocomplete-popup", &id_salt));
     if matches.is_empty() {
         Popup::close_id(ui.ctx(), popup_id);
     } else if resp.gained_focus() || resp.changed() {

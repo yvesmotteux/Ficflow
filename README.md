@@ -79,8 +79,9 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Revert the details-panel custom resize handle once egui 0.35 is out — the fix ([emilk/egui#8198](https://github.com/emilk/egui/pull/8198), merged 2026-05-26, superseding #8056) was kept out of 0.34.x patch releases (re-enable `Panel::right(...).resizable(true)`). Update : blocked by egui-notify ; they need to have a compatible version with 0.35 egui
+- [ ] Fix fics silently dropping off their shelves when their status, chapter, rating, reads or note is changed (or the fic is refreshed) — saving a fic replaces its whole database row, which also wipes its shelf memberships (the GUI keeps showing them until restart)
 - [ ] In the settings, after the version, display some warning in red if a newer version is available
+- [ ] refactor config to have it live outside of the GUI
 - [ ] Ability to login to access restricted fics
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one (settings, refresh every x time, + notifications for all manual and auto refreshes when a new update was found! And an inbox too)
 - [ ] add works with not only single fics, but collections, a user list of fics, a tag, a user profile,...

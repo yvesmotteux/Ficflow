@@ -65,13 +65,6 @@ pub struct FicflowApp {
     /// Set by Ctrl+F; consumed by `draw_search_field` on next paint.
     focus_search_pending: bool,
     toasts: Toasts,
-    /// Details panel width — managed locally instead of via egui's
-    /// `PanelState` to side-step egui#8055 (resizable panel stores an
-    /// overflowed rect, then grows by that overflow every frame until
-    /// it pegs at `size_range.max`). We pin the panel with
-    /// `exact_size(details_panel_width)` and drive resizing through a
-    /// custom drag handle in `paint_details_panel`.
-    details_panel_width: f32,
 }
 
 #[derive(Debug)]
@@ -172,7 +165,6 @@ impl FicflowApp {
             task_filter: TaskFilter::default(),
             focus_search_pending: false,
             toasts: Toasts::default(),
-            details_panel_width: 320.0,
         };
         // Restoring straight into a shelf view skips the sidebar's
         // prev/post diff (see `paint_sidebar`) that normally populates
@@ -926,7 +918,7 @@ impl FicflowApp {
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 let controls_rect = self.chrome.draw_window_controls(ui, screen);
                 self.chrome.handle_interactions(ui, screen, controls_rect);
 
@@ -952,7 +944,7 @@ impl FicflowApp {
     }
 
     fn paint_header(&self, host: &mut egui::Ui) {
-        egui::Panel::top("ficflow-header").show_inside(host, |ui| {
+        egui::Panel::top("ficflow-header").show(host, |ui| {
             ui.add_space(4.0);
             ui.vertical_centered(|ui| {
                 ui.add(
@@ -979,7 +971,7 @@ impl FicflowApp {
             .default_size(160.0)
             .size_range(140.0..=600.0)
             .resizable(true)
-            .show_inside(host, |ui| {
+            .show(host, |ui| {
                 outcome = sidebar::draw(
                     ui,
                     SidebarState {
@@ -1065,23 +1057,13 @@ impl FicflowApp {
             return;
         };
 
-        // egui#8055 workaround: we don't use the built-in `.resizable(true)`
-        // because that path persists the panel's actual rendered rect (which
-        // can extend past the clip when content overflows) and feeds the
-        // overflow back as next-frame width — growing the panel until it
-        // pegs at the max. Instead we pin the panel to `exact_size` and run
-        // our own drag handle. Width is kept in `FicflowApp` so it survives
-        // selection toggles without touching `PanelState`.
-        const MIN_W: f32 = 280.0;
-        const MAX_W: f32 = 900.0;
-        let panel_width = self.details_panel_width.clamp(MIN_W, MAX_W);
-
         let assignable_shelves = self.assignable_shelves();
         let mut outcome = details_panel::Outcome::None;
         egui::Panel::right("ficflow-details-v2")
-            .exact_size(panel_width)
-            .resizable(false)
-            .show_inside(host, |ui| {
+            .default_size(320.0)
+            .size_range(280.0..=900.0)
+            .resizable(true)
+            .show(host, |ui| {
                 outcome = details_panel::draw(
                     ui,
                     DetailsState {
@@ -1091,34 +1073,6 @@ impl FicflowApp {
                     },
                 );
             });
-
-        // Custom drag handle on the panel's left edge. `available_rect_before_wrap`
-        // here is what's left after the panel was placed, so its right edge is
-        // exactly the panel's left edge.
-        let host_after = host.available_rect_before_wrap();
-        let handle_x = host_after.right();
-        let panel_top = host_after.top();
-        let panel_bottom = host_after.bottom();
-        let handle_grab = host.style().interaction.resize_grab_radius_side;
-        let handle_rect = egui::Rect::from_min_max(
-            egui::pos2(handle_x - handle_grab, panel_top),
-            egui::pos2(handle_x + handle_grab, panel_bottom),
-        );
-        let handle_resp = host.interact(
-            handle_rect,
-            egui::Id::new("ficflow-details-resize-handle"),
-            egui::Sense::drag(),
-        );
-        if handle_resp.dragged()
-            && let Some(pointer) = handle_resp.interact_pointer_pos()
-        {
-            let new_w = (host_after.right() + panel_width - pointer.x).clamp(MIN_W, MAX_W);
-            self.details_panel_width = new_w;
-        }
-        if handle_resp.hovered() || handle_resp.dragged() {
-            host.ctx()
-                .set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-        }
 
         self.dispatch_details_outcome(id, outcome);
     }
@@ -1132,7 +1086,7 @@ impl FicflowApp {
         let mut outcome = selection_bar::Outcome::None;
         egui::Panel::bottom("ficflow-selection-bar")
             .resizable(false)
-            .show_inside(host, |ui| {
+            .show(host, |ui| {
                 outcome = selection_bar::draw(
                     ui,
                     SelectionBarState {
@@ -1170,7 +1124,7 @@ impl FicflowApp {
         let mut empty_area_clicked = false;
         let prev_selection = self.selection.current().clone();
         let view_title = self.current_view.header_title(&self.cache.shelves);
-        egui::CentralPanel::default().show_inside(host, |ui| {
+        egui::CentralPanel::default().show(host, |ui| {
             self.draw_central_header(ui, &view_title);
             ui.add_space(6.0);
             if self.current_view.shows_library() {
@@ -1515,7 +1469,7 @@ impl FicflowApp {
                 let min_x = panel_rect.left() + title_reserve + EDGE_GAP;
                 let clamped_x = desired_x.clamp(min_x, max_x);
                 let pos = egui::pos2(clamped_x, row_rect.center().y - SEARCH_H / 2.0);
-                egui::Area::new(egui::Id::new("ficflow-search-overlay"))
+                egui::Area::new(egui::Id::unique("ficflow-search-overlay"))
                     .order(egui::Order::Foreground)
                     .fixed_pos(pos)
                     .show(ui.ctx(), |area_ui| {
@@ -1589,7 +1543,7 @@ impl FicflowApp {
         let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) else {
             return;
         };
-        egui::Area::new(egui::Id::new("ficflow-drag-preview"))
+        egui::Area::new(egui::Id::unique("ficflow-drag-preview"))
             .fixed_pos(pointer + egui::Vec2::new(14.0, 14.0))
             .order(egui::Order::Tooltip)
             .interactable(false)

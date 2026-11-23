@@ -274,7 +274,7 @@ impl FrameChrome {
         // before egui sees the second click.
         let resp = ui.interact(
             drag_rect,
-            Id::new("ficflow-title-drag"),
+            Id::unique("ficflow-title-drag"),
             Sense::click_and_drag(),
         );
         if resp.double_clicked() {
@@ -307,7 +307,7 @@ impl FrameChrome {
             }
             let resp = ui.interact(
                 *rect,
-                Id::new(("ficflow-resize", dir as u8, i)),
+                Id::unique(("ficflow-resize", dir as u8, i)),
                 Sense::click(),
             );
             if resp.hovered() && ui.ctx().input(|i| i.pointer.primary_pressed()) {
@@ -355,7 +355,7 @@ impl FrameChrome {
         // Foreground `Area` so the FICFLOW header `TopBottomPanel`
         // (which lays its own background across the top of the
         // content rect) doesn't paint over the buttons.
-        egui::Area::new(Id::new("ficflow-window-controls"))
+        egui::Area::new(Id::unique("ficflow-window-controls"))
             .order(egui::Order::Foreground)
             .fixed_pos(origin)
             .interactable(true)
@@ -369,7 +369,8 @@ impl FrameChrome {
                         ),
                         CONTROL_BUTTON_SIZE,
                     );
-                    let resp = area_ui.interact(rect, Id::new(("ficflow-ctrl", i)), Sense::click());
+                    let resp =
+                        area_ui.interact(rect, Id::unique(("ficflow-ctrl", i)), Sense::click());
                     let hover = resp.hovered();
                     if hover {
                         area_ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
