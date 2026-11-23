@@ -25,7 +25,7 @@ pub fn shelves_dropdown(
     selected: &HashSet<u64>,
 ) -> DropdownOutcome {
     let mut outcome = DropdownOutcome::None;
-    let popup_id = Id::new(("shelves-dropdown", id_salt));
+    let popup_id = Id::unique(("shelves-dropdown", id_salt));
 
     let visuals = &ui.visuals().widgets.inactive;
     let stroke = visuals.bg_stroke;
@@ -111,7 +111,7 @@ pub fn shelves_dropdown(
         );
         let close_resp = ui.interact(
             close_rect,
-            ui.id().with(("chip-close", id_salt, shelf.id)),
+            ui.scope_id().with(("chip-close", id_salt, shelf.id)),
             Sense::click(),
         );
         let close_color = if close_resp.hovered() {

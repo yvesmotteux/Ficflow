@@ -115,8 +115,7 @@ impl GuiHarness {
             .expect("FicflowApp::with_config failed on restart");
     }
 
-    /// Run one frame with no input. Discards `FullOutput` — tests that
-    /// need it can call `Context::run` directly.
+    /// Run one frame with no input. Discards `FullOutput`.
     pub fn step(&mut self) {
         // The Phase 12 chrome rasterises its SVG atlas to a 4096x5462
         // texture; egui's `RawInput::default().max_texture_side` is
@@ -126,10 +125,7 @@ impl GuiHarness {
             max_texture_side: Some(8192),
             ..Default::default()
         };
-        let app = &mut self.app;
-        let _ = self.ctx.run_ui(raw_input, |ui| {
-            app.render(ui);
-        });
+        let _ = self.run(raw_input);
     }
 
     pub fn step_with_close_request(&mut self) -> egui::FullOutput {
@@ -143,10 +139,16 @@ impl GuiHarness {
             .or_default()
             .events
             .push(egui::ViewportEvent::Close);
+        self.run(raw_input)
+    }
+
+    fn run(&mut self, raw_input: egui::RawInput) -> egui::FullOutput {
         let app = &mut self.app;
-        self.ctx.run_ui(raw_input, |ui| {
+        let mut out = self.ctx.run_ui(raw_input, |ui| {
             app.render(ui);
-        })
+        });
+        out.textures_delta.clear();
+        out
     }
 
     /// Run one frame with a single key press injected, so shortcut
@@ -163,10 +165,7 @@ impl GuiHarness {
             repeat: false,
             modifiers: egui::Modifiers::default(),
         });
-        let app = &mut self.app;
-        let _ = self.ctx.run_ui(raw_input, |ui| {
-            app.render(ui);
-        });
+        let _ = self.run(raw_input);
     }
 
     pub fn step_n(&mut self, n: usize) {

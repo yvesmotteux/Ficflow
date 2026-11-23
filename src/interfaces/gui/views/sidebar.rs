@@ -72,7 +72,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         .resizable(false)
         .show_separator_line(true)
         .frame(egui::Frame::NONE)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.add_space(6.0);
             view_row(
                 ui,
@@ -103,7 +103,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::NONE)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.add_space(6.0);
             section_label(ui, "LIBRARY");
             ui.add_space(2.0);
@@ -184,7 +184,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
 
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
             egui::ScrollArea::vertical()
                 .id_salt("sidebar-scroll")
@@ -271,7 +271,7 @@ fn pin_reserve(
             .x;
         reserve = reserve.max(RIGHT_GAP + galley_x + 10.0 + 4.0);
 
-        let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
+        let collapse_id = egui::Id::unique(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         if !collapsed {
             reserve = reserve.max(pin_reserve(ui, children, shelf_counts, Some(shelf.id)));
@@ -299,7 +299,7 @@ fn shelf_rows(
     };
     for shelf in siblings {
         let has_children = ctx.children.contains_key(&Some(shelf.id));
-        let collapse_id = egui::Id::new(("ficflow-shelf-collapsed", shelf.id));
+        let collapse_id = egui::Id::unique(("ficflow-shelf-collapsed", shelf.id));
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         let count = ctx.shelf_counts.get(&shelf.id).copied().unwrap_or(0);
         let is_auto = matches!(shelf.kind, ShelfKind::Auto(_));
@@ -664,7 +664,11 @@ fn shelves_header(ui: &mut Ui) -> HeaderOutcome {
         btn_size,
     );
     let resp = ui
-        .interact(btn_rect, ui.id().with("shelves-add"), egui::Sense::click())
+        .interact(
+            btn_rect,
+            ui.scope_id().with("shelves-add"),
+            egui::Sense::click(),
+        )
         .on_hover_text("New shelf");
     let visuals = ui.style().interact(&resp);
     ui.painter().rect(

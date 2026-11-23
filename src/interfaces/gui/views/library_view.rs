@@ -294,7 +294,7 @@ fn header_cell(
         resp.ctx
             .layer_painter(egui::LayerId::new(
                 egui::Order::Foreground,
-                egui::Id::new("column-reorder-indicator"),
+                egui::Id::unique("column-reorder-indicator"),
             ))
             .vline(
                 x,

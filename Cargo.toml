@@ -27,10 +27,10 @@ log = "0.4"
 env_logger = "0.11"
 thiserror = "2.0.18"
 
-eframe = { version = "0.34", default-features = false, features = ["wgpu", "wayland", "x11", "persistence"] }
-egui = "0.34"
-egui_extras = "0.34"
-egui-notify = "0.22"
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "wayland", "x11", "persistence"] }
+egui = { version = "0.37", features = ["default_fonts", "monochrome_emoji_fonts"] }
+egui_extras = "0.37"
+egui-notify = "0.24"
 toml = "1"
 resvg = "0.47"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
