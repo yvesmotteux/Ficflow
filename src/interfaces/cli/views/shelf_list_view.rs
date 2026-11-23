@@ -14,12 +14,10 @@ pub fn render_shelf_list(shelves: &[Shelf]) -> String {
 
     let mut table = Table::new();
     table.style = TableStyle::thin();
-
-    #[allow(deprecated)]
     table.add_row(Row::new(vec![
-        TableCell::new_with_alignment("ID", 1, Alignment::Center),
-        TableCell::new_with_alignment("Name", 1, Alignment::Center),
-        TableCell::new_with_alignment("Created", 1, Alignment::Center),
+        aligned("ID", Alignment::Center),
+        aligned("Name", Alignment::Center),
+        aligned("Created", Alignment::Center),
     ]));
 
     let mut children: HashMap<Option<u64>, Vec<&Shelf>> = HashMap::new();
@@ -51,9 +49,8 @@ fn add_rows(
         } else {
             ""
         };
-        #[allow(deprecated)]
         let row_cells = vec![
-            TableCell::new_with_alignment(shelf.id, 1, Alignment::Right),
+            aligned(shelf.id, Alignment::Right),
             TableCell::new(format!(
                 "{}{}{}{}",
                 "  ".repeat(depth),
@@ -66,4 +63,8 @@ fn add_rows(
         table.add_row(Row::new(row_cells));
         add_rows(table, children, Some(shelf.id), depth + 1);
     }
+}
+
+fn aligned<T: ToString>(data: T, alignment: Alignment) -> TableCell {
+    TableCell::builder(data).alignment(alignment).build()
 }

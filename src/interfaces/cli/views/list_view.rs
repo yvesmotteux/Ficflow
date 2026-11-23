@@ -19,15 +19,13 @@ pub fn render_fanfiction_list(fanfictions: &[Fanfiction]) -> String {
     table.style = TableStyle::thin();
 
     // Add header row with centered headers
-    // Use #[allow(deprecated)] to silence warnings about new_with_alignment
-    #[allow(deprecated)]
     table.add_row(Row::new(vec![
-        TableCell::new_with_alignment("ID", 1, Alignment::Center),
-        TableCell::new_with_alignment("Title", 1, Alignment::Center),
-        TableCell::new_with_alignment("Author(s)", 1, Alignment::Center),
-        TableCell::new_with_alignment("Fandom(s)", 1, Alignment::Center),
-        TableCell::new_with_alignment("Words", 1, Alignment::Center),
-        TableCell::new_with_alignment("Status", 1, Alignment::Center),
+        aligned("ID", Alignment::Center),
+        aligned("Title", Alignment::Center),
+        aligned("Author(s)", Alignment::Center),
+        aligned("Fandom(s)", Alignment::Center),
+        aligned("Words", Alignment::Center),
+        aligned("Status", Alignment::Center),
     ]));
 
     // Add fanfiction rows
@@ -45,18 +43,12 @@ pub fn render_fanfiction_list(fanfictions: &[Fanfiction]) -> String {
         };
 
         // Create a row with cells
-        // Use #[allow(deprecated)] to silence warnings about new_with_alignment
-        #[allow(deprecated)]
         let row_cells = vec![
             TableCell::new(fic.id),
             TableCell::new(&fic.title),
             TableCell::new(authors),
             TableCell::new(fandoms),
-            TableCell::new_with_alignment(
-                formatter::format_thousands(fic.words),
-                1,
-                Alignment::Right,
-            ),
+            aligned(formatter::format_thousands(fic.words), Alignment::Right),
             TableCell::new(status),
         ];
 
@@ -65,4 +57,8 @@ pub fn render_fanfiction_list(fanfictions: &[Fanfiction]) -> String {
 
     output.push_str(&table.render());
     output
+}
+
+fn aligned<T: ToString>(data: T, alignment: Alignment) -> TableCell {
+    TableCell::builder(data).alignment(alignment).build()
 }

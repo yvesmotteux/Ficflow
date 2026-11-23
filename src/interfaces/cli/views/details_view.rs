@@ -1,112 +1,73 @@
+use std::fmt::{Display, Write};
+
 use crate::domain::fanfiction::Fanfiction;
 
 pub fn render_fanfiction_details(fic: &Fanfiction) -> String {
-    let mut output = String::new();
+    let mut out = String::new();
+    let mut row = |label: &str, value: &dyn Display| {
+        let _ = writeln!(out, "{:<21}{}", format!("{}:", label), value);
+    };
+    let date_format = "%Y-%m-%d %H:%M:%S UTC";
+    let yes_no = |b: bool| if b { "Yes" } else { "No" };
 
-    // Basic information
-    output.push_str(&format!("ID:                  {}\n", fic.id));
-    output.push_str(&format!("Title:               {}\n", fic.title));
-    output.push_str(&format!(
-        "Author(s):           {}\n",
-        fic.authors.join(", ")
-    ));
-    output.push_str(&format!(
-        "Fandom(s):           {}\n",
-        fic.fandoms.join(", ")
-    ));
-    output.push_str(&format!("Language:            {}\n", fic.language));
-    output.push_str(&format!("Rating:              {}\n", fic.rating));
-    output.push_str(&format!("Words:               {}\n", fic.words));
-    output.push_str(&format!(
-        "Chapters:            {}/{}\n",
-        fic.chapters_published,
-        fic.chapters_total
-            .map_or("?".to_string(), |c| c.to_string())
-    ));
-    output.push_str(&format!(
-        "Complete:            {}\n",
-        if fic.complete { "Yes" } else { "No" }
-    ));
-    output.push_str(&format!(
-        "Restricted:          {}\n",
-        if fic.restricted { "Yes" } else { "No" }
-    ));
-
-    // Stats
-    output.push_str(&format!("Hits:                {}\n", fic.hits));
-    output.push_str(&format!("Kudos:               {}\n", fic.kudos));
-
-    // Dates
-    output.push_str(&format!(
-        "Published:           {}\n",
-        fic.date_published.format("%Y-%m-%d %H:%M:%S UTC")
-    ));
-    output.push_str(&format!(
-        "Updated:             {}\n",
-        fic.date_updated.format("%Y-%m-%d %H:%M:%S UTC")
-    ));
-    output.push_str(&format!(
-        "Last Checked:        {}\n",
-        fic.last_checked_date.format("%Y-%m-%d %H:%M:%S UTC")
-    ));
-
-    // Optional fields with conditional formatting
+    row("ID", &fic.id);
+    row("Title", &fic.title);
+    row("Author(s)", &fic.authors.join(", "));
+    row("Fandom(s)", &fic.fandoms.join(", "));
+    row("Language", &fic.language);
+    row("Rating", &fic.rating);
+    row("Words", &fic.words);
+    row(
+        "Chapters",
+        &format!(
+            "{}/{}",
+            fic.chapters_published,
+            fic.chapters_total
+                .map_or("?".to_string(), |c| c.to_string())
+        ),
+    );
+    row("Complete", &yes_no(fic.complete));
+    row("Restricted", &yes_no(fic.restricted));
+    row("Hits", &fic.hits);
+    row("Kudos", &fic.kudos);
+    row("Published", &fic.date_published.format(date_format));
+    row("Updated", &fic.date_updated.format(date_format));
+    row("Last Checked", &fic.last_checked_date.format(date_format));
     if let Some(categories) = &fic.categories {
-        output.push_str(&format!(
-            "Categories:          {}\n",
-            categories
-                .iter()
-                .map(|c| format!("{:?}", c))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        row("Categories", &join(categories));
     }
-
     if let Some(characters) = &fic.characters {
-        output.push_str(&format!("Characters:          {}\n", characters.join(", ")));
+        row("Characters", &characters.join(", "));
     }
-
     if let Some(relationships) = &fic.relationships {
-        output.push_str(&format!(
-            "Relationships:       {}\n",
-            relationships.join(", ")
-        ));
+        row("Relationships", &relationships.join(", "));
     }
-
     if let Some(tags) = &fic.tags {
-        output.push_str(&format!("Tags:                {}\n", tags.join(", ")));
+        row("Tags", &tags.join(", "));
     }
-
     if !fic.warnings.is_empty() {
-        output.push_str(&format!(
-            "Warnings:            {}\n",
-            fic.warnings
-                .iter()
-                .map(|w| format!("{:?}", w))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        row("Warnings", &join(&fic.warnings));
     }
-
-    // Reading stats
-    output.push_str(&format!("Reading Status:      {}\n", fic.reading_status));
-    output.push_str(&format!("Read Count:          {}\n", fic.read_count));
-
+    row("Reading Status", &fic.reading_status);
+    row("Read Count", &fic.read_count);
     if let Some(last_chapter) = fic.last_chapter_read {
-        output.push_str(&format!("Last Chapter Read:   {}\n", last_chapter));
+        row("Last Chapter Read", &last_chapter);
     }
-
-    if let Some(rating) = &fic.user_rating {
-        output.push_str(&format!("Your Rating:         {} / 5\n", *rating as u8));
+    if let Some(rating) = fic.user_rating {
+        row("Your Rating", &format!("{} / 5", rating as u8));
     }
 
     if let Some(note) = &fic.personal_note {
-        output.push_str(&format!("\nPersonal Note:\n{}\n", note));
+        let _ = writeln!(out, "\nPersonal Note:\n{}", note);
     }
+    let _ = write!(out, "\nSummary:\n{}", fic.summary);
+    out
+}
 
-    // Summary at the end
-    output.push_str("\nSummary:\n");
-    output.push_str(&fic.summary);
-
-    output
+fn join<T: Display>(items: &[T]) -> String {
+    items
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
