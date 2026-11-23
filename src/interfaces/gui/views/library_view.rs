@@ -1,4 +1,5 @@
-use std::cmp::Ordering;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use egui::{Align, Color32, Layout, RichText, Sense, Stroke, StrokeKind, Ui};
 use egui_extras::{Column, TableBuilder};
@@ -19,6 +20,7 @@ const ROW_HEIGHT: f32 = 28.0;
 
 pub struct LibraryViewState<'a> {
     pub fics: &'a [Fanfiction],
+    pub generation: u64,
     pub sort: &'a mut SortPref,
     pub search_query: &'a str,
     pub visible_columns: &'a [ColumnKey],
@@ -34,9 +36,38 @@ pub struct TableOutcome {
     pub column_removed: Option<ColumnKey>,
 }
 
+/// Filtered + sorted row indices and natural column widths, kept in egui
+/// temp memory so they're only recomputed when their inputs change rather
+/// than every frame.
+struct TableMemo {
+    rows_key: u64,
+    widths_key: u64,
+    rows: Vec<usize>,
+    widths: Vec<f32>,
+}
+
+const MEMO_ID: &str = "ficflow-table-memo";
+
+fn rows_key(generation: u64, query: &str, sort: SortPref, view: &View) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    (generation, query.trim(), sort, view).hash(&mut hasher);
+    hasher.finish()
+}
+
+fn widths_key(rows_key: u64, columns: &[ColumnKey], pixels_per_point: f32) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    (rows_key, columns, pixels_per_point.to_bits()).hash(&mut hasher);
+    hasher.finish()
+}
+
+fn cached_memo(ctx: &egui::Context) -> Option<Arc<TableMemo>> {
+    ctx.data(|d| d.get_temp::<Arc<TableMemo>>(egui::Id::unique(MEMO_ID)))
+}
+
 pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
     let LibraryViewState {
         fics,
+        generation,
         sort,
         search_query,
         visible_columns,
@@ -45,15 +76,44 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         shelf_members,
     } = state;
 
-    let visible: Vec<&Fanfiction> = filter_and_sort(fics, search_query, *sort, view, shelf_members);
+    let rows_key = rows_key(generation, search_query, *sort, view);
+    let widths_key = widths_key(rows_key, visible_columns, ui.ctx().pixels_per_point());
+    let memo = match cached_memo(ui.ctx()) {
+        Some(memo) if memo.widths_key == widths_key => memo,
+        cached => {
+            let rows = match cached {
+                Some(memo) if memo.rows_key == rows_key => memo.rows.clone(),
+                _ => filter_and_sort(fics, search_query, *sort, view, shelf_members),
+            };
+            let visible: Vec<&Fanfiction> = rows.iter().map(|&i| &fics[i]).collect();
+            let widths = natural_widths(ui, &visible, visible_columns, *sort);
+            let memo = Arc::new(TableMemo {
+                rows_key,
+                widths_key,
+                rows,
+                widths,
+            });
+            ui.data_mut(|d| d.insert_temp(egui::Id::unique(MEMO_ID), Arc::clone(&memo)));
+            memo
+        }
+    };
+
+    let visible: Vec<&Fanfiction> = memo.rows.iter().map(|&i| &fics[i]).collect();
+    let empty_message = if fics.is_empty() {
+        "No fanfictions yet. Click \u{201C}+ Add Fic\u{201D} in the header to add one."
+    } else if !search_query.trim().is_empty() {
+        "No fanfictions match your search."
+    } else {
+        "No fanfictions in this view yet."
+    };
     draw_table(
         ui,
-        fics,
         &visible,
         sort,
         visible_columns,
         selection,
-        search_query,
+        &memo.widths,
+        empty_message,
     )
 }
 
@@ -68,33 +128,43 @@ pub fn visible_ids(
 ) -> Vec<u64> {
     filter_and_sort(fics, search_query, sort, view, shelf_members)
         .into_iter()
-        .map(|f| f.id)
+        .map(|i| fics[i].id)
         .collect()
 }
 
-/// Count of fics that match the current view filter + search query. Cheaper
-/// than `visible_ids().len()` since it skips the sort + Vec allocation, but
-/// produces the same number — used by the central-panel header counter.
+/// Count of fics that match the current view filter + search query. Reads
+/// the table memo when it's current, so the header doesn't refilter the
+/// library every frame.
 pub fn visible_count(
+    ctx: &egui::Context,
     fics: &[Fanfiction],
+    generation: u64,
     view: &View,
     shelf_members: &HashSet<u64>,
     search_query: &str,
+    sort: SortPref,
 ) -> usize {
-    fics.iter()
-        .filter(|f| view.includes(f, shelf_members))
-        .filter(|f| matches_search(f, search_query))
-        .count()
+    let key = rows_key(generation, search_query, sort, view);
+    match cached_memo(ctx) {
+        Some(memo) if memo.rows_key == key => memo.rows.len(),
+        _ => {
+            let query = search_query.trim().to_lowercase();
+            fics.iter()
+                .filter(|f| view.includes(f, shelf_members))
+                .filter(|f| matches_search(f, &query))
+                .count()
+        }
+    }
 }
 
 fn draw_table(
     ui: &mut Ui,
-    all_fics: &[Fanfiction],
     fics: &[&Fanfiction],
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
     selection: &mut SelectionController,
-    search_query: &str,
+    natural: &[f32],
+    empty_message: &str,
 ) -> TableOutcome {
     if visible_columns.is_empty() {
         ui.label(
@@ -105,26 +175,18 @@ fn draw_table(
         return TableOutcome::default();
     }
     if fics.is_empty() {
-        let message = if all_fics.is_empty() {
-            "No fanfictions yet. Click \u{201C}+ Add Fic\u{201D} in the header to add one."
-        } else if !search_query.trim().is_empty() {
-            "No fanfictions match your search."
-        } else {
-            "No fanfictions in this view yet."
-        };
         ui.add_space(8.0);
-        ui.label(RichText::new(message).italics().weak());
+        ui.label(RichText::new(empty_message).italics().weak());
         return TableOutcome::default();
     }
 
     // Compute auto-fit decision against the *outer* width — before any
     // ScrollArea wrapper expands `ui.available_width()` to infinity.
     let outer_avail = ui.available_width();
-    let natural = natural_widths(ui, fics, visible_columns, *sort);
     let auto_fit = natural.iter().sum::<f32>() <= outer_avail;
 
     if auto_fit {
-        build_table(ui, fics, sort, visible_columns, selection, &natural, true)
+        build_table(ui, fics, sort, visible_columns, selection, natural, true)
     } else {
         // Doesn't fit — wrap in a horizontal ScrollArea so the user can
         // pan to overflowed columns. Fixed-width columns only inside,
@@ -132,7 +194,7 @@ fn draw_table(
         // unbounded inner width.
         egui::ScrollArea::horizontal()
             .show(ui, |ui| {
-                build_table(ui, fics, sort, visible_columns, selection, &natural, false)
+                build_table(ui, fics, sort, visible_columns, selection, natural, false)
             })
             .inner
     }
@@ -552,34 +614,33 @@ fn format_rating(fic: &Fanfiction) -> String {
     out
 }
 
-fn filter_and_sort<'a>(
-    fics: &'a [Fanfiction],
+fn filter_and_sort(
+    fics: &[Fanfiction],
     query: &str,
     sort: SortPref,
     view: &View,
     shelf_members: &HashSet<u64>,
-) -> Vec<&'a Fanfiction> {
-    let mut visible: Vec<&Fanfiction> = fics
+) -> Vec<usize> {
+    let query = query.trim().to_lowercase();
+    let mut keyed: Vec<(SortKey, usize)> = fics
         .iter()
-        .filter(|f| view.includes(f, shelf_members))
-        .filter(|f| matches_search(f, query))
+        .enumerate()
+        .filter(|(_, f)| view.includes(f, shelf_members) && matches_search(f, &query))
+        .map(|(i, f)| (sort_key(f, sort.column), i))
         .collect();
-    visible.sort_by(|a, b| {
-        let ord = compare(a, b, sort.column);
-        match sort.direction {
-            SortDirection::Ascending => ord,
-            SortDirection::Descending => ord.reverse(),
-        }
+    keyed.sort_by(|(a, _), (b, _)| match sort.direction {
+        SortDirection::Ascending => a.cmp(b),
+        SortDirection::Descending => b.cmp(a),
     });
-    visible
+    keyed.into_iter().map(|(_, i)| i).collect()
 }
 
+/// `query` must already be trimmed and lowercased.
 fn matches_search(fic: &Fanfiction, query: &str) -> bool {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
+    if query.is_empty() {
         return true;
     }
-    let needle = |s: &str| s.to_lowercase().contains(&q);
+    let needle = |s: &str| s.to_lowercase().contains(query);
     needle(&fic.title)
         || fic.authors.iter().any(|s| needle(s))
         || fic.fandoms.iter().any(|s| needle(s))
@@ -597,40 +658,36 @@ fn matches_search(fic: &Fanfiction, query: &str) -> bool {
             .is_some_and(|v| v.iter().any(|s| needle(s)))
 }
 
-fn compare(a: &Fanfiction, b: &Fanfiction, column: ColumnKey) -> Ordering {
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum SortKey {
+    Text(Option<String>),
+    Number(Option<u64>),
+    Rating(Rating),
+    Status(ReadingStatus),
+    Date(i64),
+}
+
+fn sort_key(fic: &Fanfiction, column: ColumnKey) -> SortKey {
     match column {
-        ColumnKey::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-        ColumnKey::Author => a
-            .authors
-            .first()
-            .map(|s| s.to_lowercase())
-            .cmp(&b.authors.first().map(|s| s.to_lowercase())),
-        ColumnKey::Fandom => first_lower(&a.fandoms).cmp(&first_lower(&b.fandoms)),
-        ColumnKey::Pairing => a
-            .relationships
-            .as_deref()
-            .map(first_lower)
-            .cmp(&b.relationships.as_deref().map(first_lower)),
-        ColumnKey::AO3Rating => a.rating.cmp(&b.rating),
-        ColumnKey::Warnings => a
-            .warnings
-            .first()
-            .map(format_warning)
-            .cmp(&b.warnings.first().map(format_warning)),
-        ColumnKey::Status => a.reading_status.cmp(&b.reading_status),
-        ColumnKey::Complete => a.complete.cmp(&b.complete),
-        ColumnKey::LastChapter => a.last_chapter_read.cmp(&b.last_chapter_read),
-        ColumnKey::Words => a.words.cmp(&b.words),
-        ColumnKey::Kudos => a.kudos.cmp(&b.kudos),
-        ColumnKey::Hits => a.hits.cmp(&b.hits),
-        ColumnKey::Rating => a
-            .user_rating
-            .map(|r| r as u8)
-            .cmp(&b.user_rating.map(|r| r as u8)),
-        ColumnKey::Reads => a.read_count.cmp(&b.read_count),
-        ColumnKey::Language => a.language.to_lowercase().cmp(&b.language.to_lowercase()),
-        ColumnKey::DatePublished => a.date_published.cmp(&b.date_published),
-        ColumnKey::Updated => a.date_updated.cmp(&b.date_updated),
+        ColumnKey::Title => SortKey::Text(Some(fic.title.to_lowercase())),
+        ColumnKey::Author => SortKey::Text(first_lower(&fic.authors)),
+        ColumnKey::Fandom => SortKey::Text(first_lower(&fic.fandoms)),
+        ColumnKey::Pairing => SortKey::Text(fic.relationships.as_deref().and_then(first_lower)),
+        ColumnKey::AO3Rating => SortKey::Rating(fic.rating.clone()),
+        ColumnKey::Warnings => {
+            SortKey::Text(fic.warnings.first().map(|w| format_warning(w).to_string()))
+        }
+        ColumnKey::Status => SortKey::Status(fic.reading_status),
+        ColumnKey::Complete => SortKey::Number(Some(fic.complete.into())),
+        ColumnKey::LastChapter => SortKey::Number(fic.last_chapter_read.map(u64::from)),
+        ColumnKey::Words => SortKey::Number(Some(fic.words.into())),
+        ColumnKey::Kudos => SortKey::Number(Some(fic.kudos.into())),
+        ColumnKey::Hits => SortKey::Number(Some(fic.hits.into())),
+        ColumnKey::Rating => SortKey::Number(fic.user_rating.map(|r| r as u64)),
+        ColumnKey::Reads => SortKey::Number(Some(fic.read_count.into())),
+        ColumnKey::Language => SortKey::Text(Some(fic.language.to_lowercase())),
+        ColumnKey::DatePublished => SortKey::Date(fic.date_published.timestamp()),
+        ColumnKey::Updated => SortKey::Date(fic.date_updated.timestamp()),
     }
 }
 

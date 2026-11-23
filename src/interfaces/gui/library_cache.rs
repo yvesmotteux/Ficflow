@@ -2,6 +2,7 @@
 //! funnel that keeps them coherent after fic-shelf-changing ops.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rusqlite::Connection;
 
@@ -15,6 +16,7 @@ use crate::domain::shelf::{Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 
+use super::auto_shelf::{self, DistinctValues};
 use super::selection::Selection;
 use super::view::View;
 
@@ -31,6 +33,11 @@ pub struct LibraryCache {
     /// Never backed by `fic_shelf` rows — recomputed from `fics`/`shelves`
     /// on every mutation, same as `shelf_counts`.
     pub auto_shelf_members: HashMap<u64, HashSet<u64>>,
+    /// Changes on every change to `fics` or `shelf_members`, so per-frame
+    /// views can tell whether derived data needs recomputing. Drawn from a
+    /// process-wide counter so two caches never share a value.
+    pub generation: u64,
+    distinct_values: Option<(u64, DistinctValues)>,
 }
 
 impl LibraryCache {
@@ -47,6 +54,8 @@ impl LibraryCache {
             selection_shelf_ids: HashSet::new(),
             shelf_counts,
             auto_shelf_members,
+            generation: next_generation(),
+            distinct_values: None,
         }
     }
 
@@ -56,6 +65,25 @@ impl LibraryCache {
 
     pub fn shelf(&self, id: u64) -> Option<&Shelf> {
         self.shelves.iter().find(|s| s.id == id)
+    }
+
+    /// Autocomplete suggestions for the auto-shelf builder, rebuilt only
+    /// when the library changes.
+    pub fn distinct_values(&mut self) -> &DistinctValues {
+        if self
+            .distinct_values
+            .as_ref()
+            .is_some_and(|(generation, _)| *generation != self.generation)
+        {
+            self.distinct_values = None;
+        }
+        let (_, values) = self.distinct_values.get_or_insert_with(|| {
+            (
+                self.generation,
+                auto_shelf::build_distinct_values(&self.fics),
+            )
+        });
+        values
     }
 
     pub fn reload_fics(&mut self, connection: &Connection) {
@@ -75,6 +103,7 @@ impl LibraryCache {
     /// like `replace_fic` (e.g. a status change) update membership
     /// without going through `refresh_shelf_counts`.
     pub fn refresh_auto_shelf_members(&mut self) {
+        self.generation = next_generation();
         self.auto_shelf_members = compute_auto_shelf_members(&self.fics, &self.shelves);
         overlay_auto_shelf_counts(&mut self.shelf_counts, &self.auto_shelf_members);
     }
@@ -84,6 +113,7 @@ impl LibraryCache {
         connection: &Connection,
         view: &View,
     ) -> Result<(), FicflowError> {
+        self.generation = next_generation();
         self.shelf_members.clear();
         if let View::Shelf(id) = view {
             match self.shelf(*id).map(|s| &s.kind) {
@@ -230,4 +260,9 @@ fn load_shelves_inner(connection: &Connection) -> Vec<Shelf> {
 fn count_fics_per_shelf_inner(connection: &Connection) -> HashMap<u64, usize> {
     let repo = SqliteRepository::new(connection);
     count_fics_per_shelf(&repo).unwrap_or_default()
+}
+
+fn next_generation() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
