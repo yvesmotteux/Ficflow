@@ -15,7 +15,6 @@ use crate::domain::shelf::{Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 
-use super::auto_shelf;
 use super::selection::Selection;
 use super::view::View;
 
@@ -180,7 +179,13 @@ fn compute_auto_shelf_members(
     shelves
         .iter()
         .filter_map(|s| match &s.kind {
-            ShelfKind::Auto(criteria) => Some((s.id, auto_shelf::matching_fic_ids(fics, criteria))),
+            ShelfKind::Auto(criteria) => Some((
+                s.id,
+                fics.iter()
+                    .filter(|f| criteria.matches(f))
+                    .map(|f| f.id)
+                    .collect(),
+            )),
             ShelfKind::Normal => None,
         })
         .collect()

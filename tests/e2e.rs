@@ -4,6 +4,7 @@
 //! exercise paths the GUI doesn't expose at all:
 //!
 //!  * `wipe` is CLI-only (no destructive button in the UI).
+//!  * `shelf show` / `shelf list` render auto-shelves as text.
 //!  * Adding a *soft-deleted* fic to a shelf is something the GUI
 //!    can't even attempt, since the dropdown only lists live shelves
 //!    and the Add Fic dialog re-fetches the fic (which moves it out
@@ -23,6 +24,9 @@ use common::{assertions, fixtures};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ficflow::domain::fanfiction::{FanfictionOps, ReadingStatus};
+    use ficflow::domain::shelf::{AutoShelfCriteria, Clause, ClauseLogic, ShelfOps};
+    use ficflow::infrastructure::SqliteRepository;
     use rusqlite::Connection;
     use tempfile::TempDir;
 
@@ -116,6 +120,64 @@ mod tests {
             "expected 'not found' in stderr, got: {}",
             sa_err
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_shelf_show_lists_auto_shelf_matches() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+
+        let (_, add_err, add_status) =
+            run_cli_command(&["add", &fic_id.to_string()], db_path, &base, None);
+        assertions::then_command_succeeded(add_status, &add_err, None, None);
+
+        let repo = SqliteRepository::new(&test_db.conn);
+        let title = repo.get_fanfiction_by_id(fic_id)?.title;
+        let matching = repo.upsert_auto_shelf(
+            None,
+            "To Read",
+            None,
+            AutoShelfCriteria {
+                logic: ClauseLogic::And,
+                clauses: vec![Clause::Status(ReadingStatus::PlanToRead)],
+            },
+        )?;
+        let empty = repo.upsert_auto_shelf(
+            None,
+            "Finished",
+            None,
+            AutoShelfCriteria {
+                logic: ClauseLogic::And,
+                clauses: vec![Clause::Status(ReadingStatus::Read)],
+            },
+        )?;
+
+        let (show_out, show_err, show_status) = run_cli_command(
+            &["shelf", "show", &matching.id.to_string()],
+            db_path,
+            &base,
+            None,
+        );
+        assertions::then_command_succeeded(show_status, &show_err, None, None);
+        assert!(show_out.contains(&title), "got: {}", show_out);
+
+        let (empty_out, empty_err, empty_status) = run_cli_command(
+            &["shelf", "show", &empty.id.to_string()],
+            db_path,
+            &base,
+            None,
+        );
+        assertions::then_command_succeeded(empty_status, &empty_err, None, None);
+        assert!(!empty_out.contains(&title), "got: {}", empty_out);
+
+        let (list_out, list_err, list_status) =
+            run_cli_command(&["shelf", "list"], db_path, &base, None);
+        assertions::then_command_succeeded(list_status, &list_err, None, None);
+        assert!(list_out.contains("To Read (auto)"), "got: {}", list_out);
 
         Ok(())
     }
