@@ -11,7 +11,7 @@ use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
 use crate::infrastructure::persistence::database::connection::open_configured_db;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
-use super::{TaskStatus, WorkerCommand, WorkerInbox};
+use super::{TaskStatus, WorkerCommand, WorkerInbox, lock};
 
 pub fn run(
     rx: Receiver<WorkerCommand>,
@@ -39,58 +39,53 @@ pub fn run(
     let repo = SqliteRepository::new(&conn);
 
     while let Ok(cmd) = rx.recv() {
+        // Panics inside the AO3 scraper / DB save are caught so a parsing
+        // bug on a malformed page doesn't kill the worker thread, which
+        // would leave this task stuck on Running and drop every later
+        // command.
         match cmd {
             WorkerCommand::AddFic { task_id, input } => {
-                // Catch panics inside the AO3 scraper / DB save so a
-                // bug in HTML parsing (e.g. an unwrap in a malformed-
-                // page edge case) doesn't kill the worker thread —
-                // which would leave THIS task stuck on Running and
-                // every subsequent command silently dropped.
                 let outcome =
                     catch_unwind(AssertUnwindSafe(|| process_add(&fetcher, &repo, &input)))
                         .unwrap_or_else(|payload| Err(panic_to_error(payload)));
-
-                let mut tasks = inbox.tasks.lock().unwrap();
-                if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-                    match &outcome {
-                        Ok(title) => {
-                            task.display = title.clone();
-                            task.status = TaskStatus::Done;
-                        }
-                        Err(err) => {
-                            task.status = TaskStatus::Failed(err.to_string());
-                        }
-                    }
-                }
-                drop(tasks);
-                if let Ok(title) = outcome {
-                    inbox.recent_completions.lock().unwrap().push(title);
+                if let Some(title) = record(&inbox, task_id, outcome) {
+                    lock(&inbox.recent_completions).push(title);
                 }
             }
             WorkerCommand::RefreshFic { task_id, fic_id } => {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
                     check_fic_updates(&fetcher, &repo, fic_id)
                 }))
-                .unwrap_or_else(|payload| Err(panic_to_error(payload)));
-
-                let mut tasks = inbox.tasks.lock().unwrap();
-                if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-                    match &outcome {
-                        Ok((_has_new, fic)) => {
-                            task.display = fic.title.clone();
-                            task.status = TaskStatus::Done;
-                        }
-                        Err(err) => {
-                            task.status = TaskStatus::Failed(err.to_string());
-                        }
-                    }
-                }
-                drop(tasks);
-                if outcome.is_ok() {
-                    inbox.recent_refreshes.lock().unwrap().push(fic_id);
+                .unwrap_or_else(|payload| Err(panic_to_error(payload)))
+                .map(|(_, fic)| fic.title);
+                if record(&inbox, task_id, outcome).is_some() {
+                    lock(&inbox.recent_refreshes).push(fic_id);
                 }
             }
         }
+    }
+}
+
+/// Marks the task Done (showing the fic title) or Failed; returns the
+/// title on success.
+fn record(
+    inbox: &WorkerInbox,
+    task_id: u64,
+    outcome: Result<String, FicflowError>,
+) -> Option<String> {
+    let mut tasks = lock(&inbox.tasks);
+    let task = tasks.iter_mut().find(|t| t.id == task_id);
+    match (task, outcome) {
+        (Some(task), Ok(title)) => {
+            task.display = title.clone();
+            task.status = TaskStatus::Done;
+            Some(title)
+        }
+        (Some(task), Err(err)) => {
+            task.status = TaskStatus::Failed(err.to_string());
+            None
+        }
+        (None, outcome) => outcome.ok(),
     }
 }
 
