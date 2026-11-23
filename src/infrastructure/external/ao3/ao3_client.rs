@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Minimum gap between successive AO3 requests.
-const DEFAULT_MIN_REQUEST_GAP: Duration = Duration::from_secs(4);
+pub const DEFAULT_MIN_REQUEST_GAP: Duration = Duration::from_secs(4);
 
 pub struct Ao3Client {
     client: Client,
@@ -16,10 +16,6 @@ pub struct Ao3Client {
 }
 
 impl Ao3Client {
-    pub fn new() -> Result<Self, FicflowError> {
-        Self::with_min_gap(DEFAULT_MIN_REQUEST_GAP)
-    }
-
     /// Override the minimum inter-request gap. Pass `Duration::ZERO` in tests
     /// so the mock-backed suite doesn't wait between calls.
     pub fn with_min_gap(min_gap: Duration) -> Result<Self, FicflowError> {
