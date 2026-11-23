@@ -7,11 +7,10 @@
 //!
 //! Lives under `interfaces/gui/` because almost every field is a GUI
 //! concern with no meaning to the CLI. The one exception is
-//! `library_path`: it's the single source of truth for where the
-//! database lives, so both the GUI and the CLI resolve it through
-//! `resolved_db_path`.
+//! `library_path`, which the CLI reads on its own through
+//! `infrastructure::persistence::library_path`, the single resolver both
+//! interfaces share.
 
-use std::env;
 use std::io;
 use std::path::PathBuf;
 
@@ -19,12 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::fanfiction::ReadingStatus;
 use crate::error::FicflowError;
-
-const DB_PATH_ENV: &str = "FICFLOW_DB_PATH";
-
-const CONFIG_FILE: &str = "config.toml";
-const DB_FILE: &str = "fanfictions.db";
-const APP_DIR: &str = "ficflow";
+use crate::infrastructure::persistence::library_path;
 
 /// Serializable shadow of the library-facing `View` variants — the ones
 /// worth restoring on next launch. `Tasks` and `Settings` are transient
@@ -174,7 +168,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub theme: ThemeChoice,
     /// Where the library database lives. `None` means the platform
-    /// default. Shared with the CLI via `resolved_db_path`.
+    /// default. Resolved through `library_path::resolve_db_path`.
     #[serde(default)]
     pub library_path: Option<PathBuf>,
 }
@@ -249,17 +243,8 @@ impl AppConfig {
         }
     }
 
-    /// The effective library path, in precedence order: the
-    /// `FICFLOW_DB_PATH` env override, then the configured `library_path`,
-    /// then the platform default.
     pub fn resolved_db_path(&self) -> Result<PathBuf, FicflowError> {
-        if let Ok(path) = env::var(DB_PATH_ENV) {
-            return Ok(PathBuf::from(path));
-        }
-        match &self.library_path {
-            Some(path) => Ok(path.clone()),
-            None => default_db_path(),
-        }
+        library_path::resolve_db_path(self.library_path.as_deref())
     }
 
     pub fn reorder_visible_column(&mut self, col: ColumnKey, target: ColumnKey, place_after: bool) {
@@ -300,15 +285,5 @@ impl AppConfig {
 }
 
 pub(crate) fn config_path() -> Option<PathBuf> {
-    dirs_next::config_dir().map(|d| d.join(APP_DIR).join(CONFIG_FILE))
-}
-
-/// The platform default library path (`~/.local/share/ficflow/fanfictions.db`
-/// on Linux), used when neither `FICFLOW_DB_PATH` nor `library_path` is set.
-fn default_db_path() -> Result<PathBuf, FicflowError> {
-    let mut path = dirs_next::data_local_dir()
-        .ok_or_else(|| FicflowError::Other("Failed to determine user data directory".into()))?;
-    path.push(APP_DIR);
-    path.push(DB_FILE);
-    Ok(path)
+    library_path::config_file_path()
 }
