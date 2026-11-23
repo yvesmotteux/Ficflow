@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Fix fics silently dropping off their shelves when their status, chapter, rating, reads or note is changed (or the fic is refreshed) — saving a fic replaces its whole database row, which also wipes its shelf memberships (the GUI keeps showing them until restart)
 - [ ] In the settings, after the version, display some warning in red if a newer version is available
 - [ ] refactor config to have it live outside of the GUI
 - [ ] Ability to login to access restricted fics

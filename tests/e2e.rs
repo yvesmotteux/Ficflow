@@ -398,4 +398,42 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn editing_a_fic_keeps_it_on_its_shelves() -> Result<(), Box<dyn Error>> {
+        let test_db = setup_test_db();
+        let (mock_server, fic_id) = fixtures::given_mock_ao3_server();
+        let base = mock_server.base_url();
+        let db_path = &test_db.db_path;
+        let id = fic_id.to_string();
+
+        for args in [
+            vec!["add", id.as_str()],
+            vec!["shelf", "create", "Favorites"],
+            vec!["shelf", "add", id.as_str(), "1"],
+        ] {
+            let (_, err, status) = run_cli_command(&args, db_path, &base, None);
+            assertions::then_command_succeeded(status, &err, None, None);
+        }
+
+        for args in [
+            vec!["status", id.as_str(), "paused"],
+            vec!["chapter", id.as_str(), "1"],
+            vec!["reads", id.as_str(), "2"],
+            vec!["rating", id.as_str(), "4"],
+            vec!["note", id.as_str(), "loved it"],
+        ] {
+            let (_, err, status) = run_cli_command(&args, db_path, &base, None);
+            assertions::then_command_succeeded(status, &err, None, None);
+
+            let links: i64 = test_db.conn.query_row(
+                "SELECT COUNT(*) FROM fic_shelf WHERE fic_id = ?1",
+                [fic_id],
+                |r| r.get(0),
+            )?;
+            assert_eq!(links, 1, "`{}` removed the fic from its shelf", args[0]);
+        }
+
+        Ok(())
+    }
 }
