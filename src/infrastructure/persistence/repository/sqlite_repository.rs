@@ -29,7 +29,8 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
         let date_updated_str = fic.date_updated.to_rfc3339();
         let last_checked_date_str = fic.last_checked_date.to_rfc3339();
 
-        let reviving = match self.conn.query_row(
+        let tx = self.conn.unchecked_transaction()?;
+        let reviving = match tx.query_row(
             "SELECT deleted_at IS NOT NULL FROM fanfiction WHERE id = ?1",
             params![fic.id],
             |r| r.get::<_, bool>(0),
@@ -40,18 +41,34 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
         };
 
         if reviving {
-            self.conn
-                .execute("DELETE FROM fic_shelf WHERE fic_id = ?1", params![fic.id])?;
+            tx.execute("DELETE FROM fic_shelf WHERE fic_id = ?1", params![fic.id])?;
         }
 
-        self.conn.execute(
-            "INSERT OR REPLACE INTO fanfiction (
+        // An upsert rather than INSERT OR REPLACE: REPLACE deletes the old
+        // row first, which cascades to fic_shelf and drops shelf membership.
+        tx.execute(
+            "INSERT INTO fanfiction (
                 id, title, authors, categories, chapters_total, chapters_published, characters,
                 complete, fandoms, hits, kudos, language, rating, relationships, restricted,
                 summary, tags, warnings, words, date_published, date_updated, last_chapter_read,
                 reading_status, read_count, user_rating, personal_note, last_checked_date, deleted_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, NULL)",
+                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, NULL)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title, authors = excluded.authors,
+                categories = excluded.categories, chapters_total = excluded.chapters_total,
+                chapters_published = excluded.chapters_published,
+                characters = excluded.characters, complete = excluded.complete,
+                fandoms = excluded.fandoms, hits = excluded.hits, kudos = excluded.kudos,
+                language = excluded.language, rating = excluded.rating,
+                relationships = excluded.relationships, restricted = excluded.restricted,
+                summary = excluded.summary, tags = excluded.tags, warnings = excluded.warnings,
+                words = excluded.words, date_published = excluded.date_published,
+                date_updated = excluded.date_updated,
+                last_chapter_read = excluded.last_chapter_read,
+                reading_status = excluded.reading_status, read_count = excluded.read_count,
+                user_rating = excluded.user_rating, personal_note = excluded.personal_note,
+                last_checked_date = excluded.last_checked_date, deleted_at = NULL",
             params![
                 fic.id,
                 fic.title,
@@ -83,6 +100,7 @@ impl<'a> FanfictionOps for SqliteRepository<'a> {
             ],
         )?;
 
+        tx.commit()?;
         Ok(())
     }
 

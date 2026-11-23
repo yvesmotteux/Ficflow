@@ -9,6 +9,7 @@
 #[cfg(test)]
 mod tests {
     use ficflow::domain::fanfiction::{FanfictionOps, ReadingStatus, UserRating};
+    use ficflow::domain::shelf::ShelfOps;
     use ficflow::infrastructure::SqliteRepository;
 
     use crate::common::fixtures;
@@ -167,5 +168,33 @@ mod tests {
             db_fic(&h, id).personal_note.is_none(),
             "DB should store NULL, not empty string"
         );
+    }
+
+    #[test]
+    fn editing_personal_fields_keeps_shelf_membership() {
+        let (mut h, id) = given_harness_with_one_fic(108);
+        h.step_n(1);
+        h.app.create_shelf("Favorites").unwrap();
+        let shelf_id = h.app.shelves()[0].id;
+        h.app.add_fic_to_shelf(id, shelf_id).unwrap();
+
+        h.app.set_status(id, ReadingStatus::InProgress).unwrap();
+        h.app.set_last_chapter(id, 1).unwrap();
+        h.app.set_read_count(id, 2).unwrap();
+        h.app.set_user_rating(id, Some(UserRating::Four)).unwrap();
+        h.app.set_note(id, Some("keep me shelved")).unwrap();
+        h.step();
+
+        let shelves = SqliteRepository::new(&h.conn)
+            .list_shelves_for_fic(id)
+            .unwrap();
+        assert_eq!(
+            shelves.iter().map(|s| s.id).collect::<Vec<_>>(),
+            vec![shelf_id]
+        );
+        h.app
+            .open_view(ficflow::interfaces::gui::View::Shelf(shelf_id));
+        h.step();
+        assert_eq!(h.app.visible_ids(), vec![id]);
     }
 }
