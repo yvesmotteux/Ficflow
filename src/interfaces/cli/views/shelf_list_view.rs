@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::domain::shelf::Shelf;
+use crate::domain::shelf::{Shelf, ShelfKind};
 use term_table::row::Row;
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
@@ -46,14 +46,20 @@ fn add_rows(
     };
     for shelf in siblings {
         let pin_marker = if shelf.pinned { "* " } else { "" };
+        let auto_marker = if matches!(shelf.kind, ShelfKind::Auto(_)) {
+            " (auto)"
+        } else {
+            ""
+        };
         #[allow(deprecated)]
         let row_cells = vec![
             TableCell::new_with_alignment(shelf.id, 1, Alignment::Right),
             TableCell::new(format!(
-                "{}{}{}",
+                "{}{}{}{}",
                 "  ".repeat(depth),
                 pin_marker,
-                shelf.name
+                shelf.name,
+                auto_marker
             )),
             TableCell::new(shelf.created_at.format("%Y-%m-%d").to_string()),
         ];
