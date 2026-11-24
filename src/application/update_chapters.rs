@@ -8,38 +8,27 @@ pub fn update_last_chapter_read(
 ) -> Result<Fanfiction, FicflowError> {
     let mut fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
 
-    let adjusted_chapter_count = if let Some(total_chapters) = fic.chapters_total {
-        if new_chapter_count > total_chapters {
+    let chapter = match fic.chapters_total {
+        Some(total) if new_chapter_count > total => {
             log::warn!(
                 "Requested chapter {} exceeds total chapters {}. Setting to maximum.",
                 new_chapter_count,
-                total_chapters
+                total
             );
-            total_chapters
-        } else {
-            new_chapter_count
+            total
         }
-    } else {
-        new_chapter_count
+        _ => new_chapter_count,
     };
+    fic.last_chapter_read = Some(chapter);
 
-    fic.last_chapter_read = Some(adjusted_chapter_count);
-
-    let is_final_chapter = if let Some(total_chapters) = fic.chapters_total {
-        adjusted_chapter_count >= total_chapters
-    } else {
-        false
-    };
-
-    if is_final_chapter {
+    if fic.chapters_total.is_some_and(|total| chapter >= total) {
         fic.read_count += 1;
         fic.reading_status = ReadingStatus::Read;
-    } else {
-        match fic.reading_status {
-            ReadingStatus::PlanToRead => fic.reading_status = ReadingStatus::InProgress,
-            ReadingStatus::Paused => fic.reading_status = ReadingStatus::InProgress,
-            _ => {}
-        }
+    } else if matches!(
+        fic.reading_status,
+        ReadingStatus::PlanToRead | ReadingStatus::Paused
+    ) {
+        fic.reading_status = ReadingStatus::InProgress;
     }
 
     fanfiction_ops.save_fanfiction(&fic)?;
