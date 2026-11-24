@@ -146,8 +146,8 @@ fn draw_header(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
                     ui.close();
                 }
             });
-            if author != "Anonymous" {
-                // Anonymous works have no real user page, so the arrow is skipped.
+            if !matches!(author.as_str(), "Anonymous" | "orphan_account") {
+                // Neither has a browsable works page on AO3, so the arrow is skipped.
                 ui.hyperlink_to(
                     "\u{2197}",
                     format!("https://archiveofourown.org/users/{}/works", author),
