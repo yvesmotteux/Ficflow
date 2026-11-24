@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] In the settings, after the version, display some warning in red if a newer version is available
 - [ ] refactor config to have it live outside of the GUI
 - [ ] Ability to login to access restricted fics
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one (settings, refresh every x time, + notifications for all manual and auto refreshes when a new update was found! And an inbox too)

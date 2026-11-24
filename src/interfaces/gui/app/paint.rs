@@ -258,7 +258,13 @@ impl FicflowApp {
                     },
                 ),
                 View::Settings => {
-                    let outcome = settings_view::draw(ui, &mut self.config, &self.current_db_path);
+                    self.update_check.start_once(ui.ctx());
+                    let outcome = settings_view::draw(
+                        ui,
+                        &mut self.config,
+                        &self.current_db_path,
+                        self.update_check.newer_release(),
+                    );
                     if outcome.config_changed {
                         self.save_config();
                     }

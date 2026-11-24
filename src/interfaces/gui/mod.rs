@@ -9,6 +9,7 @@ mod selection;
 mod selection_controller;
 mod tasks;
 mod theme;
+mod update_check;
 mod view;
 mod views;
 mod widgets;
