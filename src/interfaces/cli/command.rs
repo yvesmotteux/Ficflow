@@ -1,260 +1,178 @@
-use crate::interfaces::utils::url_parser;
-use clap::{Arg, Command, value_parser};
+use clap::{Parser, Subcommand};
 
-#[derive(Debug)]
+use crate::application::update_rating::parse_user_rating;
+use crate::application::update_status::parse_reading_status;
+use crate::domain::fanfiction::{ReadingStatus, UserRating};
+use crate::interfaces::utils::url_parser::extract_ao3_id;
+
+#[derive(Parser, Debug)]
+#[command(name = "FicFlow")]
+struct Cli {
+    #[command(subcommand)]
+    command: CliCommand,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RatingArg(pub Option<UserRating>);
+
+fn parse_rating_arg(input: &str) -> Result<RatingArg, crate::error::FicflowError> {
+    parse_user_rating(input).map(RatingArg)
+}
+
+#[derive(Subcommand, Debug)]
 pub enum CliCommand {
-    Add { fic_id: u64 },
-    Delete { fic_id: u64 },
-    Get { fic_id: u64 },
+    /// Add a fanfiction to the database
+    Add {
+        /// The ID or URL of the fanfiction (e.g. 12345678, https://archiveofourown.org/works/12345678)
+        #[arg(value_name = "fic-id", value_parser = extract_ao3_id)]
+        fic_id: u64,
+    },
+    /// Delete a fanfiction from the database
+    Delete {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+    },
+    /// Get detailed information about a specific fanfiction
+    Get {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+    },
+    /// Update the last chapter read for a fanfiction
+    #[command(name = "chapter")]
+    UpdateChapter {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// The chapter number you've read up to
+        #[arg(value_name = "chapter")]
+        chapter: u32,
+    },
+    /// Update the reading status of a fanfiction
+    #[command(name = "status")]
+    UpdateStatus {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// The new reading status (inprogress, read, plantoread, paused, abandoned)
+        #[arg(value_name = "status", value_parser = parse_reading_status)]
+        status: ReadingStatus,
+    },
+    /// Update the read count of a fanfiction
+    #[command(name = "reads")]
+    UpdateReadCount {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// The new read count
+        #[arg(value_name = "count")]
+        read_count: u32,
+    },
+    /// Update the user rating of a fanfiction
+    #[command(name = "rating")]
+    UpdateRating {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// The new rating (1-5, or 'one' through 'five', or 'none' to remove)
+        #[arg(value_name = "rating", value_parser = parse_rating_arg)]
+        rating: RatingArg,
+    },
+    /// Add or remove a personal note for a fanfiction
+    #[command(name = "note")]
+    UpdateNote {
+        /// The ID of the fanfiction
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// The personal note text (omit to remove note)
+        #[arg(value_name = "note")]
+        note: Option<String>,
+    },
+    /// List all stored fanfictions
     List,
+    /// Wipe the database (removes all fanfictions)
     Wipe,
-    UpdateChapter { fic_id: u64, chapter: u32 },
-    UpdateStatus { fic_id: u64, status: String },
-    UpdateReadCount { fic_id: u64, read_count: u32 },
-    UpdateRating { fic_id: u64, rating: String },
-    UpdateNote { fic_id: u64, note: Option<String> },
+    /// Manage shelves (custom groupings of fanfictions)
+    #[command(subcommand)]
     Shelf(ShelfCommand),
 }
 
-#[derive(Debug)]
+#[derive(Subcommand, Debug)]
 pub enum ShelfCommand {
-    Create { name: String, parent: Option<u64> },
-    Delete { shelf_id: u64 },
-    Rename { shelf_id: u64, new_name: String },
-    Move { shelf_id: u64, parent: Option<u64> },
-    Pin { shelf_id: u64 },
-    Unpin { shelf_id: u64 },
+    /// Create a new shelf
+    Create {
+        /// Shelf name
+        #[arg(value_name = "name")]
+        name: String,
+        /// Parent shelf ID to nest the new shelf under
+        #[arg(short, long, value_name = "parent")]
+        parent: Option<u64>,
+    },
+    /// Delete a shelf
+    Delete {
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+    },
+    /// Rename an existing shelf
+    Rename {
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+        /// New shelf name
+        #[arg(value_name = "new-name")]
+        new_name: String,
+    },
+    /// Move a shelf under another shelf (omit parent-id to move to top level)
+    Move {
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+        /// New parent shelf ID (omit for top level)
+        #[arg(value_name = "parent-id")]
+        parent: Option<u64>,
+    },
+    /// Pin a shelf to the top of its siblings
+    Pin {
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+    },
+    /// Unpin a shelf
+    Unpin {
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+    },
+    /// List all shelves
     List,
-    Add { fic_id: u64, shelf_id: u64 },
-    Remove { fic_id: u64, shelf_id: u64 },
-    Show { shelf_id: u64 },
+    /// Add a fanfiction to a shelf
+    Add {
+        /// Fanfiction ID
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+    },
+    /// Remove a fanfiction from a shelf
+    Remove {
+        /// Fanfiction ID
+        #[arg(value_name = "fic-id")]
+        fic_id: u64,
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+    },
+    /// List the fanfictions in a shelf
+    Show {
+        /// Shelf ID
+        #[arg(value_name = "shelf-id")]
+        shelf_id: u64,
+    },
 }
 
 pub fn parse_cli_commands() -> CliCommand {
-    let matches = Command::new("FicFlow")
-        .subcommand(
-            Command::new("add")
-                .about("Add a fanfiction to the database")
-                .arg(Arg::new("fic-id").required(true).index(1).help("The ID or URL of the fanfiction (e.g. 12345678, https://archiveofourown.org/works/12345678)")),
-        )
-        .subcommand(
-            Command::new("delete")
-                .about("Delete a fanfiction from the database")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction")),
-        )
-        .subcommand(
-            Command::new("get")
-                .about("Get detailed information about a specific fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction")),
-        )
-        .subcommand(
-            Command::new("chapter")
-                .about("Update the last chapter read for a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
-                .arg(Arg::new("chapter").required(true).index(2).value_parser(value_parser!(u32)).help("The chapter number you've read up to")),
-        )
-        .subcommand(
-            Command::new("status")
-                .about("Update the reading status of a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
-                .arg(Arg::new("status").required(true).index(2).help("The new reading status (inprogress, read, plantoread, paused, abandoned)")),
-        )
-        .subcommand(
-            Command::new("reads")
-                .about("Update the read count of a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
-                .arg(Arg::new("count").required(true).index(2).value_parser(value_parser!(u32)).help("The new read count")),
-        )
-        .subcommand(
-            Command::new("rating")
-                .about("Update the user rating of a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
-                .arg(Arg::new("rating").required(true).index(2).help("The new rating (1-5, or 'one' through 'five', or 'none' to remove)")),
-        )
-        .subcommand(
-            Command::new("note")
-                .about("Add or remove a personal note for a fanfiction")
-                .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("The ID of the fanfiction"))
-                .arg(Arg::new("note").required(false).index(2).help("The personal note text (omit to remove note)")),
-        )
-        .subcommand(Command::new("list").about("List all stored fanfictions"))
-        .subcommand(Command::new("wipe").about("Wipe the database (removes all fanfictions)"))
-        .subcommand(
-            Command::new("shelf")
-                .about("Manage shelves (custom groupings of fanfictions)")
-                .subcommand_required(true)
-                .arg_required_else_help(true)
-                .subcommand(
-                    Command::new("create")
-                        .about("Create a new shelf")
-                        .arg(Arg::new("name").required(true).index(1).help("Shelf name"))
-                        .arg(Arg::new("parent").long("parent").short('p').value_parser(value_parser!(u64)).help("Parent shelf ID to nest the new shelf under")),
-                )
-                .subcommand(
-                    Command::new("delete")
-                        .about("Delete a shelf")
-                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
-                )
-                .subcommand(
-                    Command::new("rename")
-                        .about("Rename an existing shelf")
-                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID"))
-                        .arg(Arg::new("new-name").required(true).index(2).help("New shelf name")),
-                )
-                .subcommand(
-                    Command::new("move")
-                        .about("Move a shelf under another shelf (omit parent-id to move to top level)")
-                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID"))
-                        .arg(Arg::new("parent-id").required(false).index(2).value_parser(value_parser!(u64)).help("New parent shelf ID (omit for top level)")),
-                )
-                .subcommand(
-                    Command::new("pin")
-                        .about("Pin a shelf to the top of its siblings")
-                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
-                )
-                .subcommand(
-                    Command::new("unpin")
-                        .about("Unpin a shelf")
-                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
-                )
-                .subcommand(Command::new("list").about("List all shelves"))
-                .subcommand(
-                    Command::new("add")
-                        .about("Add a fanfiction to a shelf")
-                        .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("Fanfiction ID"))
-                        .arg(Arg::new("shelf-id").required(true).index(2).value_parser(value_parser!(u64)).help("Shelf ID")),
-                )
-                .subcommand(
-                    Command::new("remove")
-                        .about("Remove a fanfiction from a shelf")
-                        .arg(Arg::new("fic-id").required(true).index(1).value_parser(value_parser!(u64)).help("Fanfiction ID"))
-                        .arg(Arg::new("shelf-id").required(true).index(2).value_parser(value_parser!(u64)).help("Shelf ID")),
-                )
-                .subcommand(
-                    Command::new("show")
-                        .about("List the fanfictions in a shelf")
-                        .arg(Arg::new("shelf-id").required(true).index(1).value_parser(value_parser!(u64)).help("Shelf ID")),
-                ),
-        )
-        .get_matches();
-
-    if let Some(matches) = matches.subcommand_matches("add") {
-        let fic_id_input = matches
-            .get_one::<String>("fic-id")
-            .expect("fic-id or url is required");
-
-        // Extract AO3 ID from input (could be a direct ID or a URL in various formats)
-        match url_parser::extract_ao3_id(fic_id_input) {
-            Ok(id) => CliCommand::Add { fic_id: id },
-            Err(e) => {
-                eprintln!("Error: {}. Please provide a valid AO3 ID or URL.", e);
-                std::process::exit(1);
-            }
-        }
-    } else if let Some(matches) = matches.subcommand_matches("delete") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        CliCommand::Delete { fic_id }
-    } else if let Some(matches) = matches.subcommand_matches("get") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        CliCommand::Get { fic_id }
-    } else if let Some(matches) = matches.subcommand_matches("chapter") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        let chapter = *matches
-            .get_one::<u32>("chapter")
-            .expect("chapter number is required");
-        CliCommand::UpdateChapter { fic_id, chapter }
-    } else if let Some(matches) = matches.subcommand_matches("status") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        let status = matches
-            .get_one::<String>("status")
-            .expect("status is required")
-            .to_string();
-        CliCommand::UpdateStatus { fic_id, status }
-    } else if let Some(matches) = matches.subcommand_matches("reads") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        let read_count = *matches
-            .get_one::<u32>("count")
-            .expect("read count is required");
-        CliCommand::UpdateReadCount { fic_id, read_count }
-    } else if let Some(matches) = matches.subcommand_matches("rating") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        let rating = matches
-            .get_one::<String>("rating")
-            .expect("rating is required")
-            .to_string();
-        CliCommand::UpdateRating { fic_id, rating }
-    } else if let Some(matches) = matches.subcommand_matches("note") {
-        let fic_id = *matches
-            .get_one::<u64>("fic-id")
-            .expect("fic-id is required");
-        let note = matches.get_one::<String>("note").map(|s| s.to_string());
-        CliCommand::UpdateNote { fic_id, note }
-    } else if matches.subcommand_matches("list").is_some() {
-        CliCommand::List
-    } else if matches.subcommand_matches("wipe").is_some() {
-        CliCommand::Wipe
-    } else if let Some(shelf_matches) = matches.subcommand_matches("shelf") {
-        CliCommand::Shelf(parse_shelf_subcommand(shelf_matches))
-    } else {
-        // Default to list if no command provided
-        CliCommand::List
-    }
-}
-
-fn parse_shelf_subcommand(matches: &clap::ArgMatches) -> ShelfCommand {
-    if let Some(m) = matches.subcommand_matches("create") {
-        let name = m
-            .get_one::<String>("name")
-            .expect("name is required")
-            .to_string();
-        let parent = m.get_one::<u64>("parent").copied();
-        ShelfCommand::Create { name, parent }
-    } else if let Some(m) = matches.subcommand_matches("delete") {
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        ShelfCommand::Delete { shelf_id }
-    } else if let Some(m) = matches.subcommand_matches("rename") {
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        let new_name = m
-            .get_one::<String>("new-name")
-            .expect("new-name is required")
-            .to_string();
-        ShelfCommand::Rename { shelf_id, new_name }
-    } else if let Some(m) = matches.subcommand_matches("move") {
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        let parent = m.get_one::<u64>("parent-id").copied();
-        ShelfCommand::Move { shelf_id, parent }
-    } else if let Some(m) = matches.subcommand_matches("pin") {
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        ShelfCommand::Pin { shelf_id }
-    } else if let Some(m) = matches.subcommand_matches("unpin") {
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        ShelfCommand::Unpin { shelf_id }
-    } else if matches.subcommand_matches("list").is_some() {
-        ShelfCommand::List
-    } else if let Some(m) = matches.subcommand_matches("add") {
-        let fic_id = *m.get_one::<u64>("fic-id").expect("fic-id is required");
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        ShelfCommand::Add { fic_id, shelf_id }
-    } else if let Some(m) = matches.subcommand_matches("remove") {
-        let fic_id = *m.get_one::<u64>("fic-id").expect("fic-id is required");
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        ShelfCommand::Remove { fic_id, shelf_id }
-    } else if let Some(m) = matches.subcommand_matches("show") {
-        let shelf_id = *m.get_one::<u64>("shelf-id").expect("shelf-id is required");
-        ShelfCommand::Show { shelf_id }
-    } else {
-        unreachable!("subcommand_required on shelf ensures one of the above matches")
-    }
+    Cli::parse().command
 }
