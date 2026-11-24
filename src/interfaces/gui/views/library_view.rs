@@ -603,15 +603,8 @@ fn format_last_chapter(fic: &Fanfiction) -> String {
 fn format_rating(fic: &Fanfiction) -> String {
     // Always render five stars: filled (★) up to the rating, empty (☆) for
     // the rest. Conveys "rating out of 5" at a glance regardless of value.
-    let filled = fic.user_rating.map(|r| r as usize).unwrap_or(0);
-    let mut out = String::with_capacity(15);
-    for _ in 0..filled {
-        out.push('\u{2605}');
-    }
-    for _ in filled..5 {
-        out.push('\u{2606}');
-    }
-    out
+    let filled = fic.user_rating.map_or(0, |r| r as usize);
+    "\u{2605}".repeat(filled) + &"\u{2606}".repeat(5 - filled)
 }
 
 fn filter_and_sort(
