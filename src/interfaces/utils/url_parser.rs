@@ -1,4 +1,10 @@
+use std::sync::LazyLock;
+
 use regex::Regex;
+
+static WORK_URL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:archiveofourown\.org/|//)works/(\d+)(?:/|$)").expect("valid work URL regex")
+});
 
 /// Extracts a fanfiction ID from various input formats:
 /// - Plain numeric ID: "12345678"
@@ -14,14 +20,7 @@ pub fn extract_ao3_id(input: &str) -> Result<u64, String> {
         return Ok(id);
     }
 
-    // Regular expression to match AO3 work IDs in URLs
-    // This matches patterns like:
-    // - archiveofourown.org/works/12345678
-    // - archiveofourown.org/works/12345678/chapters/123456
-    // - archiveofourown.org/works/12345678/comments/123456
-    let re = Regex::new(r"(?:archiveofourown\.org/|//)works/(\d+)(?:/|$)").unwrap();
-
-    if let Some(captures) = re.captures(input)
+    if let Some(captures) = WORK_URL.captures(input)
         && let Some(id_match) = captures.get(1)
     {
         let id_str = id_match.as_str();
