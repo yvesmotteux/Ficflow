@@ -60,6 +60,9 @@ impl<'a> CliCommandExecutor<'a> {
                 })
             }
             CliCommand::Wipe => self.execute_wipe(),
+            CliCommand::Config(_) | CliCommand::Restore { .. } => {
+                unreachable!("settings commands run before the library is opened")
+            }
             CliCommand::UpdateChapter { fic_id, chapter } => {
                 println!(
                     "Updating last read chapter for fanfiction ID: {} to chapter {}",
@@ -199,7 +202,10 @@ impl<'a> CliCommandExecutor<'a> {
 
     fn execute_wipe(&self) -> ExitCode {
         println!("Preparing to wipe database...");
-        if !confirm_wipe() {
+        if !confirm(
+            "WARNING: This action will delete ALL fanfictions from the database. \
+             This process CANNOT be reversed!",
+        ) {
             println!("Operation cancelled.");
             return ExitCode::SUCCESS;
         }
@@ -277,15 +283,12 @@ fn report_error(verb: &str, err: &FicflowError) {
     }
 }
 
-fn confirm_wipe() -> bool {
+pub(super) fn confirm(warning: &str) -> bool {
     if env::var("FICFLOW_NON_INTERACTIVE").is_ok() {
         return true;
     }
 
-    print!(
-        "WARNING: This action will delete ALL fanfictions from the database. \
-         This process CANNOT be reversed!\nAre you sure you want to continue? (y/N): "
-    );
+    print!("{warning}\nAre you sure you want to continue? (y/N): ");
     if io::stdout().flush().is_err() {
         return false;
     }

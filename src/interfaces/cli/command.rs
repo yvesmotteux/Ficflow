@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 use crate::application::update_rating::parse_user_rating;
@@ -96,6 +98,28 @@ pub enum CliCommand {
     /// Manage shelves (custom groupings of fanfictions)
     #[command(subcommand)]
     Shelf(ShelfCommand),
+    /// View or change Ficflow's settings
+    #[command(subcommand)]
+    Config(ConfigCommand),
+    /// Replace the library with a backup .db file
+    Restore {
+        /// The backup .db file to restore
+        #[arg(value_name = "backup")]
+        backup: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommand {
+    /// Show the current settings
+    Show,
+    /// Move the library into another folder (a library already there is used as-is)
+    #[command(name = "library-location")]
+    LibraryLocation {
+        /// The folder to move the library into
+        #[arg(value_name = "folder")]
+        folder: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]

@@ -1,24 +1,9 @@
-//! Persistent app preferences stored as TOML at the platform's config
-//! dir (`~/.config/ficflow/config.toml` on Linux). Holds visible
-//! columns, the default sort for the library table, the
-//! maximized/fullscreen window state, the text-zoom level, the theme
-//! choice, and the library location — read at startup, written when the
-//! user changes them.
-//!
-//! Lives under `interfaces/gui/` because almost every field is a GUI
-//! concern with no meaning to the CLI. The one exception is
-//! `library_path`, which the CLI reads on its own through
-//! `infrastructure::persistence::library_path`, the single resolver both
-//! interfaces share.
-
 use std::io;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 use crate::domain::fanfiction::ReadingStatus;
-use crate::error::FicflowError;
-use crate::infrastructure::persistence::library_path;
+use crate::infrastructure::config::{self as shared_config, Config};
 
 /// Serializable shadow of the library-facing `View` variants — the ones
 /// worth restoring on next launch. `Tasks` and `Settings` are transient
@@ -167,10 +152,8 @@ pub struct AppConfig {
     pub text_zoom: f32,
     #[serde(default)]
     pub theme: ThemeChoice,
-    /// Where the library database lives. `None` means the platform
-    /// default. Resolved through `library_path::resolve_db_path`.
-    #[serde(default)]
-    pub library_path: Option<PathBuf>,
+    #[serde(flatten)]
+    pub shared: Config,
 }
 
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
@@ -219,32 +202,14 @@ impl Default for AppConfig {
             last_view: None,
             text_zoom: 1.0,
             theme: ThemeChoice::System,
-            library_path: None,
+            shared: Config::default(),
         }
     }
 }
 
 impl AppConfig {
-    /// Loads the config from disk. Returns `Default` if the file is missing
-    /// or unparseable — never blocks startup on config issues.
     pub fn load() -> Self {
-        let Some(path) = config_path() else {
-            return Self::default();
-        };
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            return Self::default();
-        };
-        match toml::from_str(&text) {
-            Ok(cfg) => cfg,
-            Err(err) => {
-                log::warn!("Ignoring unparseable config at {:?}: {}", path, err);
-                Self::default()
-            }
-        }
-    }
-
-    pub fn resolved_db_path(&self) -> Result<PathBuf, FicflowError> {
-        library_path::resolve_db_path(self.library_path.as_deref())
+        shared_config::load_file()
     }
 
     pub fn reorder_visible_column(&mut self, col: ColumnKey, target: ColumnKey, place_after: bool) {
@@ -267,23 +232,7 @@ impl AppConfig {
             .insert(to + usize::from(place_after), col);
     }
 
-    /// Writes the config to disk, creating parent directories as needed.
     pub fn save(&self) -> io::Result<()> {
-        let Some(path) = config_path() else {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "no config directory available on this platform",
-            ));
-        };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let text = toml::to_string_pretty(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        std::fs::write(&path, text)
+        shared_config::save_file(self)
     }
-}
-
-pub(crate) fn config_path() -> Option<PathBuf> {
-    library_path::config_file_path()
 }

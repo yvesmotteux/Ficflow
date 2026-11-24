@@ -382,9 +382,9 @@ mod tests {
     }
 
     fn write_config_with_library_path(config_home: &Path, library_path: &Path) {
-        let cfg = ficflow::interfaces::gui::AppConfig {
+        let cfg = ficflow::infrastructure::config::Config {
             library_path: Some(library_path.to_path_buf()),
-            ..ficflow::interfaces::gui::AppConfig::default()
+            ..Default::default()
         };
         let dir = config_home.join("ficflow");
         std::fs::create_dir_all(&dir).unwrap();
@@ -458,6 +458,172 @@ mod tests {
             !configured_db.exists(),
             "configured path must be ignored when FICFLOW_DB_PATH is set"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn config_show_prints_the_config_file_and_library() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let lib_dir = TempDir::new()?;
+        let configured_db = lib_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &configured_db);
+
+        let (out, status) = run_cli(&["config", "show"], config_home.path(), None);
+
+        assert_eq!(status, 0);
+        let config_file = config_home.path().join("ficflow").join("config.toml");
+        assert!(out.contains(&config_file.display().to_string()), "{out}");
+        assert!(out.contains(&configured_db.display().to_string()), "{out}");
+        assert!(!configured_db.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn config_library_location_moves_the_library() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let old_dir = TempDir::new()?;
+        let new_dir = TempDir::new()?;
+        let old_db = old_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &old_db);
+        run_cli(&["shelf", "create", "Moved"], config_home.path(), None);
+
+        let folder = new_dir.path().to_str().unwrap();
+        let (_, status) = run_cli(
+            &["config", "library-location", folder],
+            config_home.path(),
+            None,
+        );
+
+        assert_eq!(status, 0);
+        let new_db = new_dir.path().join("my-library.db");
+        assert!(new_db.exists());
+        assert!(!old_db.exists());
+        let (list_out, _) = run_cli(&["shelf", "list"], config_home.path(), None);
+        assert!(list_out.contains("Moved"), "{list_out}");
+        Ok(())
+    }
+
+    #[test]
+    fn config_library_location_adopts_a_library_already_there() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let old_dir = TempDir::new()?;
+        let new_dir = TempDir::new()?;
+        let old_db = old_dir.path().join("my-library.db");
+        let new_db = new_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &new_db);
+        run_cli(
+            &["shelf", "create", "AlreadyThere"],
+            config_home.path(),
+            None,
+        );
+        write_config_with_library_path(config_home.path(), &old_db);
+        run_cli(&["shelf", "create", "Old"], config_home.path(), None);
+
+        let folder = new_dir.path().to_str().unwrap();
+        let (_, status) = run_cli(
+            &["config", "library-location", folder],
+            config_home.path(),
+            None,
+        );
+
+        assert_eq!(status, 0);
+        assert!(old_db.exists());
+        let (list_out, _) = run_cli(&["shelf", "list"], config_home.path(), None);
+        assert!(list_out.contains("AlreadyThere"), "{list_out}");
+        assert!(!list_out.contains("Old"), "{list_out}");
+        Ok(())
+    }
+
+    #[test]
+    fn config_library_location_keeps_the_gui_preferences() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let new_dir = TempDir::new()?;
+        let config_file = config_home.path().join("ficflow").join("config.toml");
+        std::fs::create_dir_all(config_file.parent().unwrap())?;
+        std::fs::write(
+            &config_file,
+            "theme = \"Dark\"\ntext_zoom = 1.5\n\n[default_sort]\ncolumn = \"Title\"\ndirection = \"Ascending\"\n",
+        )?;
+
+        let folder = new_dir.path().to_str().unwrap();
+        let (_, status) = run_cli(
+            &["config", "library-location", folder],
+            config_home.path(),
+            Some(&new_dir.path().join("unused.db")),
+        );
+
+        assert_eq!(status, 0);
+        let saved: toml::Table = toml::from_str(&std::fs::read_to_string(&config_file)?)?;
+        assert_eq!(saved["theme"].as_str(), Some("Dark"));
+        assert_eq!(saved["text_zoom"].as_float(), Some(1.5));
+        assert_eq!(saved["default_sort"]["column"].as_str(), Some("Title"));
+        assert!(saved.contains_key("library_path"));
+        Ok(())
+    }
+
+    fn given_library_and_backup(dir: &Path) -> (PathBuf, PathBuf) {
+        let library = dir.join("library.db");
+        let backup = dir.join("backup.db");
+        run_cli_command(&["shelf", "create", "FromBackup"], &backup, "", None);
+        run_cli_command(&["shelf", "create", "Current"], &library, "", None);
+        (library, backup)
+    }
+
+    fn shelf_names(library: &Path) -> String {
+        run_cli_command(&["shelf", "list"], library, "", None).0
+    }
+
+    #[test]
+    fn restore_replaces_the_library_with_the_backup() -> Result<(), Box<dyn Error>> {
+        let dir = TempDir::new()?;
+        let (library, backup) = given_library_and_backup(dir.path());
+
+        let (_, err, status) = run_cli_command(
+            &["restore", backup.to_str().unwrap()],
+            &library,
+            "",
+            Some(("FICFLOW_NON_INTERACTIVE", "1")),
+        );
+
+        assert_eq!(status, 0, "{err}");
+        let shelves = shelf_names(&library);
+        assert!(shelves.contains("FromBackup"), "{shelves}");
+        assert!(!shelves.contains("Current"), "{shelves}");
+        assert!(backup.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn restore_without_confirmation_leaves_the_library_alone() -> Result<(), Box<dyn Error>> {
+        let dir = TempDir::new()?;
+        let (library, backup) = given_library_and_backup(dir.path());
+
+        let (out, _, status) =
+            run_cli_command(&["restore", backup.to_str().unwrap()], &library, "", None);
+
+        assert_eq!(status, 0);
+        assert!(out.contains("Operation cancelled."), "{out}");
+        let shelves = shelf_names(&library);
+        assert!(shelves.contains("Current"), "{shelves}");
+        assert!(!shelves.contains("FromBackup"), "{shelves}");
+        Ok(())
+    }
+
+    #[test]
+    fn restoring_the_library_onto_itself_is_refused() -> Result<(), Box<dyn Error>> {
+        let dir = TempDir::new()?;
+        let (library, _) = given_library_and_backup(dir.path());
+
+        let (_, _, status) = run_cli_command(
+            &["restore", library.to_str().unwrap()],
+            &library,
+            "",
+            Some(("FICFLOW_NON_INTERACTIVE", "1")),
+        );
+
+        assert_ne!(status, 0);
+        let shelves = shelf_names(&library);
+        assert!(shelves.contains("Current"), "{shelves}");
         Ok(())
     }
 

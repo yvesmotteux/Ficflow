@@ -48,10 +48,29 @@ pub fn relocate_library(from: &Path, to: &Path) -> Result<(), FicflowError> {
     Ok(())
 }
 
+/// Moves the library into `folder`, keeping its file name, and returns the new
+/// path. A library already at that path is adopted as-is rather than overwritten,
+/// and with no library yet there is nothing to move.
+pub fn move_library_into(current: &Path, folder: &Path) -> Result<PathBuf, FicflowError> {
+    let file_name = current.file_name().ok_or_else(|| {
+        FicflowError::InvalidInput(format!("{} is not a library file", current.display()))
+    })?;
+    let target = folder.join(file_name);
+    if target != current && !target.exists() && current.exists() {
+        relocate_library(current, &target)?;
+    }
+    Ok(target)
+}
+
 /// Restores a backup by copying `backup` over the current library at `current`
 /// and clearing any stale `-wal`/`-shm` sidecars so the restored file is read
 /// cleanly on the next restart. The configured location is left untouched.
 pub fn restore_backup(backup: &Path, current: &Path) -> Result<(), FicflowError> {
+    if current.exists() && fs::canonicalize(backup)? == fs::canonicalize(current)? {
+        return Err(FicflowError::InvalidInput(
+            "the backup is the library itself".into(),
+        ));
+    }
     if let Some(parent) = current.parent() {
         fs::create_dir_all(parent)?;
     }
