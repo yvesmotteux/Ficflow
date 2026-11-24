@@ -23,7 +23,7 @@ use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
 use crate::infrastructure::external::github::{LATEST_RELEASE_URL, Release};
 use crate::infrastructure::persistence::database::connection::{
-    open_configured_db, relocate_library, restore_backup,
+    move_library_into, open_configured_db, restore_backup,
 };
 
 use super::chrome::FrameChrome;

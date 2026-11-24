@@ -49,24 +49,11 @@ impl FicflowApp {
         }
     }
 
-    /// Move the library into `folder`, keeping the current file name. If a
-    /// library already lives there, adopt it in place rather than
-    /// overwriting. Takes effect on the next restart.
+    /// Takes effect on the next restart.
     pub(super) fn change_library_location(&mut self, folder: PathBuf) {
-        let Some(file_name) = self.current_db_path.file_name() else {
-            return;
-        };
-        let target = folder.join(file_name);
-        if target == self.current_db_path {
-            return;
-        }
-        let result = if target.exists() {
-            Ok(())
-        } else {
-            relocate_library(&self.current_db_path, &target)
-        };
-        match result {
-            Ok(()) => {
+        match move_library_into(&self.current_db_path, &folder) {
+            Ok(target) if target == self.current_db_path => {}
+            Ok(target) => {
                 self.config.shared.library_path = Some(target.clone());
                 self.current_db_path = target;
                 self.save_config();
