@@ -60,21 +60,16 @@ impl ClauseRow {
     }
 
     fn to_clause(&self) -> Option<Clause> {
-        if self.field == ClauseFieldKind::Status {
-            return Some(Clause::Status(self.status));
-        }
         let value = self.value.trim();
-        if value.is_empty() {
-            return None;
+        let text = |make: fn(String) -> Clause| (!value.is_empty()).then(|| make(value.into()));
+        match self.field {
+            ClauseFieldKind::Status => Some(Clause::Status(self.status)),
+            ClauseFieldKind::Tag => text(Clause::Tag),
+            ClauseFieldKind::Fandom => text(Clause::Fandom),
+            ClauseFieldKind::Relationship => text(Clause::Relationship),
+            ClauseFieldKind::Character => text(Clause::Character),
+            ClauseFieldKind::Author => text(Clause::Author),
         }
-        Some(match self.field {
-            ClauseFieldKind::Tag => Clause::Tag(value.to_string()),
-            ClauseFieldKind::Fandom => Clause::Fandom(value.to_string()),
-            ClauseFieldKind::Relationship => Clause::Relationship(value.to_string()),
-            ClauseFieldKind::Character => Clause::Character(value.to_string()),
-            ClauseFieldKind::Author => Clause::Author(value.to_string()),
-            ClauseFieldKind::Status => unreachable!(),
-        })
     }
 
     fn from_clause(clause: &Clause) -> Self {
@@ -148,24 +143,31 @@ fn draw_clause_builder(
                         ui.selectable_value(&mut row.field, field, field.label());
                     }
                 });
-            if row.field == ClauseFieldKind::Status {
-                ComboBox::from_id_salt(("auto-shelf-status", i))
-                    .selected_text(format_status(&row.status))
-                    .show_ui(ui, |ui| {
-                        for status in ReadingStatus::ALL {
-                            ui.selectable_value(&mut row.status, status, format_status(&status));
-                        }
-                    });
-            } else {
-                let options = match row.field {
-                    ClauseFieldKind::Tag => &distinct_values.tags,
-                    ClauseFieldKind::Fandom => &distinct_values.fandoms,
-                    ClauseFieldKind::Relationship => &distinct_values.relationships,
-                    ClauseFieldKind::Character => &distinct_values.characters,
-                    ClauseFieldKind::Author => &distinct_values.authors,
-                    ClauseFieldKind::Status => unreachable!(),
-                };
-                autocomplete_input::draw(ui, ("auto-shelf-value", i), &mut row.value, options);
+            let options = match row.field {
+                ClauseFieldKind::Status => None,
+                ClauseFieldKind::Tag => Some(&distinct_values.tags),
+                ClauseFieldKind::Fandom => Some(&distinct_values.fandoms),
+                ClauseFieldKind::Relationship => Some(&distinct_values.relationships),
+                ClauseFieldKind::Character => Some(&distinct_values.characters),
+                ClauseFieldKind::Author => Some(&distinct_values.authors),
+            };
+            match options {
+                Some(options) => {
+                    autocomplete_input::draw(ui, ("auto-shelf-value", i), &mut row.value, options);
+                }
+                None => {
+                    ComboBox::from_id_salt(("auto-shelf-status", i))
+                        .selected_text(format_status(&row.status))
+                        .show_ui(ui, |ui| {
+                            for status in ReadingStatus::ALL {
+                                ui.selectable_value(
+                                    &mut row.status,
+                                    status,
+                                    format_status(&status),
+                                );
+                            }
+                        });
+                }
             }
             if ui.button("\u{2715}").clicked() {
                 remove_index = Some(i);

@@ -131,8 +131,5 @@ fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {
 }
 
 fn config_path_display() -> String {
-    match dirs_next::config_dir().map(|d| d.join("ficflow").join("config.toml")) {
-        Some(p) => p.display().to_string(),
-        None => "<unavailable>".to_string(),
-    }
+    config::config_path().map_or_else(|| "<unavailable>".to_string(), |p| p.display().to_string())
 }

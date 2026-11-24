@@ -180,6 +180,18 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
 // Candidates for proper SVG icons that match the Art Nouveau chrome.
 const LIBRARY_ICON_ALL: &str = "\u{25C6}"; // ◆ filled diamond
 
+const DROP_FICS_COLOR: Color32 = Color32::from_rgb(120, 200, 120);
+const DROP_SHELF_COLOR: Color32 = Color32::from_rgb(120, 160, 220);
+
+fn paint_drop_outline(ui: &Ui, rect: egui::Rect, color: Color32) {
+    ui.painter()
+        .rect_stroke(rect, 4.0, Stroke::new(2.0_f32, color), StrokeKind::Inside);
+}
+
+fn collapse_id(shelf_id: u64) -> egui::Id {
+    egui::Id::unique(("ficflow-shelf-collapsed", shelf_id))
+}
+
 fn status_icon(status: ReadingStatus) -> &'static str {
     match status {
         ReadingStatus::InProgress => "\u{25B6}", // ▶
@@ -238,7 +250,7 @@ fn pin_reserve(
             .x;
         reserve = reserve.max(RIGHT_GAP + galley_x + 10.0 + 4.0);
 
-        let collapse_id = egui::Id::unique(("ficflow-shelf-collapsed", shelf.id));
+        let collapse_id = collapse_id(shelf.id);
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         if !collapsed {
             reserve = reserve.max(pin_reserve(ui, children, shelf_counts, Some(shelf.id)));
@@ -266,7 +278,7 @@ fn shelf_rows(
     };
     for shelf in siblings {
         let has_children = ctx.children.contains_key(&Some(shelf.id));
-        let collapse_id = egui::Id::unique(("ficflow-shelf-collapsed", shelf.id));
+        let collapse_id = collapse_id(shelf.id);
         let collapsed = ui.data_mut(|d| d.get_persisted(collapse_id).unwrap_or(false));
         let count = ctx.shelf_counts.get(&shelf.id).copied().unwrap_or(0);
         let is_auto = matches!(shelf.kind, ShelfKind::Auto(_));
@@ -305,12 +317,7 @@ fn shelf_rows(
         // second check ever saw them — nesting a shelf never worked.
         if !is_auto && resp.dnd_hover_payload::<Vec<u64>>().is_some() {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
-            ui.painter().rect_stroke(
-                inner,
-                4.0,
-                Stroke::new(2.0_f32, Color32::from_rgb(120, 200, 120)),
-                StrokeKind::Inside,
-            );
+            paint_drop_outline(ui, inner, DROP_FICS_COLOR);
             if let Some(payload) = resp.dnd_release_payload::<Vec<u64>>() {
                 *outcome = Outcome::DropOnShelf {
                     shelf_id: shelf.id,
@@ -323,12 +330,7 @@ fn shelf_rows(
                 .is_some_and(|dragged| dragged.0 != shelf.id)
         {
             let inner = resp.rect.shrink2(egui::vec2(INNER_MARGIN_X, 0.0));
-            ui.painter().rect_stroke(
-                inner,
-                4.0,
-                Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
-                StrokeKind::Inside,
-            );
+            paint_drop_outline(ui, inner, DROP_SHELF_COLOR);
             if let Some(dragged) = resp.dnd_release_payload::<ShelfDrag>()
                 && dragged.0 != shelf.id
             {
@@ -599,12 +601,7 @@ fn shelves_header(ui: &mut Ui) -> HeaderOutcome {
 
     let mut outcome = HeaderOutcome::None;
     if header_resp.dnd_hover_payload::<ShelfDrag>().is_some() {
-        ui.painter().rect_stroke(
-            inner,
-            4.0,
-            Stroke::new(2.0_f32, Color32::from_rgb(120, 160, 220)),
-            StrokeKind::Inside,
-        );
+        paint_drop_outline(ui, inner, DROP_SHELF_COLOR);
     }
     if let Some(dragged) = header_resp.dnd_release_payload::<ShelfDrag>() {
         outcome = HeaderOutcome::ShelfDropped(dragged.0);

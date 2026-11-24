@@ -299,7 +299,7 @@ impl AppConfig {
     }
 }
 
-fn config_path() -> Option<PathBuf> {
+pub(crate) fn config_path() -> Option<PathBuf> {
     dirs_next::config_dir().map(|d| d.join(APP_DIR).join(CONFIG_FILE))
 }
 

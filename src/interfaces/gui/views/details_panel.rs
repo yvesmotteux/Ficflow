@@ -45,6 +45,14 @@ pub enum Outcome {
     CreateAutoShelfFromTag(ClauseFieldKind, String),
 }
 
+impl Outcome {
+    fn replace_with(&mut self, other: Outcome) {
+        if !matches!(other, Outcome::None) {
+            *self = other;
+        }
+    }
+}
+
 pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
     let DetailsState {
         fic,
@@ -86,10 +94,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
             ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    let bottom = draw_your_info(ui, fic, all_shelves, selection_shelf_ids);
-                    if !matches!(bottom, Outcome::None) {
-                        outcome = bottom;
-                    }
+                    outcome.replace_with(draw_your_info(ui, fic, all_shelves, selection_shelf_ids));
                 });
         });
 
@@ -99,10 +104,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         .show_separator_line(true)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 8)))
         .show(ui, |ui| {
-            let header = draw_header(ui, fic);
-            if !matches!(header, Outcome::None) {
-                outcome = header;
-            }
+            outcome.replace_with(draw_header(ui, fic));
         });
 
     // Central scrollable: AO3 Metadata.
@@ -112,10 +114,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
             ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    let central = draw_ao3_metadata(ui, fic);
-                    if !matches!(central, Outcome::None) {
-                        outcome = central;
-                    }
+                    outcome.replace_with(draw_ao3_metadata(ui, fic));
                 });
         });
 
@@ -254,11 +253,7 @@ fn draw_status(ui: &mut Ui, fic: &Fanfiction) -> Option<ReadingStatus> {
                 ui.selectable_value(&mut chosen, status, format_status(&status));
             }
         });
-    if chosen != current {
-        Some(chosen)
-    } else {
-        None
-    }
+    (chosen != current).then_some(chosen)
 }
 
 fn draw_chapter(ui: &mut Ui, fic: &Fanfiction) -> Option<u32> {
@@ -270,25 +265,19 @@ fn draw_chapter(ui: &mut Ui, fic: &Fanfiction) -> Option<u32> {
         .map(|n| n.to_string())
         .unwrap_or_else(|| "\u{2014}".into());
     ui.label(RichText::new(format!("/ {}", total_str)).weak());
-    if resp.changed() { Some(chapter) } else { None }
+    resp.changed().then_some(chapter)
 }
 
 fn draw_read_count(ui: &mut Ui, fic: &Fanfiction) -> Option<u32> {
     let mut reads = fic.read_count;
-    if ui.add(DragValue::new(&mut reads)).changed() {
-        Some(reads)
-    } else {
-        None
-    }
+    ui.add(DragValue::new(&mut reads))
+        .changed()
+        .then_some(reads)
 }
 
 fn draw_rating(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<UserRating>> {
     let mut rating = fic.user_rating;
-    if star_rating::star_rating(ui, &mut rating) {
-        Some(rating)
-    } else {
-        None
-    }
+    star_rating::star_rating(ui, &mut rating).then_some(rating)
 }
 
 /// Buffer in egui temp memory keyed by `fic.id` so typing persists
@@ -296,8 +285,9 @@ fn draw_rating(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<UserRating>> {
 /// on focus-loss commit — the DB write is per-edit-session.
 fn draw_note(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<String>> {
     let id = ui.scope_id().with(("note-draft", fic.id));
-    let initial = fic.personal_note.clone().unwrap_or_default();
-    let mut buf: String = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or(initial);
+    let mut buf: String = ui
+        .data_mut(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(|| fic.personal_note.clone().unwrap_or_default());
 
     let resp = ui.add(
         TextEdit::multiline(&mut buf)
@@ -309,19 +299,13 @@ fn draw_note(ui: &mut Ui, fic: &Fanfiction) -> Option<Option<String>> {
         ui.data_mut(|d| d.insert_temp(id, buf.clone()));
     }
 
-    if resp.lost_focus() {
+    resp.lost_focus().then(|| {
         // Drop the draft on commit so a future re-open re-initialises
         // from the DB rather than shadowing a fresh `personal_note`.
         ui.data_mut(|d| d.remove_temp::<String>(id));
         let trimmed = buf.trim();
-        if trimmed.is_empty() {
-            Some(None)
-        } else {
-            Some(Some(trimmed.to_string()))
-        }
-    } else {
-        None
-    }
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -355,51 +339,29 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     });
     ui.add_space(6.0);
 
-    let mut tag_shelf_request: Option<(ClauseFieldKind, String)> = None;
-
-    if !fic.fandoms.is_empty() {
-        ao3_row(ui, "Fandoms", |ui| {
-            bubble_list(
-                ui,
-                "fandoms",
-                &fic.fandoms,
-                Some(ClauseFieldKind::Fandom),
-                &mut tag_shelf_request,
-            )
-        });
-    }
-    if let Some(rels) = fic.relationships.as_ref().filter(|v| !v.is_empty()) {
-        ao3_row(ui, "Relationships", |ui| {
-            bubble_list(
-                ui,
-                "relationships",
-                rels,
-                Some(ClauseFieldKind::Relationship),
-                &mut tag_shelf_request,
-            )
-        });
-    }
-    if let Some(chars) = fic.characters.as_ref().filter(|v| !v.is_empty()) {
-        ao3_row(ui, "Characters", |ui| {
-            bubble_list(
-                ui,
-                "characters",
-                chars,
-                Some(ClauseFieldKind::Character),
-                &mut tag_shelf_request,
-            )
-        });
-    }
-    if let Some(tags) = fic.tags.as_ref().filter(|v| !v.is_empty()) {
-        ao3_row(ui, "Additional Tags", |ui| {
-            bubble_list(
-                ui,
-                "tags",
-                tags,
-                Some(ClauseFieldKind::Tag),
-                &mut tag_shelf_request,
-            )
-        });
+    let tag_rows = [
+        ("Fandoms", Some(&fic.fandoms), ClauseFieldKind::Fandom),
+        (
+            "Relationships",
+            fic.relationships.as_ref(),
+            ClauseFieldKind::Relationship,
+        ),
+        (
+            "Characters",
+            fic.characters.as_ref(),
+            ClauseFieldKind::Character,
+        ),
+        ("Additional Tags", fic.tags.as_ref(), ClauseFieldKind::Tag),
+    ];
+    let mut tag_shelf_request = None;
+    for (label, items, field) in tag_rows {
+        if let Some(items) = items.filter(|v| !v.is_empty()) {
+            ao3_row(ui, label, |ui| {
+                if let Some(request) = bubble_list(ui, label, items, Some(field)) {
+                    tag_shelf_request = Some(request);
+                }
+            });
+        }
     }
     if let Some((field, value)) = tag_shelf_request {
         outcome = Outcome::CreateAutoShelfFromTag(field, value);
@@ -409,7 +371,6 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     ao3_row(ui, "Rating", |ui| {
         ui.label(format_ao3_rating(&fic.rating));
     });
-    let mut ignored_request: Option<(ClauseFieldKind, String)> = None;
     if !fic.warnings.is_empty() {
         let labels: Vec<String> = fic
             .warnings
@@ -417,7 +378,7 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
             .map(|w| format_single_warning(w).to_string())
             .collect();
         ao3_row(ui, "Archive Warning", |ui| {
-            bubble_list(ui, "warnings", &labels, None, &mut ignored_request)
+            bubble_list(ui, "warnings", &labels, None);
         });
     }
     if let Some(cats) = fic.categories.as_ref().filter(|v| !v.is_empty()) {
@@ -426,7 +387,7 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
             .map(|c| format_category(c).to_string())
             .collect();
         ao3_row(ui, "Category", |ui| {
-            bubble_list(ui, "categories", &labels, None, &mut ignored_request)
+            bubble_list(ui, "categories", &labels, None);
         });
     }
     ao3_row(ui, "Words", |ui| {
@@ -498,8 +459,8 @@ fn bubble_list(
     salt: &str,
     items: &[String],
     field: Option<ClauseFieldKind>,
-    tag_shelf_request: &mut Option<(ClauseFieldKind, String)>,
-) {
+) -> Option<(ClauseFieldKind, String)> {
+    let mut tag_shelf_request = None;
     const VISIBLE_DEFAULT: usize = 5;
     let id = ui.scope_id().with(("bubble-expand", salt));
     let mut expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
@@ -516,7 +477,7 @@ fn bubble_list(
             if let Some(field) = field {
                 resp.context_menu(|ui| {
                     if ui.button("Create auto-shelf from this tag").clicked() {
-                        *tag_shelf_request = Some((field, item.clone()));
+                        tag_shelf_request = Some((field, item.clone()));
                         ui.close();
                     }
                 });
@@ -535,6 +496,7 @@ fn bubble_list(
     });
 
     ui.data_mut(|d| d.insert_temp(id, expanded));
+    tag_shelf_request
 }
 
 /// **Do NOT swap to `egui::Frame`** — the inner Label inherits
