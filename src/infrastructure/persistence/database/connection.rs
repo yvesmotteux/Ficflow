@@ -49,13 +49,14 @@ pub fn relocate_library(from: &Path, to: &Path) -> Result<(), FicflowError> {
 }
 
 /// Moves the library into `folder`, keeping its file name, and returns the new
-/// path. A library already at that path is adopted as-is rather than overwritten.
+/// path. A library already at that path is adopted as-is rather than overwritten,
+/// and with no library yet there is nothing to move.
 pub fn move_library_into(current: &Path, folder: &Path) -> Result<PathBuf, FicflowError> {
     let file_name = current.file_name().ok_or_else(|| {
         FicflowError::InvalidInput(format!("{} is not a library file", current.display()))
     })?;
     let target = folder.join(file_name);
-    if target != current && !target.exists() {
+    if target != current && !target.exists() && current.exists() {
         relocate_library(current, &target)?;
     }
     Ok(target)

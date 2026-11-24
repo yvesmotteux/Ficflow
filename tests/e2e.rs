@@ -479,6 +479,89 @@ mod tests {
     }
 
     #[test]
+    fn config_library_location_moves_the_library() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let old_dir = TempDir::new()?;
+        let new_dir = TempDir::new()?;
+        let old_db = old_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &old_db);
+        run_cli(&["shelf", "create", "Moved"], config_home.path(), None);
+
+        let folder = new_dir.path().to_str().unwrap();
+        let (_, status) = run_cli(
+            &["config", "library-location", folder],
+            config_home.path(),
+            None,
+        );
+
+        assert_eq!(status, 0);
+        let new_db = new_dir.path().join("my-library.db");
+        assert!(new_db.exists());
+        assert!(!old_db.exists());
+        let (list_out, _) = run_cli(&["shelf", "list"], config_home.path(), None);
+        assert!(list_out.contains("Moved"), "{list_out}");
+        Ok(())
+    }
+
+    #[test]
+    fn config_library_location_adopts_a_library_already_there() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let old_dir = TempDir::new()?;
+        let new_dir = TempDir::new()?;
+        let old_db = old_dir.path().join("my-library.db");
+        let new_db = new_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &new_db);
+        run_cli(
+            &["shelf", "create", "AlreadyThere"],
+            config_home.path(),
+            None,
+        );
+        write_config_with_library_path(config_home.path(), &old_db);
+        run_cli(&["shelf", "create", "Old"], config_home.path(), None);
+
+        let folder = new_dir.path().to_str().unwrap();
+        let (_, status) = run_cli(
+            &["config", "library-location", folder],
+            config_home.path(),
+            None,
+        );
+
+        assert_eq!(status, 0);
+        assert!(old_db.exists());
+        let (list_out, _) = run_cli(&["shelf", "list"], config_home.path(), None);
+        assert!(list_out.contains("AlreadyThere"), "{list_out}");
+        assert!(!list_out.contains("Old"), "{list_out}");
+        Ok(())
+    }
+
+    #[test]
+    fn config_library_location_keeps_the_gui_preferences() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let new_dir = TempDir::new()?;
+        let config_file = config_home.path().join("ficflow").join("config.toml");
+        std::fs::create_dir_all(config_file.parent().unwrap())?;
+        std::fs::write(
+            &config_file,
+            "theme = \"Dark\"\ntext_zoom = 1.5\n\n[default_sort]\ncolumn = \"Title\"\ndirection = \"Ascending\"\n",
+        )?;
+
+        let folder = new_dir.path().to_str().unwrap();
+        let (_, status) = run_cli(
+            &["config", "library-location", folder],
+            config_home.path(),
+            Some(&new_dir.path().join("unused.db")),
+        );
+
+        assert_eq!(status, 0);
+        let saved: toml::Table = toml::from_str(&std::fs::read_to_string(&config_file)?)?;
+        assert_eq!(saved["theme"].as_str(), Some("Dark"));
+        assert_eq!(saved["text_zoom"].as_float(), Some(1.5));
+        assert_eq!(saved["default_sort"]["column"].as_str(), Some("Title"));
+        assert!(saved.contains_key("library_path"));
+        Ok(())
+    }
+
+    #[test]
     fn editing_a_fic_keeps_it_on_its_shelves() -> Result<(), Box<dyn Error>> {
         let test_db = setup_test_db();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();

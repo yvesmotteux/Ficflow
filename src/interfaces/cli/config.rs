@@ -1,13 +1,38 @@
 use std::env;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use super::command::ConfigCommand;
+use crate::error::FicflowError;
 use crate::infrastructure::config::{Config, DB_PATH_ENV, config_file_path};
+use crate::infrastructure::move_library_into;
 
 pub fn run(command: ConfigCommand) -> ExitCode {
     match command {
         ConfigCommand::Show => show(),
+        ConfigCommand::LibraryLocation { folder } => match change_library_location(&folder) {
+            Ok(path) => {
+                println!("Library location set to {}", path.display());
+                if env::var(DB_PATH_ENV).is_ok() {
+                    println!("Note: {} is set and still takes precedence.", DB_PATH_ENV);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                eprintln!("Error changing the library location: {}", err);
+                ExitCode::FAILURE
+            }
+        },
     }
+}
+
+fn change_library_location(folder: &Path) -> Result<PathBuf, FicflowError> {
+    let mut config = Config::load();
+    let current = config.resolved_db_path()?;
+    let target = move_library_into(&current, &std::path::absolute(folder)?)?;
+    config.library_path = Some(target.clone());
+    config.save()?;
+    Ok(target)
 }
 
 fn show() -> ExitCode {

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 use crate::application::update_rating::parse_user_rating;
@@ -105,6 +107,13 @@ pub enum CliCommand {
 pub enum ConfigCommand {
     /// Show the current settings
     Show,
+    /// Move the library into another folder (a library already there is used as-is)
+    #[command(name = "library-location")]
+    LibraryLocation {
+        /// The folder to move the library into
+        #[arg(value_name = "folder")]
+        folder: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]
