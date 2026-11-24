@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use strum::Display;
+use strum::{Display, EnumString};
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Display, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Display, EnumString, PartialEq, Eq)]
 pub enum ReadingStatus {
     InProgress,
     Read,

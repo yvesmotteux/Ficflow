@@ -1,203 +1,96 @@
-use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
-use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use chrono::{DateTime, Utc};
 use rusqlite::Row;
+use rusqlite::types::Type;
+use serde::de::DeserializeOwned;
+
+use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
+use crate::domain::shelf::{Shelf, ShelfKind};
 
 pub fn row_to_shelf(row: &Row) -> Result<Shelf, rusqlite::Error> {
-    let id: u64 = row.get(0)?;
-    let name: String = row.get(1)?;
-    let parent_shelf_id: Option<u64> = row.get(2)?;
-    let pinned: bool = row.get(3)?;
-    let created_at_str: String = row.get(4)?;
-    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
-        .map_err(|_| {
-            rusqlite::Error::InvalidColumnType(4, "created_at".into(), rusqlite::types::Type::Text)
-        })?
-        .with_timezone(&Utc);
-    let kind_str: String = row.get(5)?;
-    let auto_criteria_json: Option<String> = row.get(6)?;
-    let kind = match kind_str.as_str() {
+    let kind = match row.get::<_, String>("kind")?.as_str() {
         "auto" => {
-            let json = auto_criteria_json.ok_or_else(|| {
-                rusqlite::Error::InvalidColumnType(
-                    6,
-                    "auto_criteria".into(),
-                    rusqlite::types::Type::Text,
-                )
-            })?;
-            let criteria: AutoShelfCriteria = serde_json::from_str(&json).map_err(|_| {
-                rusqlite::Error::InvalidColumnType(
-                    6,
-                    "auto_criteria".into(),
-                    rusqlite::types::Type::Text,
-                )
-            })?;
+            let json: Option<String> = row.get("auto_criteria")?;
+            let criteria = json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .ok_or_else(|| invalid_text_column(row, "auto_criteria"))?;
             ShelfKind::Auto(criteria)
         }
         _ => ShelfKind::Normal,
     };
     Ok(Shelf {
-        id,
-        name,
-        parent_shelf_id,
-        pinned,
-        created_at,
+        id: row.get("id")?,
+        name: row.get("name")?,
+        parent_shelf_id: row.get("parent_shelf_id")?,
+        pinned: row.get("pinned")?,
+        created_at: timestamp(row, "created_at")?,
         kind,
     })
 }
 
 pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
-    let id: u64 = row.get(0)?;
-    let title: String = row.get(1)?;
-    let chapters_total: Option<u32> = row.get(4)?;
-    let chapters_published: u32 = row.get(5)?;
-    let complete: bool = row.get(7)?;
-    let hits: u32 = row.get(9)?;
-    let kudos: u32 = row.get(10)?;
-    let language: String = row.get(11)?;
-    let restricted: bool = row.get(14)?;
-    let summary: String = row.get(15)?;
-    let words: u32 = row.get(18)?;
-    let last_chapter_read: Option<u32> = row.get(21)?;
-    let read_count: u32 = row.get(23)?;
-    let personal_note: Option<String> = row.get(25)?;
-
-    let authors_json: String = row.get(2)?;
-    let authors = parse_json_array(&authors_json, id, "authors")?;
-
-    let categories_json: String = row.get(3)?;
-    let categories = parse_json_array(&categories_json, id, "categories")?;
-
-    let characters_json: String = row.get(6)?;
-    let characters = parse_json_array(&characters_json, id, "characters")?;
-
-    let fandoms_json: String = row.get(8)?;
-    let fandoms = parse_json_array(&fandoms_json, id, "fandoms")?;
-
-    let relationships_json: String = row.get(13)?;
-    let relationships = parse_json_array(&relationships_json, id, "relationships")?;
-
-    let tags_json: String = row.get(16)?;
-    let tags = parse_json_array(&tags_json, id, "tags")?;
-
-    let warnings_json: String = row.get(17)?;
-    let warnings = parse_json_array(&warnings_json, id, "warnings")?;
-
-    let rating_str: String = row.get(12)?;
-    let rating = parse_rating(&rating_str);
-
-    let reading_status_str: String = row.get(22)?;
-    let reading_status = parse_reading_status(&reading_status_str);
-
-    let user_rating_opt: Option<i32> = row.get(24)?;
-    let user_rating = parse_user_rating(user_rating_opt);
-
-    let date_published_str: String = row.get(19)?;
-    let date_updated_str: String = row.get(20)?;
-    let last_checked_date_str: String = row.get(26)?;
-
-    let date_published = DateTime::parse_from_rfc3339(&date_published_str)
-        .map_err(|_| {
-            rusqlite::Error::InvalidColumnType(
-                19,
-                "date_published".into(),
-                rusqlite::types::Type::Text,
-            )
-        })?
-        .with_timezone(&Utc);
-
-    let date_updated = DateTime::parse_from_rfc3339(&date_updated_str)
-        .map_err(|_| {
-            rusqlite::Error::InvalidColumnType(
-                20,
-                "date_updated".into(),
-                rusqlite::types::Type::Text,
-            )
-        })?
-        .with_timezone(&Utc);
-
-    let last_checked_date = DateTime::parse_from_rfc3339(&last_checked_date_str)
-        .map_err(|_| {
-            rusqlite::Error::InvalidColumnType(
-                26,
-                "last_checked_date".into(),
-                rusqlite::types::Type::Text,
-            )
-        })?
-        .with_timezone(&Utc);
-
+    let id: u64 = row.get("id")?;
     Ok(Fanfiction {
         id,
-        title,
-        authors,
-        categories,
-        chapters_total,
-        chapters_published,
-        characters,
-        complete,
-        fandoms,
-        hits,
-        kudos,
-        language,
-        rating,
-        relationships,
-        restricted,
-        summary,
-        tags,
-        warnings,
-        words,
-        date_published,
-        date_updated,
-        last_chapter_read,
-        reading_status,
-        read_count,
-        user_rating,
-        personal_note,
-        last_checked_date,
+        title: row.get("title")?,
+        authors: json_column(row, id, "authors")?,
+        categories: json_column(row, id, "categories")?,
+        chapters_total: row.get("chapters_total")?,
+        chapters_published: row.get("chapters_published")?,
+        characters: json_column(row, id, "characters")?,
+        complete: row.get("complete")?,
+        fandoms: json_column(row, id, "fandoms")?,
+        hits: row.get("hits")?,
+        kudos: row.get("kudos")?,
+        language: row.get("language")?,
+        rating: row
+            .get::<_, String>("rating")?
+            .parse()
+            .unwrap_or(Rating::NotRated),
+        relationships: json_column(row, id, "relationships")?,
+        restricted: row.get("restricted")?,
+        summary: row.get("summary")?,
+        tags: json_column(row, id, "tags")?,
+        warnings: json_column(row, id, "warnings")?,
+        words: row.get("words")?,
+        date_published: timestamp(row, "date_published")?,
+        date_updated: timestamp(row, "date_updated")?,
+        last_chapter_read: row.get("last_chapter_read")?,
+        reading_status: row
+            .get::<_, String>("reading_status")?
+            .parse()
+            .unwrap_or(ReadingStatus::PlanToRead),
+        read_count: row.get("read_count")?,
+        user_rating: row
+            .get::<_, Option<i64>>("user_rating")?
+            .and_then(|n| u8::try_from(n).ok())
+            .and_then(|n| UserRating::try_from(n).ok()),
+        personal_note: row.get("personal_note")?,
+        last_checked_date: timestamp(row, "last_checked_date")?,
     })
 }
 
-fn parse_json_array<T: serde::de::DeserializeOwned>(
-    json: &str,
+fn timestamp(row: &Row, column: &str) -> Result<DateTime<Utc>, rusqlite::Error> {
+    let text: String = row.get(column)?;
+    DateTime::parse_from_rfc3339(&text)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| invalid_text_column(row, column))
+}
+
+fn json_column<T: DeserializeOwned>(
+    row: &Row,
     id: u64,
-    field_name: &str,
+    column: &str,
 ) -> Result<T, rusqlite::Error> {
-    serde_json::from_str(json).map_err(|_| {
+    let json: String = row.get(column)?;
+    serde_json::from_str(&json).map_err(|_| {
         rusqlite::Error::InvalidParameterName(format!(
             "Error parsing JSON for fic_id={}, field={}: {}",
-            id, field_name, json
+            id, column, json
         ))
     })
 }
 
-fn parse_rating(rating_str: &str) -> Rating {
-    match rating_str {
-        "General" => Rating::General,
-        "TeenAndUp" => Rating::TeenAndUp,
-        "Mature" => Rating::Mature,
-        "Explicit" => Rating::Explicit,
-        _ => Rating::NotRated,
-    }
-}
-
-fn parse_reading_status(status_str: &str) -> ReadingStatus {
-    match status_str {
-        "InProgress" => ReadingStatus::InProgress,
-        "Read" => ReadingStatus::Read,
-        "PlanToRead" => ReadingStatus::PlanToRead,
-        "Paused" => ReadingStatus::Paused,
-        "Abandoned" => ReadingStatus::Abandoned,
-        _ => ReadingStatus::PlanToRead,
-    }
-}
-
-fn parse_user_rating(rating_opt: Option<i32>) -> Option<UserRating> {
-    rating_opt.and_then(|r| match r {
-        1 => Some(UserRating::One),
-        2 => Some(UserRating::Two),
-        3 => Some(UserRating::Three),
-        4 => Some(UserRating::Four),
-        5 => Some(UserRating::Five),
-        _ => None,
-    })
+fn invalid_text_column(row: &Row, column: &str) -> rusqlite::Error {
+    let index = row.as_ref().column_index(column).unwrap_or(0);
+    rusqlite::Error::InvalidColumnType(index, column.into(), Type::Text)
 }

@@ -10,7 +10,7 @@ use crate::domain::fanfiction::UserRating;
 /// without our own font installed.
 pub fn star_rating(ui: &mut Ui, rating: &mut Option<UserRating>) -> bool {
     let mut changed = false;
-    let current = rating.map(rating_to_u8).unwrap_or(0);
+    let current = rating.map_or(0, |r| r as u8);
     ui.horizontal(|ui| {
         for star in 1..=5u8 {
             let label = if star <= current {
@@ -20,10 +20,10 @@ pub fn star_rating(ui: &mut Ui, rating: &mut Option<UserRating>) -> bool {
             };
             if ui.small_button(label).clicked() {
                 changed = true;
-                *rating = if Some(star) == rating.map(rating_to_u8) {
+                *rating = if star == current {
                     None
                 } else {
-                    Some(rating_from_u8(star))
+                    UserRating::try_from(star).ok()
                 };
             }
         }
@@ -33,18 +33,4 @@ pub fn star_rating(ui: &mut Ui, rating: &mut Option<UserRating>) -> bool {
         }
     });
     changed
-}
-
-fn rating_to_u8(rating: UserRating) -> u8 {
-    rating as u8
-}
-
-fn rating_from_u8(n: u8) -> UserRating {
-    match n {
-        1 => UserRating::One,
-        2 => UserRating::Two,
-        3 => UserRating::Three,
-        4 => UserRating::Four,
-        _ => UserRating::Five,
-    }
 }
