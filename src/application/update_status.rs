@@ -30,6 +30,10 @@ pub fn update_reading_status(
     new_status: ReadingStatus,
 ) -> Result<Fanfiction, FicflowError> {
     let mut fic = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
+    if new_status == ReadingStatus::Read && fic.reading_status != ReadingStatus::Read {
+        fic.read_count += 1;
+        fic.last_chapter_read = Some(fic.chapters_published);
+    }
     fic.reading_status = new_status;
     fanfiction_ops.save_fanfiction(&fic)?;
 

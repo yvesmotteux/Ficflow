@@ -64,6 +64,27 @@ mod tests {
         assert_eq!(read_count, 1);
     }
 
+    #[test]
+    fn marking_as_read_bumps_read_count_and_fills_chapters_once() {
+        let (mut h, id) = given_harness_with_one_fic(103);
+        h.step_n(1);
+
+        h.app.set_status(id, ReadingStatus::Read).unwrap();
+        h.step();
+
+        let fic = db_fic(&h, id);
+        assert_eq!(fic.read_count, 1);
+        assert_eq!(fic.last_chapter_read, Some(fic.chapters_published));
+        assert_eq!(h.app.fics()[0].read_count, 1);
+
+        h.app.set_status(id, ReadingStatus::Read).unwrap();
+        assert_eq!(db_fic(&h, id).read_count, 1);
+
+        h.app.set_status(id, ReadingStatus::InProgress).unwrap();
+        h.app.set_status(id, ReadingStatus::Read).unwrap();
+        assert_eq!(db_fic(&h, id).read_count, 2);
+    }
+
     /// B8 — bumping the chapter marker drives both the chapter field
     /// itself and the status auto-promotion that `update_chapters`
     /// performs (PlanToRead/Paused → InProgress on partial; → Read on
