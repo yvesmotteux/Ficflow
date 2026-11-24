@@ -2,11 +2,13 @@
 
 use std::process::ExitCode;
 
+use ficflow::error::FicflowError;
 use ficflow::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
 use ficflow::infrastructure::persistence::library_path::{
     configured_library_path, resolve_db_path,
 };
 use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, open_configured_db};
+use ficflow::interfaces::cli::{self, command::CliCommand};
 
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -17,16 +19,21 @@ fn main() -> ExitCode {
         // so we don't pre-construct anything here.
         ficflow::interfaces::gui::run_gui()
     } else {
-        // CLI takes them by reference because the dispatcher is
-        // synchronous and trait-object-based.
-        let (urls, max_cycles) = ao3_urls_from_env();
-        let fetcher = Ao3Fetcher::new(urls, max_cycles).expect("Failed to create Ao3Fetcher");
-        let db_path = resolve_db_path(configured_library_path().as_deref())
-            .expect("Failed to resolve library path");
-        let conn = open_configured_db(&db_path).expect("Failed to establish database connection");
-        let repository = SqliteRepository::new(&conn);
-        ficflow::interfaces::cli::run_cli(&fetcher, &repository)
+        let command = cli::command::parse_cli_commands();
+        run_cli(command).unwrap_or_else(|err| {
+            eprintln!("Error: {}", err);
+            ExitCode::FAILURE
+        })
     }
+}
+
+fn run_cli(command: CliCommand) -> Result<ExitCode, FicflowError> {
+    let (urls, max_cycles) = ao3_urls_from_env();
+    let fetcher = Ao3Fetcher::new(urls, max_cycles)?;
+    let db_path = resolve_db_path(configured_library_path().as_deref())?;
+    let conn = open_configured_db(&db_path)?;
+    let repository = SqliteRepository::new(&conn);
+    Ok(cli::run_cli(command, &fetcher, &repository))
 }
 
 /// True when the binary was invoked with no positional arguments — the user
