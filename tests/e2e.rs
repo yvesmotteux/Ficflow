@@ -561,6 +561,72 @@ mod tests {
         Ok(())
     }
 
+    fn given_library_and_backup(dir: &Path) -> (PathBuf, PathBuf) {
+        let library = dir.join("library.db");
+        let backup = dir.join("backup.db");
+        run_cli_command(&["shelf", "create", "FromBackup"], &backup, "", None);
+        run_cli_command(&["shelf", "create", "Current"], &library, "", None);
+        (library, backup)
+    }
+
+    fn shelf_names(library: &Path) -> String {
+        run_cli_command(&["shelf", "list"], library, "", None).0
+    }
+
+    #[test]
+    fn restore_replaces_the_library_with_the_backup() -> Result<(), Box<dyn Error>> {
+        let dir = TempDir::new()?;
+        let (library, backup) = given_library_and_backup(dir.path());
+
+        let (_, err, status) = run_cli_command(
+            &["restore", backup.to_str().unwrap()],
+            &library,
+            "",
+            Some(("FICFLOW_NON_INTERACTIVE", "1")),
+        );
+
+        assert_eq!(status, 0, "{err}");
+        let shelves = shelf_names(&library);
+        assert!(shelves.contains("FromBackup"), "{shelves}");
+        assert!(!shelves.contains("Current"), "{shelves}");
+        assert!(backup.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn restore_without_confirmation_leaves_the_library_alone() -> Result<(), Box<dyn Error>> {
+        let dir = TempDir::new()?;
+        let (library, backup) = given_library_and_backup(dir.path());
+
+        let (out, _, status) =
+            run_cli_command(&["restore", backup.to_str().unwrap()], &library, "", None);
+
+        assert_eq!(status, 0);
+        assert!(out.contains("Operation cancelled."), "{out}");
+        let shelves = shelf_names(&library);
+        assert!(shelves.contains("Current"), "{shelves}");
+        assert!(!shelves.contains("FromBackup"), "{shelves}");
+        Ok(())
+    }
+
+    #[test]
+    fn restoring_the_library_onto_itself_is_refused() -> Result<(), Box<dyn Error>> {
+        let dir = TempDir::new()?;
+        let (library, _) = given_library_and_backup(dir.path());
+
+        let (_, _, status) = run_cli_command(
+            &["restore", library.to_str().unwrap()],
+            &library,
+            "",
+            Some(("FICFLOW_NON_INTERACTIVE", "1")),
+        );
+
+        assert_ne!(status, 0);
+        let shelves = shelf_names(&library);
+        assert!(shelves.contains("Current"), "{shelves}");
+        Ok(())
+    }
+
     #[test]
     fn editing_a_fic_keeps_it_on_its_shelves() -> Result<(), Box<dyn Error>> {
         let test_db = setup_test_db();

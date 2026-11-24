@@ -101,6 +101,12 @@ pub enum CliCommand {
     /// View or change Ficflow's settings
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Replace the library with a backup .db file
+    Restore {
+        /// The backup .db file to restore
+        #[arg(value_name = "backup")]
+        backup: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]

@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use super::command::ConfigCommand;
+use super::executor::confirm;
 use crate::error::FicflowError;
 use crate::infrastructure::config::{Config, DB_PATH_ENV, config_file_path};
-use crate::infrastructure::move_library_into;
+use crate::infrastructure::{move_library_into, restore_backup};
 
 pub fn run(command: ConfigCommand) -> ExitCode {
     match command {
@@ -51,4 +52,34 @@ fn show() -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+pub fn restore(backup: &Path) -> ExitCode {
+    let library = match Config::load().resolved_db_path() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("Error finding the library: {}", err);
+            return ExitCode::FAILURE;
+        }
+    };
+    let warning = format!(
+        "WARNING: This replaces your library at {} with {}. \
+         Anything not in the backup will be lost!",
+        library.display(),
+        backup.display()
+    );
+    if !confirm(&warning) {
+        println!("Operation cancelled.");
+        return ExitCode::SUCCESS;
+    }
+    match restore_backup(backup, &library) {
+        Ok(()) => {
+            println!("Backup restored.");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("Error restoring the backup: {}", err);
+            ExitCode::FAILURE
+        }
+    }
 }

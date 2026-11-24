@@ -66,6 +66,11 @@ pub fn move_library_into(current: &Path, folder: &Path) -> Result<PathBuf, Ficfl
 /// and clearing any stale `-wal`/`-shm` sidecars so the restored file is read
 /// cleanly on the next restart. The configured location is left untouched.
 pub fn restore_backup(backup: &Path, current: &Path) -> Result<(), FicflowError> {
+    if current.exists() && fs::canonicalize(backup)? == fs::canonicalize(current)? {
+        return Err(FicflowError::InvalidInput(
+            "the backup is the library itself".into(),
+        ));
+    }
     if let Some(parent) = current.parent() {
         fs::create_dir_all(parent)?;
     }

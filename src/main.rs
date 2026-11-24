@@ -19,6 +19,7 @@ fn main() -> ExitCode {
     } else {
         match cli::command::parse_cli_commands() {
             CliCommand::Config(command) => cli::config::run(command),
+            CliCommand::Restore { backup } => cli::config::restore(&backup),
             command => run_cli(command).unwrap_or_else(|err| {
                 eprintln!("Error: {}", err);
                 ExitCode::FAILURE
