@@ -50,6 +50,14 @@ impl LibraryCache {
         }
     }
 
+    pub fn fic(&self, id: u64) -> Option<&Fanfiction> {
+        self.fics.iter().find(|f| f.id == id)
+    }
+
+    pub fn shelf(&self, id: u64) -> Option<&Shelf> {
+        self.shelves.iter().find(|s| s.id == id)
+    }
+
     pub fn reload_fics(&mut self, connection: &Connection) {
         self.fics = load_fics_inner(connection);
         self.refresh_auto_shelf_members();
@@ -78,7 +86,7 @@ impl LibraryCache {
     ) -> Result<(), FicflowError> {
         self.shelf_members.clear();
         if let View::Shelf(id) = view {
-            match self.shelves.iter().find(|s| s.id == *id).map(|s| &s.kind) {
+            match self.shelf(*id).map(|s| &s.kind) {
                 Some(ShelfKind::Auto(_)) => {
                     self.shelf_members =
                         self.auto_shelf_members.get(id).cloned().unwrap_or_default();
@@ -119,10 +127,7 @@ impl LibraryCache {
     }
 
     pub fn replace_fic(&mut self, updated: Fanfiction) {
-        if let Some(slot) = self.fics.iter_mut().find(|f| f.id == updated.id) {
-            *slot = updated;
-        }
-        self.refresh_auto_shelf_members();
+        self.replace_fics(vec![updated]);
     }
 
     /// Batch form of `replace_fic` — updates every entry first, then
