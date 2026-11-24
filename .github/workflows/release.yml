@@ -34,7 +34,7 @@ jobs:
           - os: windows-latest
             artifact_name: ficflow.exe
             asset_name: ficflow-windows-amd64.exe
-          - os: macos-14
+          - os: macos-latest
             artifact_name: ficflow
             asset_name: ficflow-macos-arm64
 
