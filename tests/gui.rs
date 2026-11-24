@@ -52,3 +52,6 @@ mod theme;
 
 #[path = "gui/shelf_delete_key.rs"]
 mod shelf_delete_key;
+
+#[path = "gui/new_version.rs"]
+mod new_version;

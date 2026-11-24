@@ -21,6 +21,7 @@ use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
+use crate::infrastructure::external::github::{LATEST_RELEASE_URL, Release};
 use crate::infrastructure::persistence::database::connection::{
     open_configured_db, relocate_library, restore_backup,
 };
@@ -31,6 +32,7 @@ use super::selection::Selection;
 use super::selection_controller::SelectionController;
 use super::tasks::TaskExecutor;
 use super::theme;
+use super::update_check::UpdateCheck;
 use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
@@ -70,6 +72,7 @@ pub struct FicflowApp {
     /// Set by Ctrl+F; consumed by `draw_search_field` on next paint.
     focus_search_pending: bool,
     toasts: Toasts,
+    update_check: UpdateCheck,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -101,6 +104,7 @@ pub struct FicflowConfig {
     pub db_path: Option<PathBuf>,
     pub ao3_urls: Vec<String>,
     pub max_retry_cycles: u32,
+    pub latest_release_url: String,
 }
 
 impl Default for FicflowConfig {
@@ -110,6 +114,7 @@ impl Default for FicflowConfig {
             db_path: None,
             ao3_urls,
             max_retry_cycles,
+            latest_release_url: LATEST_RELEASE_URL.to_string(),
         }
     }
 }
@@ -161,6 +166,7 @@ impl FicflowApp {
             task_filter: TaskFilter::default(),
             focus_search_pending: false,
             toasts: Toasts::default(),
+            update_check: UpdateCheck::new(config.latest_release_url),
         };
         // Restoring straight into a shelf view skips the sidebar's
         // prev/post diff (see `paint_sidebar`) that normally populates
@@ -198,6 +204,10 @@ impl FicflowApp {
 
     pub fn current_view(&self) -> &View {
         &self.current_view
+    }
+
+    pub fn newer_release(&self) -> Option<&Release> {
+        self.update_check.newer_release()
     }
 
     pub fn search_query(&self) -> &str {

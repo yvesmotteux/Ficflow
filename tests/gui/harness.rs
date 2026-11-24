@@ -69,6 +69,33 @@ impl GuiHarness {
         db_path: PathBuf,
         temp_dir: TempDir,
     ) -> Self {
+        Self::build(
+            ao3_urls,
+            "http://127.0.0.1:1".into(),
+            conn,
+            db_path,
+            temp_dir,
+        )
+    }
+
+    pub fn with_latest_release_url(latest_release_url: String) -> Self {
+        let (conn, db_path, temp_dir) = fixtures::given_test_database();
+        Self::build(
+            vec!["http://127.0.0.1:1".into()],
+            latest_release_url,
+            conn,
+            db_path,
+            temp_dir,
+        )
+    }
+
+    fn build(
+        ao3_urls: Vec<String>,
+        latest_release_url: String,
+        conn: Connection,
+        db_path: PathBuf,
+        temp_dir: TempDir,
+    ) -> Self {
         // A poisoned lock (previous test panicked while holding it) is
         // still safe to reuse here — we're about to overwrite the env var
         // ourselves regardless of what state it was left in.
@@ -89,6 +116,7 @@ impl GuiHarness {
             // Fail-fast: tests should never sit through the production
             // 2- or 3-cycle retry storm.
             max_retry_cycles: 1,
+            latest_release_url,
         };
         let app = FicflowApp::with_config(&ctx, config)
             .expect("FicflowApp::with_config failed in test harness");
@@ -110,6 +138,7 @@ impl GuiHarness {
             db_path: Some(self.db_path.clone()),
             ao3_urls,
             max_retry_cycles: 1,
+            latest_release_url: "http://127.0.0.1:1".into(),
         };
         self.app = FicflowApp::with_config(&self.ctx, config)
             .expect("FicflowApp::with_config failed on restart");

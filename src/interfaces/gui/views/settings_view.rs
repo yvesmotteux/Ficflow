@@ -5,6 +5,7 @@ use egui::{RichText, ScrollArea, Ui};
 
 use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE, ThemeChoice};
 use super::super::format::erisian_date;
+use crate::infrastructure::external::github::Release;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
 const ZOOM_STEP: f32 = 0.1;
@@ -22,7 +23,12 @@ pub struct SettingsOutcome {
     pub request: Option<LibraryRequest>,
 }
 
-pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> SettingsOutcome {
+pub fn draw(
+    ui: &mut Ui,
+    config: &mut AppConfig,
+    current_db_path: &Path,
+    newer_release: Option<&Release>,
+) -> SettingsOutcome {
     let mut changed = false;
     let mut request = None;
 
@@ -32,7 +38,15 @@ pub fn draw(ui: &mut Ui, config: &mut AppConfig, current_db_path: &Path) -> Sett
             ui.add_space(8.0);
 
             ui.label(RichText::new("Application").strong());
-            info_row(ui, "Version", VERSION.to_string());
+            ui.horizontal(|ui| {
+                info_row(ui, "Version", VERSION.to_string());
+                if let Some(release) = newer_release {
+                    let warning =
+                        RichText::new(format!("New version available: {}", release.tag_name))
+                            .color(ui.visuals().error_fg_color);
+                    ui.hyperlink_to(warning, &release.html_url);
+                }
+            });
             if let Ok(date) = NaiveDate::parse_from_str(RELEASE_DATE, "%Y-%m-%d") {
                 info_row(ui, "Released", erisian_date(date))
                     .on_hover_text(date.format("%-d %B %Y").to_string());
