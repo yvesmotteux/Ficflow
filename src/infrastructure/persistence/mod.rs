@@ -1,5 +1,4 @@
 pub mod database;
-pub mod library_path;
 pub mod repository;
 
 pub use database::connection::{open_configured_db, relocate_library, restore_backup};

@@ -67,7 +67,7 @@ impl FicflowApp {
         };
         match result {
             Ok(()) => {
-                self.config.library_path = Some(target.clone());
+                self.config.shared.library_path = Some(target.clone());
                 self.current_db_path = target;
                 self.save_config();
                 self.toasts

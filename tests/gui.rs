@@ -55,3 +55,6 @@ mod shelf_delete_key;
 
 #[path = "gui/new_version.rs"]
 mod new_version;
+
+#[path = "gui/shared_config.rs"]
+mod shared_config;

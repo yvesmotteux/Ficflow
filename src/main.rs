@@ -3,10 +3,8 @@
 use std::process::ExitCode;
 
 use ficflow::error::FicflowError;
+use ficflow::infrastructure::config::Config;
 use ficflow::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
-use ficflow::infrastructure::persistence::library_path::{
-    configured_library_path, resolve_db_path,
-};
 use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, open_configured_db};
 use ficflow::interfaces::cli::{self, command::CliCommand};
 
@@ -30,7 +28,7 @@ fn main() -> ExitCode {
 fn run_cli(command: CliCommand) -> Result<ExitCode, FicflowError> {
     let (urls, max_cycles) = ao3_urls_from_env();
     let fetcher = Ao3Fetcher::new(urls, max_cycles)?;
-    let db_path = resolve_db_path(configured_library_path().as_deref())?;
+    let db_path = Config::load().resolved_db_path()?;
     let conn = open_configured_db(&db_path)?;
     let repository = SqliteRepository::new(&conn);
     Ok(cli::run_cli(command, &fetcher, &repository))

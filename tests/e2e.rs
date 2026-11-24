@@ -382,9 +382,9 @@ mod tests {
     }
 
     fn write_config_with_library_path(config_home: &Path, library_path: &Path) {
-        let cfg = ficflow::interfaces::gui::AppConfig {
+        let cfg = ficflow::infrastructure::config::Config {
             library_path: Some(library_path.to_path_buf()),
-            ..ficflow::interfaces::gui::AppConfig::default()
+            ..Default::default()
         };
         let dir = config_home.join("ficflow");
         std::fs::create_dir_all(&dir).unwrap();

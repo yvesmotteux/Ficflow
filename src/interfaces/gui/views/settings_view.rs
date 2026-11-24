@@ -5,6 +5,7 @@ use egui::{RichText, ScrollArea, Ui};
 
 use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE, ThemeChoice};
 use super::super::format::erisian_date;
+use crate::infrastructure::config::config_file_path;
 use crate::infrastructure::external::github::Release;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
 
@@ -145,5 +146,5 @@ fn info_row(ui: &mut Ui, name: &str, value: String) -> egui::Response {
 }
 
 fn config_path_display() -> String {
-    config::config_path().map_or_else(|| "<unavailable>".to_string(), |p| p.display().to_string())
+    config_file_path().map_or_else(|| "<unavailable>".to_string(), |p| p.display().to_string())
 }

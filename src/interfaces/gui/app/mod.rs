@@ -133,7 +133,10 @@ impl FicflowApp {
         let mut app_config = AppConfig::load();
         let db_path = match &config.db_path {
             Some(path) => path.clone(),
-            None => app_config.resolved_db_path().map_err(InitError::Database)?,
+            None => app_config
+                .shared
+                .resolved_db_path()
+                .map_err(InitError::Database)?,
         };
         let connection = open_configured_db(&db_path).map_err(InitError::Database)?;
         let cache = LibraryCache::load(&connection);
