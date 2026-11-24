@@ -17,11 +17,13 @@ fn main() -> ExitCode {
         // so we don't pre-construct anything here.
         ficflow::interfaces::gui::run_gui()
     } else {
-        let command = cli::command::parse_cli_commands();
-        run_cli(command).unwrap_or_else(|err| {
-            eprintln!("Error: {}", err);
-            ExitCode::FAILURE
-        })
+        match cli::command::parse_cli_commands() {
+            CliCommand::Config(command) => cli::config::run(command),
+            command => run_cli(command).unwrap_or_else(|err| {
+                eprintln!("Error: {}", err);
+                ExitCode::FAILURE
+            }),
+        }
     }
 }
 

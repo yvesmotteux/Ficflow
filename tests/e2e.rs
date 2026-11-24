@@ -462,6 +462,23 @@ mod tests {
     }
 
     #[test]
+    fn config_show_prints_the_config_file_and_library() -> Result<(), Box<dyn Error>> {
+        let config_home = TempDir::new()?;
+        let lib_dir = TempDir::new()?;
+        let configured_db = lib_dir.path().join("my-library.db");
+        write_config_with_library_path(config_home.path(), &configured_db);
+
+        let (out, status) = run_cli(&["config", "show"], config_home.path(), None);
+
+        assert_eq!(status, 0);
+        let config_file = config_home.path().join("ficflow").join("config.toml");
+        assert!(out.contains(&config_file.display().to_string()), "{out}");
+        assert!(out.contains(&configured_db.display().to_string()), "{out}");
+        assert!(!configured_db.exists());
+        Ok(())
+    }
+
+    #[test]
     fn editing_a_fic_keeps_it_on_its_shelves() -> Result<(), Box<dyn Error>> {
         let test_db = setup_test_db();
         let (mock_server, fic_id) = fixtures::given_mock_ao3_server();

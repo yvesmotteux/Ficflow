@@ -60,6 +60,9 @@ impl<'a> CliCommandExecutor<'a> {
                 })
             }
             CliCommand::Wipe => self.execute_wipe(),
+            CliCommand::Config(_) => {
+                unreachable!("settings commands run before the library is opened")
+            }
             CliCommand::UpdateChapter { fic_id, chapter } => {
                 println!(
                     "Updating last read chapter for fanfiction ID: {} to chapter {}",

@@ -96,6 +96,15 @@ pub enum CliCommand {
     /// Manage shelves (custom groupings of fanfictions)
     #[command(subcommand)]
     Shelf(ShelfCommand),
+    /// View or change Ficflow's settings
+    #[command(subcommand)]
+    Config(ConfigCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommand {
+    /// Show the current settings
+    Show,
 }
 
 #[derive(Subcommand, Debug)]

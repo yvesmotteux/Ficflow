@@ -10,7 +10,7 @@ use crate::error::FicflowError;
 const APP_DIR: &str = "ficflow";
 const CONFIG_FILE: &str = "config.toml";
 const DB_FILE: &str = "fanfictions.db";
-const DB_PATH_ENV: &str = "FICFLOW_DB_PATH";
+pub const DB_PATH_ENV: &str = "FICFLOW_DB_PATH";
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
