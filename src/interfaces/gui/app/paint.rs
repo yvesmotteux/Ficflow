@@ -238,6 +238,7 @@ impl FicflowApp {
                         ui,
                         LibraryViewState {
                             fics: &self.cache.fics,
+                            generation: self.cache.generation,
                             sort: &mut self.sort,
                             search_query: &self.search_query,
                             visible_columns: &self.config.visible_columns,
@@ -352,10 +353,13 @@ impl FicflowApp {
                 return;
             }
             let visible = library_view::visible_count(
+                ui.ctx(),
                 &self.cache.fics,
+                self.cache.generation,
                 &self.current_view,
                 &self.cache.shelf_members,
                 &self.search_query,
+                self.sort,
             );
             let suffix = if visible == 1 { "fic" } else { "fics" };
             ui.label(egui::RichText::new(format!("{} {}", visible, suffix)).weak());

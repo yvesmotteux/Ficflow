@@ -51,13 +51,10 @@ impl FicflowApp {
                     ModalAction::RenameShelf { shelf_id, new_name }
                 })
             }
-            ActiveModal::AutoShelf(state) => {
-                let distinct_values = auto_shelf::build_distinct_values(&self.cache.fics);
-                on_submit(
-                    shelf_modals::draw_auto_shelf(ctx, state, &distinct_values),
-                    ModalAction::UpsertAutoShelf,
-                )
-            }
+            ActiveModal::AutoShelf(state) => on_submit(
+                shelf_modals::draw_auto_shelf(ctx, state, self.cache.distinct_values()),
+                ModalAction::UpsertAutoShelf,
+            ),
             ActiveModal::DeleteShelf(id) => {
                 let id = *id;
                 on_submit(

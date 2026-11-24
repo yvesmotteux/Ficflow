@@ -7,7 +7,7 @@ use crate::domain::shelf::Shelf;
 
 /// Which view the user is looking at — drives the header title and the
 /// center panel's content + filtering.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum View {
     #[default]
     AllFics,

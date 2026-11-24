@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
-use super::auto_shelf;
 use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref, ThemeChoice};
 use crate::application::{
     add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
