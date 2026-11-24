@@ -2,6 +2,7 @@ use crate::error::FicflowError;
 use crate::infrastructure::persistence::database::migration::run_migrations;
 use rusqlite::Connection;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 // SQLite writes two sidecar files next to the database in WAL mode; any move
@@ -68,11 +69,12 @@ fn move_file(from: &Path, to: &Path) -> Result<(), FicflowError> {
     match fs::rename(from, to) {
         Ok(()) => Ok(()),
         // Cross-device rename isn't allowed; copy then delete the original.
-        Err(_) => {
+        Err(err) if err.kind() == io::ErrorKind::CrossesDevices => {
             fs::copy(from, to)?;
             fs::remove_file(from)?;
             Ok(())
         }
+        Err(err) => Err(err.into()),
     }
 }
 
