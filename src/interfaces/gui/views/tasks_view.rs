@@ -22,48 +22,26 @@ pub struct TasksViewState<'a> {
 pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
     let TasksViewState { executor, filter } = state;
     let tasks = executor.snapshot();
+    let (mut running, mut done, mut failed) = (0, 0, 0);
+    for task in &tasks {
+        match task.status {
+            TaskStatus::Running => running += 1,
+            TaskStatus::Done => done += 1,
+            TaskStatus::Failed(_) => failed += 1,
+        }
+    }
 
     ui.horizontal(|ui| {
         filter_tab(ui, filter, TaskFilter::All, "All", tasks.len());
-        filter_tab(
-            ui,
-            filter,
-            TaskFilter::Running,
-            "Running",
-            tasks
-                .iter()
-                .filter(|t| matches!(t.status, TaskStatus::Running))
-                .count(),
-        );
-        filter_tab(
-            ui,
-            filter,
-            TaskFilter::Completed,
-            "Completed",
-            tasks
-                .iter()
-                .filter(|t| matches!(t.status, TaskStatus::Done))
-                .count(),
-        );
-        filter_tab(
-            ui,
-            filter,
-            TaskFilter::Failed,
-            "Failed",
-            tasks
-                .iter()
-                .filter(|t| matches!(t.status, TaskStatus::Failed(_)))
-                .count(),
-        );
+        filter_tab(ui, filter, TaskFilter::Running, "Running", running);
+        filter_tab(ui, filter, TaskFilter::Completed, "Completed", done);
+        filter_tab(ui, filter, TaskFilter::Failed, "Failed", failed);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if ui.button("Clear completed").clicked() {
                 executor.clear_completed();
             }
-            let has_failed = tasks
-                .iter()
-                .any(|t| matches!(t.status, TaskStatus::Failed(_)));
             if ui
-                .add_enabled(has_failed, egui::Button::new("Retry all"))
+                .add_enabled(failed > 0, egui::Button::new("Retry all"))
                 .clicked()
             {
                 executor.retry_all_failed();
@@ -114,11 +92,7 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                                 if ui.button("Retry").clicked() {
                                     executor.retry(task.id);
                                 }
-                                ui.label(RichText::new("Failed").color(theme::pick(
-                                    ui.visuals(),
-                                    egui::Color32::from_rgb(220, 100, 100),
-                                    egui::Color32::from_rgb(185, 40, 40),
-                                )));
+                                ui.label(RichText::new("Failed").color(failed_color(ui)));
                             }
                         }
                     });
@@ -127,13 +101,9 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                 // wrapped to the panel width.
                 if let TaskStatus::Failed(msg) = &task.status {
                     ui.add(
-                        egui::Label::new(RichText::new(msg).color(theme::pick(
-                            ui.visuals(),
-                            egui::Color32::from_rgb(220, 100, 100),
-                            egui::Color32::from_rgb(185, 40, 40),
-                        )))
-                        .wrap()
-                        .selectable(true),
+                        egui::Label::new(RichText::new(msg).color(failed_color(ui)))
+                            .wrap()
+                            .selectable(true),
                     );
                 }
                 ui.separator();
@@ -165,7 +135,15 @@ fn matches_filter(task: &TaskState, filter: TaskFilter) -> bool {
 
 fn format_kind(kind: &TaskKind) -> &'static str {
     match kind {
-        TaskKind::Add => "Add",
-        TaskKind::Refresh => "Refresh",
+        TaskKind::Add { .. } => "Add",
+        TaskKind::Refresh { .. } => "Refresh",
     }
+}
+
+fn failed_color(ui: &Ui) -> egui::Color32 {
+    theme::pick(
+        ui.visuals(),
+        egui::Color32::from_rgb(220, 100, 100),
+        egui::Color32::from_rgb(185, 40, 40),
+    )
 }
