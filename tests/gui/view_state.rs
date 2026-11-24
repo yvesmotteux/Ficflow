@@ -2,10 +2,8 @@
 //!
 //! These don't drive any new application use-cases; they pin down the
 //! GUI's view-coordination logic — search filtering, sort direction,
-//! and the right-panel visibility rule. Phase 12's chrome work is
-//! likely to touch the same code, so locking the contract now means a
-//! regression there shows up as a test failure rather than a manual
-//! bug report.
+//! and the right-panel visibility rule, so a regression there shows up
+//! as a test failure rather than a manual bug report.
 
 #[cfg(test)]
 mod tests {

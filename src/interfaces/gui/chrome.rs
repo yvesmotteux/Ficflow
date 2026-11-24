@@ -1,4 +1,4 @@
-//! Phase 12 Art Nouveau window chrome. 9-slice paint of an SVG atlas
+//! Art Nouveau window chrome. 9-slice paint of an SVG atlas
 //! onto the window edges + custom min/max/close buttons + drag-region
 //! and resize-edge interaction (since `with_decorations(false)`
 //! removes the OS title bar).

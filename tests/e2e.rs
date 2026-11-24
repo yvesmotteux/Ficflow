@@ -1,6 +1,6 @@
 //! CLI end-to-end tests. Most user flows that used to live here moved
-//! to the headless GUI suite (`tests/gui/`) once Phase 11 made the
-//! GUI's control surface drivable from tests. The few that remain
+//! to the headless GUI suite (`tests/gui/`) once the GUI's control
+//! surface became drivable from tests. The few that remain
 //! exercise paths the GUI doesn't expose at all:
 //!
 //!  * `wipe` is CLI-only (no destructive button in the UI).
