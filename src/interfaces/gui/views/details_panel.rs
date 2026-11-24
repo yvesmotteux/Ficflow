@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use egui::{
     Align, Color32, ComboBox, DragValue, Layout, RichText, ScrollArea, Sense, Stroke, StrokeKind,
     TextEdit, Ui,
@@ -15,10 +15,11 @@ use crate::domain::fanfiction::{
 };
 use crate::domain::shelf::Shelf;
 
-use super::super::format::{format_status, format_thousands};
+use super::super::format::{format_status, relative_time};
 use super::super::widgets::shelves_dropdown::{self, DropdownOutcome};
 use super::super::widgets::star_rating;
 use super::modals::shelf_modals::ClauseFieldKind;
+use crate::interfaces::utils::formatter::format_thousands;
 
 pub struct DetailsState<'a> {
     pub fic: &'a Fanfiction,
@@ -249,13 +250,7 @@ fn draw_status(ui: &mut Ui, fic: &Fanfiction) -> Option<ReadingStatus> {
     ComboBox::from_id_salt("status-combo")
         .selected_text(format_status(&chosen))
         .show_ui(ui, |ui| {
-            for status in [
-                ReadingStatus::InProgress,
-                ReadingStatus::Read,
-                ReadingStatus::PlanToRead,
-                ReadingStatus::Paused,
-                ReadingStatus::Abandoned,
-            ] {
+            for status in ReadingStatus::ALL {
                 ui.selectable_value(&mut chosen, status, format_status(&status));
             }
         });
@@ -349,9 +344,12 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
                 outcome = Outcome::RequestRefresh;
             }
             ui.label(
-                RichText::new(format!("Updated {}", relative_time(fic.last_checked_date)))
-                    .weak()
-                    .small(),
+                RichText::new(format!(
+                    "Updated {}",
+                    relative_time(fic.last_checked_date, Utc::now())
+                ))
+                .weak()
+                .small(),
             );
         });
     });
@@ -611,36 +609,6 @@ fn layout_break_anywhere(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn relative_time(when: DateTime<Utc>) -> String {
-    let now = Utc::now();
-    let delta = now - when;
-    let secs = delta.num_seconds().max(0);
-    if secs < 5 {
-        return "just now".into();
-    }
-    if secs < 60 {
-        return format!("{}s ago", secs);
-    }
-    let mins = secs / 60;
-    if mins < 60 {
-        return format!("{}m ago", mins);
-    }
-    let hours = mins / 60;
-    if hours < 24 {
-        return format!("{}h ago", hours);
-    }
-    let days = hours / 24;
-    if days < 30 {
-        return format!("{}d ago", days);
-    }
-    let months = days / 30;
-    if months < 12 {
-        return format!("{}mo ago", months);
-    }
-    let years = months / 12;
-    format!("{}y ago", years)
-}
 
 fn format_ao3_rating(r: &Rating) -> &'static str {
     match r {

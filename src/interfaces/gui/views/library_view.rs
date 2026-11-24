@@ -8,10 +8,11 @@ use std::collections::HashSet;
 use super::super::config::{ColumnKey, SortDirection, SortPref};
 use crate::domain::fanfiction::{ArchiveWarnings, Fanfiction, Rating, ReadingStatus};
 
-use super::super::format::{format_status, format_thousands};
+use super::super::format::format_status;
 use super::super::selection_controller::SelectionController;
 use super::super::theme;
 use super::super::view::View;
+use crate::interfaces::utils::formatter::format_thousands;
 
 const HEADER_HEIGHT: f32 = 22.0;
 const ROW_HEIGHT: f32 = 28.0;
@@ -610,13 +611,13 @@ fn compare(a: &Fanfiction, b: &Fanfiction, column: ColumnKey) -> Ordering {
             .as_deref()
             .map(first_lower)
             .cmp(&b.relationships.as_deref().map(first_lower)),
-        ColumnKey::AO3Rating => ao3_rating_order(&a.rating).cmp(&ao3_rating_order(&b.rating)),
+        ColumnKey::AO3Rating => a.rating.cmp(&b.rating),
         ColumnKey::Warnings => a
             .warnings
             .first()
             .map(format_warning)
             .cmp(&b.warnings.first().map(format_warning)),
-        ColumnKey::Status => status_order(&a.reading_status).cmp(&status_order(&b.reading_status)),
+        ColumnKey::Status => a.reading_status.cmp(&b.reading_status),
         ColumnKey::Complete => a.complete.cmp(&b.complete),
         ColumnKey::LastChapter => a.last_chapter_read.cmp(&b.last_chapter_read),
         ColumnKey::Words => a.words.cmp(&b.words),
@@ -635,24 +636,4 @@ fn compare(a: &Fanfiction, b: &Fanfiction, column: ColumnKey) -> Ordering {
 
 fn first_lower(v: &[String]) -> Option<String> {
     v.first().map(|s| s.to_lowercase())
-}
-
-fn ao3_rating_order(r: &Rating) -> u8 {
-    match r {
-        Rating::NotRated => 0,
-        Rating::General => 1,
-        Rating::TeenAndUp => 2,
-        Rating::Mature => 3,
-        Rating::Explicit => 4,
-    }
-}
-
-fn status_order(s: &ReadingStatus) -> u8 {
-    match s {
-        ReadingStatus::InProgress => 0,
-        ReadingStatus::Read => 1,
-        ReadingStatus::PlanToRead => 2,
-        ReadingStatus::Paused => 3,
-        ReadingStatus::Abandoned => 4,
-    }
 }

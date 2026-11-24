@@ -5,17 +5,14 @@ use egui::{Color32, RichText, Stroke, StrokeKind, Ui};
 use crate::domain::fanfiction::ReadingStatus;
 use crate::domain::shelf::{Shelf, ShelfKind};
 
+use super::super::format::format_status;
 use super::super::theme;
 use super::super::view::View;
 
 #[derive(Default)]
 pub struct LibraryCounts {
     pub all: usize,
-    pub in_progress: usize,
-    pub read: usize,
-    pub plan_to_read: usize,
-    pub paused: usize,
-    pub abandoned: usize,
+    pub by_status: [usize; ReadingStatus::ALL.len()],
 }
 
 pub struct SidebarState<'a> {
@@ -116,51 +113,17 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 Some(library_counts.all),
                 None,
             );
-            view_row(
-                ui,
-                current_view,
-                View::ByStatus(ReadingStatus::InProgress),
-                "In Progress",
-                Some(LIBRARY_ICON_IN_PROGRESS),
-                Some(library_counts.in_progress),
-                None,
-            );
-            view_row(
-                ui,
-                current_view,
-                View::ByStatus(ReadingStatus::Read),
-                "Read",
-                Some(LIBRARY_ICON_READ),
-                Some(library_counts.read),
-                None,
-            );
-            view_row(
-                ui,
-                current_view,
-                View::ByStatus(ReadingStatus::PlanToRead),
-                "Plan to Read",
-                Some(LIBRARY_ICON_PLAN),
-                Some(library_counts.plan_to_read),
-                None,
-            );
-            view_row(
-                ui,
-                current_view,
-                View::ByStatus(ReadingStatus::Paused),
-                "Paused",
-                Some(LIBRARY_ICON_PAUSED),
-                Some(library_counts.paused),
-                None,
-            );
-            view_row(
-                ui,
-                current_view,
-                View::ByStatus(ReadingStatus::Abandoned),
-                "Abandoned",
-                Some(LIBRARY_ICON_ABANDONED),
-                Some(library_counts.abandoned),
-                None,
-            );
+            for status in ReadingStatus::ALL {
+                view_row(
+                    ui,
+                    current_view,
+                    View::ByStatus(status),
+                    format_status(&status),
+                    Some(status_icon(status)),
+                    Some(library_counts.by_status[status as usize]),
+                    None,
+                );
+            }
 
             // Match the line above Tasks/Settings — same separator
             // style so the three sections feel like peers.
@@ -216,11 +179,16 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
 // Emoji is bundled, so symbols outside Ubuntu-Light fall back cleanly).
 // Candidates for proper SVG icons that match the Art Nouveau chrome.
 const LIBRARY_ICON_ALL: &str = "\u{25C6}"; // ◆ filled diamond
-const LIBRARY_ICON_IN_PROGRESS: &str = "\u{25B6}"; // ▶
-const LIBRARY_ICON_READ: &str = "\u{2713}"; // ✓
-const LIBRARY_ICON_PLAN: &str = "\u{25CB}"; // ○
-const LIBRARY_ICON_PAUSED: &str = "\u{23F8}"; // ⏸
-const LIBRARY_ICON_ABANDONED: &str = "\u{2717}"; // ✗
+
+fn status_icon(status: ReadingStatus) -> &'static str {
+    match status {
+        ReadingStatus::InProgress => "\u{25B6}", // ▶
+        ReadingStatus::Read => "\u{2713}",       // ✓
+        ReadingStatus::PlanToRead => "\u{25CB}", // ○
+        ReadingStatus::Paused => "\u{23F8}",     // ⏸
+        ReadingStatus::Abandoned => "\u{2717}",  // ✗
+    }
+}
 
 /// Horizontal breathing room between visual content (highlight rounding,
 /// badges, the SHELVES "+" button) and the panel edges. Without it the

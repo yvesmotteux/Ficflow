@@ -6,13 +6,7 @@ fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
         ..LibraryCounts::default()
     };
     for f in fics {
-        match f.reading_status {
-            ReadingStatus::InProgress => counts.in_progress += 1,
-            ReadingStatus::Read => counts.read += 1,
-            ReadingStatus::PlanToRead => counts.plan_to_read += 1,
-            ReadingStatus::Paused => counts.paused += 1,
-            ReadingStatus::Abandoned => counts.abandoned += 1,
-        }
+        counts.by_status[f.reading_status as usize] += 1;
     }
     counts
 }

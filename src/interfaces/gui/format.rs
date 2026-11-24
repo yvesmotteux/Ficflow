@@ -1,7 +1,7 @@
 //! Display helpers shared by GUI views — wording is a UI choice
 //! (the CLI may render the same domain enums with terser labels).
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 
 use crate::domain::fanfiction::ReadingStatus;
 
@@ -49,16 +49,16 @@ pub fn erisian_date(date: NaiveDate) -> String {
     format!("{weekday}, {season} {day}, YOLD {yold}")
 }
 
-/// `12345 → "12,345"`.
-pub fn format_thousands(n: u32) -> String {
-    let s = n.to_string();
-    let bytes = s.as_bytes();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(*b as char);
-    }
-    out
+pub fn relative_time(when: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let secs = (now - when).num_seconds().max(0);
+    let (value, unit) = match secs {
+        0..5 => return "just now".into(),
+        5..60 => (secs, "s"),
+        60..3_600 => (secs / 60, "m"),
+        3_600..86_400 => (secs / 3_600, "h"),
+        86_400..2_592_000 => (secs / 86_400, "d"),
+        2_592_000..31_104_000 => (secs / 2_592_000, "mo"),
+        _ => (secs / 31_104_000, "y"),
+    };
+    format!("{}{} ago", value, unit)
 }

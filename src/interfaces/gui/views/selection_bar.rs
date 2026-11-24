@@ -39,13 +39,7 @@ pub fn draw(ui: &mut Ui, state: SelectionBarState<'_>) -> Outcome {
         ui.separator();
 
         ui.menu_button("Change status", |ui| {
-            for status in [
-                ReadingStatus::InProgress,
-                ReadingStatus::Read,
-                ReadingStatus::PlanToRead,
-                ReadingStatus::Paused,
-                ReadingStatus::Abandoned,
-            ] {
+            for status in ReadingStatus::ALL {
                 if ui.button(format_status(&status)).clicked() {
                     outcome = Outcome::SetStatus(status);
                     ui.close();

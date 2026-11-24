@@ -1,6 +1,7 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use egui::{Align, Layout, RichText, ScrollArea, Ui};
 
+use super::super::format::relative_time;
 use super::super::tasks::{TaskExecutor, TaskKind, TaskState, TaskStatus};
 use super::super::theme;
 
@@ -96,7 +97,7 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                     ui.separator();
                     ui.add(egui::Label::new(&task.display).truncate().selectable(false));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(format_age(task.started_at, now)).weak());
+                        ui.label(RichText::new(relative_time(task.started_at, now)).weak());
                         match &task.status {
                             TaskStatus::Running => {
                                 ui.spinner();
@@ -166,19 +167,5 @@ fn format_kind(kind: &TaskKind) -> &'static str {
     match kind {
         TaskKind::Add => "Add",
         TaskKind::Refresh => "Refresh",
-    }
-}
-
-fn format_age(started: DateTime<Utc>, now: DateTime<Utc>) -> String {
-    let elapsed = now - started;
-    let secs = elapsed.num_seconds();
-    if secs < 5 {
-        "just now".to_string()
-    } else if secs < 60 {
-        format!("{}s ago", secs)
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else {
-        format!("{}h ago", secs / 3600)
     }
 }
