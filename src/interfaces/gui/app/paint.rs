@@ -280,9 +280,15 @@ impl FicflowApp {
                         &self.current_db_path,
                         self.update_check.newer_release(),
                         &mut self.ao3_account,
+                        &self.task_executor.background_status(),
                     );
                     if outcome.config_changed {
+                        self.task_executor
+                            .set_background_enabled(self.config.background_checks);
                         self.save_config();
+                    }
+                    if outcome.check_now {
+                        self.task_executor.check_all_now();
                     }
                     // The native picker is opened later from `ui()`, which holds
                     // the window handle needed to parent the dialog above us.
