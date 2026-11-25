@@ -7,13 +7,14 @@ pub mod worker;
 
 use std::mem;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use chrono::{DateTime, Utc};
 
+use crate::application::background_refresh::RefreshSchedule;
 use crate::domain::inbox::InboxMessage;
 use crate::infrastructure::external::ao3::session::SessionStore;
 
@@ -21,6 +22,7 @@ use crate::infrastructure::external::ao3::session::SessionStore;
 pub enum TaskKind {
     Add { input: String },
     Refresh { fic_id: u64 },
+    BackgroundCheck,
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +47,14 @@ pub struct TaskState {
 pub(super) enum WorkerCommand {
     AddFic { task_id: u64, input: String },
     RefreshFic { task_id: u64, fic_id: u64 },
+    CheckAllNow,
+    ResumeBackground,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BackgroundStatus {
+    pub remaining: usize,
+    pub last_full_check: Option<DateTime<Utc>>,
 }
 
 /// A panic elsewhere while holding one of these locks shouldn't take every
@@ -64,23 +74,44 @@ pub(super) struct WorkerShared {
     /// `last_checked_date` show in the details panel.
     pub recent_refreshes: Mutex<Vec<u64>>,
     pub new_messages: Mutex<Vec<InboxMessage>>,
+    pub library_changed: AtomicBool,
+    pub background_enabled: AtomicBool,
+    pub background: Mutex<BackgroundStatus>,
+    pub finished_manual_checks: Mutex<Vec<usize>>,
+    next_id: AtomicU64,
 }
 
 impl WorkerShared {
-    fn new() -> Self {
+    fn new(background_enabled: bool) -> Self {
         Self {
             tasks: Mutex::new(Vec::new()),
             recent_completions: Mutex::new(Vec::new()),
             recent_refreshes: Mutex::new(Vec::new()),
             new_messages: Mutex::new(Vec::new()),
+            library_changed: AtomicBool::new(false),
+            background_enabled: AtomicBool::new(background_enabled),
+            background: Mutex::new(BackgroundStatus::default()),
+            finished_manual_checks: Mutex::new(Vec::new()),
+            next_id: AtomicU64::new(1),
         }
+    }
+
+    pub fn push_task(&self, kind: TaskKind, display: String, status: TaskStatus) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        lock(&self.tasks).push(TaskState {
+            id,
+            kind,
+            display,
+            status,
+            started_at: Utc::now(),
+        });
+        id
     }
 }
 
 pub struct TaskExecutor {
     shared: Arc<WorkerShared>,
     sender: Sender<WorkerCommand>,
-    next_id: AtomicU64,
     /// Worker terminates when `sender` is dropped (rx.recv returns Err);
     /// the handle is held only so the thread has a stable identity.
     _worker: thread::JoinHandle<()>,
@@ -96,8 +127,10 @@ impl TaskExecutor {
         db_path: PathBuf,
         session_store: Arc<dyn SessionStore>,
         session_site: String,
+        schedule: Option<RefreshSchedule>,
+        background_enabled: bool,
     ) -> Self {
-        let shared = Arc::new(WorkerShared::new());
+        let shared = Arc::new(WorkerShared::new(background_enabled));
         let (tx, rx) = mpsc::channel();
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
@@ -109,13 +142,12 @@ impl TaskExecutor {
                     session_store,
                     session_site,
                 };
-                worker::run(rx, worker_shared, fetcher_setup, db_path)
+                worker::run(rx, worker_shared, fetcher_setup, db_path, schedule)
             })
             .expect("failed to spawn task-worker thread");
         Self {
             shared,
             sender: tx,
-            next_id: AtomicU64::new(1),
             _worker: worker,
         }
     }
@@ -149,15 +181,29 @@ impl TaskExecutor {
     }
 
     fn push_task(&self, kind: TaskKind, display: String) -> u64 {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        lock(&self.shared.tasks).push(TaskState {
-            id,
-            kind,
-            display,
-            status: TaskStatus::Running,
-            started_at: Utc::now(),
-        });
-        id
+        self.shared.push_task(kind, display, TaskStatus::Running)
+    }
+
+    pub fn check_all_now(&self) {
+        let _ = self.sender.send(WorkerCommand::CheckAllNow);
+    }
+
+    pub fn set_background_enabled(&self, enabled: bool) {
+        self.shared
+            .background_enabled
+            .store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn background_status(&self) -> BackgroundStatus {
+        lock(&self.shared.background).clone()
+    }
+
+    pub fn take_finished_manual_checks(&self) -> Vec<usize> {
+        mem::take(&mut *lock(&self.shared.finished_manual_checks))
+    }
+
+    pub fn take_library_changed(&self) -> bool {
+        self.shared.library_changed.swap(false, Ordering::Relaxed)
     }
 
     pub fn snapshot(&self) -> Vec<TaskState> {
@@ -185,6 +231,9 @@ impl TaskExecutor {
         match failed.kind {
             TaskKind::Add { input } => self.enqueue_add(input),
             TaskKind::Refresh { fic_id } => self.enqueue_refresh(fic_id, failed.display),
+            TaskKind::BackgroundCheck => {
+                let _ = self.sender.send(WorkerCommand::ResumeBackground);
+            }
         }
     }
 

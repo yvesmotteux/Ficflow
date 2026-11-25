@@ -348,6 +348,21 @@ impl FicflowApp {
             }
             self.cache.reload_inbox(&self.connection);
         }
+        for found in self.task_executor.take_finished_manual_checks() {
+            match found {
+                0 => self.toasts.info("Update check done: no new chapters"),
+                1 => self
+                    .toasts
+                    .info("Update check done: 1 fic has new chapters"),
+                n => self
+                    .toasts
+                    .info(format!("Update check done: {n} fics have new chapters")),
+            };
+        }
+        if self.task_executor.take_library_changed() {
+            self.cache.reload_fics(&self.connection);
+            self.refresh_shelf_members();
+        }
         let refreshes = self.task_executor.take_refreshes();
         if !refreshes.is_empty() {
             self.toasts
