@@ -1,8 +1,10 @@
+use std::error::Error as _;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum FicflowError {
-    #[error("network error: {0}")]
+    #[error("network error: {}", with_causes(.0))]
     Network(#[from] reqwest::Error),
 
     #[error("fanfiction with ID {fic_id} not found")]
@@ -52,4 +54,15 @@ pub enum FicflowError {
 
     #[error("{0}")]
     Other(String),
+}
+
+fn with_causes(err: &reqwest::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }

@@ -191,6 +191,20 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_failure_shows_its_real_cause() {
+        let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
+
+        h.app.submit_add_fic(FIC_ID.to_string());
+        assert!(h.wait_for_tasks(200));
+
+        let message = failure_message(&h);
+        assert!(
+            message.contains("Connection refused"),
+            "unexpected message: {message}"
+        );
+    }
+
+    #[test]
     fn logging_out_forgets_the_login() {
         let server = MockServer::start();
         given_restricted_work(&server);
