@@ -107,6 +107,14 @@ pub enum CliCommand {
         #[arg(value_name = "backup")]
         backup: PathBuf,
     },
+    /// Log in to AO3 so restricted works can be added (your password is never saved)
+    Login {
+        /// Your AO3 user name or email (asked for if left out)
+        #[arg(value_name = "username")]
+        username: Option<String>,
+    },
+    /// Log out of AO3
+    Logout,
 }
 
 #[derive(Subcommand, Debug)]
