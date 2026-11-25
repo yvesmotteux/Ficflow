@@ -1,7 +1,10 @@
 use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
+use crate::domain::inbox::{InboxMessage, InboxOps, MessageContent};
 use crate::domain::shelf::{AutoShelfCriteria, MAX_SHELF_DEPTH, Shelf, ShelfKind, ShelfOps};
 use crate::error::FicflowError;
-use crate::infrastructure::persistence::repository::mapping::{row_to_fanfiction, row_to_shelf};
+use crate::infrastructure::persistence::repository::mapping::{
+    row_to_fanfiction, row_to_inbox_message, row_to_shelf,
+};
 use std::collections::HashMap;
 
 use chrono::Utc;
@@ -500,5 +503,59 @@ impl ShelfOps for SqliteRepository<'_> {
         })?;
         rows.collect::<Result<_, _>>()
             .map_err(FicflowError::Database)
+    }
+}
+
+impl InboxOps for SqliteRepository<'_> {
+    fn post_message(&self, content: &MessageContent) -> Result<InboxMessage, FicflowError> {
+        let json = serde_json::to_string(content)?;
+        let created_at = Utc::now();
+        self.conn.execute(
+            "INSERT INTO inbox_message (content, created_at) VALUES (?1, ?2)",
+            params![json, created_at.to_rfc3339()],
+        )?;
+        Ok(InboxMessage {
+            id: self.conn.last_insert_rowid() as u64,
+            created_at,
+            read_at: None,
+            content: content.clone(),
+        })
+    }
+
+    fn list_messages(&self) -> Result<Vec<InboxMessage>, FicflowError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM inbox_message ORDER BY created_at DESC, id DESC")?;
+        let rows = stmt.query_map([], row_to_inbox_message)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    fn delete_message(&self, message_id: u64) -> Result<(), FicflowError> {
+        self.conn.execute(
+            "DELETE FROM inbox_message WHERE id = ?1",
+            params![message_id],
+        )?;
+        Ok(())
+    }
+
+    fn clear_inbox(&self) -> Result<(), FicflowError> {
+        self.conn.execute("DELETE FROM inbox_message", [])?;
+        Ok(())
+    }
+
+    fn mark_message_read(&self, message_id: u64) -> Result<(), FicflowError> {
+        self.conn.execute(
+            "UPDATE inbox_message SET read_at = ?2 WHERE id = ?1 AND read_at IS NULL",
+            params![message_id, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    fn mark_all_read(&self) -> Result<(), FicflowError> {
+        self.conn.execute(
+            "UPDATE inbox_message SET read_at = ?1 WHERE read_at IS NULL",
+            params![Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
     }
 }
