@@ -1,10 +1,12 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use ficflow::error::FicflowError;
 use ficflow::infrastructure::config::Config;
-use ficflow::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
+use ficflow::infrastructure::external::ao3::fetcher::{ao3_urls_from_env, session_site_from_env};
+use ficflow::infrastructure::external::ao3::session::KeychainSessionStore;
 use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, open_configured_db};
 use ficflow::interfaces::cli::{self, command::CliCommand};
 
@@ -20,6 +22,8 @@ fn main() -> ExitCode {
         match cli::command::parse_cli_commands() {
             CliCommand::Config(command) => cli::config::run(command),
             CliCommand::Restore { backup } => cli::config::restore(&backup),
+            CliCommand::Login { username } => cli::account::login(username),
+            CliCommand::Logout => cli::account::logout(),
             command => run_cli(command).unwrap_or_else(|err| {
                 eprintln!("Error: {}", err);
                 ExitCode::FAILURE
@@ -30,7 +34,8 @@ fn main() -> ExitCode {
 
 fn run_cli(command: CliCommand) -> Result<ExitCode, FicflowError> {
     let (urls, max_cycles) = ao3_urls_from_env();
-    let fetcher = Ao3Fetcher::new(urls, max_cycles)?;
+    let fetcher = Ao3Fetcher::new(urls, max_cycles)?
+        .with_session(Arc::new(KeychainSessionStore), session_site_from_env());
     let db_path = Config::load().resolved_db_path()?;
     let conn = open_configured_db(&db_path)?;
     let repository = SqliteRepository::new(&conn);

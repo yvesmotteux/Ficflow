@@ -17,12 +17,14 @@
 #![allow(dead_code)] // Suppress warnings for harness helpers used by future test files
 
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use rusqlite::Connection;
 use tempfile::TempDir;
 
+use ficflow::error::FicflowError;
+use ficflow::infrastructure::external::ao3::session::{Ao3Session, SessionStore};
 use ficflow::interfaces::gui::{FicflowApp, FicflowConfig};
 
 use crate::common::fixtures;
@@ -35,6 +37,31 @@ use crate::common::fixtures;
 /// (held via the guard below) instead of gating just the `set_var` call.
 static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
+#[derive(Default)]
+pub struct MemorySessionStore(Mutex<Option<Ao3Session>>);
+
+impl MemorySessionStore {
+    pub fn set(&self, session: Option<Ao3Session>) {
+        *self.0.lock().unwrap() = session;
+    }
+}
+
+impl SessionStore for MemorySessionStore {
+    fn load(&self) -> Option<Ao3Session> {
+        self.0.lock().unwrap().clone()
+    }
+
+    fn save(&self, session: &Ao3Session) -> Result<(), FicflowError> {
+        self.set(Some(session.clone()));
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), FicflowError> {
+        self.set(None);
+        Ok(())
+    }
+}
+
 pub struct GuiHarness {
     pub app: FicflowApp,
     pub ctx: egui::Context,
@@ -42,6 +69,7 @@ pub struct GuiHarness {
     /// Lets tests seed fixtures and assert against the underlying DB.
     pub conn: Connection,
     pub db_path: PathBuf,
+    pub session_store: Arc<MemorySessionStore>,
     /// Held so the temp file doesn't get unlinked until the harness drops.
     _temp_dir: TempDir,
     /// Keeps `XDG_CONFIG_HOME` pinned to this harness's scratch dir for as
@@ -110,8 +138,11 @@ impl GuiHarness {
         }
 
         let ctx = egui::Context::default();
+        let session_store = Arc::new(MemorySessionStore::default());
         let config = FicflowConfig {
             db_path: Some(db_path.clone()),
+            session_store: session_store.clone(),
+            session_site: ao3_urls[0].clone(),
             ao3_urls,
             // Fail-fast: tests should never sit through the production
             // 2- or 3-cycle retry storm.
@@ -125,6 +156,7 @@ impl GuiHarness {
             ctx,
             conn,
             db_path,
+            session_store,
             _temp_dir: temp_dir,
             _config_env_guard: config_env_guard,
         }
@@ -136,6 +168,8 @@ impl GuiHarness {
     pub fn restart(&mut self, ao3_urls: Vec<String>) {
         let config = FicflowConfig {
             db_path: Some(self.db_path.clone()),
+            session_store: self.session_store.clone(),
+            session_site: ao3_urls[0].clone(),
             ao3_urls,
             max_retry_cycles: 1,
             latest_release_url: "http://127.0.0.1:1".into(),

@@ -60,7 +60,10 @@ impl<'a> CliCommandExecutor<'a> {
                 })
             }
             CliCommand::Wipe => self.execute_wipe(),
-            CliCommand::Config(_) | CliCommand::Restore { .. } => {
+            CliCommand::Config(_)
+            | CliCommand::Restore { .. }
+            | CliCommand::Login { .. }
+            | CliCommand::Logout => {
                 unreachable!("settings commands run before the library is opened")
             }
             CliCommand::UpdateChapter { fic_id, chapter } => {

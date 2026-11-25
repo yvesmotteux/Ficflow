@@ -1,15 +1,32 @@
+use std::error::Error as _;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum FicflowError {
-    #[error("network error: {0}")]
+    #[error("network error: {}", with_causes(.0))]
     Network(#[from] reqwest::Error),
+
+    #[error(
+        "AO3's Cloudflare protection wants to check you're human: open \
+         https://archiveofourown.org in your browser, then try again"
+    )]
+    CloudflareChallenge,
 
     #[error("fanfiction with ID {fic_id} not found")]
     NotFound { fic_id: u64 },
 
     #[error("fanfiction with ID {fic_id} is only visible to logged-in AO3 users")]
     RestrictedWork { fic_id: u64 },
+
+    #[error("your AO3 login has expired, please log in again")]
+    SessionExpired,
+
+    #[error("AO3 didn't accept that user name and password")]
+    LoginRejected,
+
+    #[error("couldn't use the system keychain: {0}")]
+    Keychain(String),
 
     #[error("fanfiction with ID {fic_id} already exists in your library")]
     AlreadyExists { fic_id: u64 },
@@ -43,4 +60,15 @@ pub enum FicflowError {
 
     #[error("{0}")]
     Other(String),
+}
+
+fn with_causes(err: &reqwest::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }

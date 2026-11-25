@@ -1,3 +1,4 @@
+mod ao3_account;
 pub mod app;
 mod assets;
 mod auto_shelf;

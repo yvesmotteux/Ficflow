@@ -5,6 +5,7 @@ mod shortcuts;
 mod window;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui_notify::Toasts;
 use rusqlite::Connection;
@@ -20,12 +21,14 @@ use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
 use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
-use crate::infrastructure::external::ao3::fetcher::ao3_urls_from_env;
+use crate::infrastructure::external::ao3::fetcher::{ao3_urls_from_env, session_site_from_env};
+use crate::infrastructure::external::ao3::session::{KeychainSessionStore, SessionStore};
 use crate::infrastructure::external::github::{LATEST_RELEASE_URL, Release};
 use crate::infrastructure::persistence::database::connection::{
     move_library_into, open_configured_db, restore_backup,
 };
 
+use super::ao3_account::Ao3Account;
 use super::chrome::FrameChrome;
 use super::library_cache::LibraryCache;
 use super::selection::Selection;
@@ -73,6 +76,8 @@ pub struct FicflowApp {
     focus_search_pending: bool,
     toasts: Toasts,
     update_check: UpdateCheck,
+    ao3_account: Ao3Account,
+    was_on_settings: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -105,6 +110,8 @@ pub struct FicflowConfig {
     pub ao3_urls: Vec<String>,
     pub max_retry_cycles: u32,
     pub latest_release_url: String,
+    pub session_store: Arc<dyn SessionStore>,
+    pub session_site: String,
 }
 
 impl Default for FicflowConfig {
@@ -115,6 +122,8 @@ impl Default for FicflowConfig {
             ao3_urls,
             max_retry_cycles,
             latest_release_url: LATEST_RELEASE_URL.to_string(),
+            session_store: Arc::new(KeychainSessionStore),
+            session_site: session_site_from_env(),
         }
     }
 }
@@ -148,8 +157,13 @@ impl FicflowApp {
             .last_view
             .and_then(|pv| View::from_persisted(pv, &cache.shelves))
             .unwrap_or_default();
-        let task_executor =
-            TaskExecutor::spawn(config.ao3_urls, config.max_retry_cycles, db_path.clone());
+        let task_executor = TaskExecutor::spawn(
+            config.ao3_urls,
+            config.max_retry_cycles,
+            db_path.clone(),
+            Arc::clone(&config.session_store),
+            config.session_site.clone(),
+        );
         let mut app = Self {
             connection,
             current_db_path: db_path,
@@ -170,6 +184,8 @@ impl FicflowApp {
             focus_search_pending: false,
             toasts: Toasts::default(),
             update_check: UpdateCheck::new(config.latest_release_url),
+            ao3_account: Ao3Account::new(config.session_store, config.session_site),
+            was_on_settings: false,
         };
         // Restoring straight into a shelf view skips the sidebar's
         // prev/post diff (see `paint_sidebar`) that normally populates
@@ -211,6 +227,18 @@ impl FicflowApp {
 
     pub fn newer_release(&self) -> Option<&Release> {
         self.update_check.newer_release()
+    }
+
+    pub fn ao3_username(&self) -> Option<&str> {
+        self.ao3_account.username()
+    }
+
+    pub fn ao3_login_error(&self) -> Option<&str> {
+        self.ao3_account.error()
+    }
+
+    pub fn ao3_logging_in(&self) -> bool {
+        self.ao3_account.logging_in()
     }
 
     pub fn search_query(&self) -> &str {
@@ -282,6 +310,16 @@ impl FicflowApp {
     // prove the status combo emits `Read` for its "Read" entry.
     // Closing that gap needs an event-injection harness such as
     // egui_kittest.
+
+    pub fn log_in_to_ao3(&mut self, ctx: &egui::Context, username: &str, password: &str) {
+        self.ao3_account.username_input = username.to_string();
+        self.ao3_account.password_input = password.to_string();
+        self.ao3_account.log_in(ctx);
+    }
+
+    pub fn log_out_of_ao3(&mut self) {
+        self.ao3_account.log_out();
+    }
 
     pub fn submit_add_fic(&self, input: impl Into<String>) {
         self.task_executor.enqueue_add(input.into());

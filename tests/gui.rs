@@ -58,3 +58,6 @@ mod new_version;
 
 #[path = "gui/shared_config.rs"]
 mod shared_config;
+
+#[path = "gui/ao3_login.rs"]
+mod ao3_login;

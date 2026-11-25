@@ -137,6 +137,13 @@ fn chapters(doc: &Html) -> (u32, Option<u32>, bool) {
 }
 
 fn restricted(doc: &Html) -> bool {
+    if doc
+        .select(selector!("img[alt=\"(Restricted)\"]"))
+        .next()
+        .is_some()
+    {
+        return true;
+    }
     doc.select(selector!("p.notice")).any(|element| {
         let text = element.text().collect::<String>().to_lowercase();
         text.contains("only available to registered users")

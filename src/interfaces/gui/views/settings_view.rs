@@ -3,6 +3,7 @@ use std::path::Path;
 use chrono::NaiveDate;
 use egui::{RichText, ScrollArea, Ui};
 
+use super::super::ao3_account::Ao3Account;
 use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE, ThemeChoice};
 use super::super::format::erisian_date;
 use crate::infrastructure::config::config_file_path;
@@ -29,6 +30,7 @@ pub fn draw(
     config: &mut AppConfig,
     current_db_path: &Path,
     newer_release: Option<&Release>,
+    account: &mut Ao3Account,
 ) -> SettingsOutcome {
     let mut changed = false;
     let mut request = None;
@@ -101,6 +103,10 @@ pub fn draw(
             });
 
             ui.add_space(12.0);
+            ui.label(RichText::new("AO3 account").strong());
+            draw_account(ui, account);
+
+            ui.add_space(12.0);
             ui.label(RichText::new("Library").strong());
             info_row(ui, "Location", current_db_path.display().to_string());
             ui.horizontal(|ui| {
@@ -129,6 +135,51 @@ pub fn draw(
     SettingsOutcome {
         config_changed: changed,
         request,
+    }
+}
+
+fn draw_account(ui: &mut Ui, account: &mut Ao3Account) {
+    if account.logging_in() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Logging in…");
+        });
+    } else if let Some(username) = account.username().map(str::to_string) {
+        ui.horizontal(|ui| {
+            info_row(ui, "Logged in as", username);
+            if ui.button("Log out").clicked() {
+                account.log_out();
+            }
+        });
+    } else {
+        let mut submit = false;
+        egui::Grid::new("ao3_login").num_columns(2).show(ui, |ui| {
+            ui.label(RichText::new("User name or email:").weak());
+            ui.add(egui::TextEdit::singleline(&mut account.username_input).desired_width(220.0));
+            ui.end_row();
+            ui.label(RichText::new("Password:").weak());
+            let password = ui.add(
+                egui::TextEdit::singleline(&mut account.password_input)
+                    .password(true)
+                    .desired_width(220.0),
+            );
+            submit = password.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.end_row();
+        });
+        if ui.button("Log in").clicked() || submit {
+            account.log_in(ui.ctx());
+        }
+        ui.label(
+            RichText::new(
+                "Needed to add restricted works. Your password is only used to log in and is \
+                never saved; Ficflow keeps the AO3 login in your system keychain.",
+            )
+            .weak()
+            .italics(),
+        );
+    }
+    if let Some(error) = account.error() {
+        ui.colored_label(ui.visuals().error_fg_color, error);
     }
 }
 

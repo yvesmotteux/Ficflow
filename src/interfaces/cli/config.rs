@@ -2,6 +2,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use super::account;
 use super::command::ConfigCommand;
 use super::executor::confirm;
 use crate::error::FicflowError;
@@ -51,6 +52,7 @@ fn show() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    println!("AO3 account: {}", account::status());
     ExitCode::SUCCESS
 }
 
