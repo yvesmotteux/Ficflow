@@ -49,12 +49,20 @@ mod tests {
         })
     }
 
+    fn restricted_fic_html() -> String {
+        fic_html().replacen(
+            r#"<h2 class="title heading">"#,
+            r#"<h2 class="title heading"><img alt="(Restricted)" title="Restricted" src="/images/lockblue.png" />"#,
+            1,
+        )
+    }
+
     fn given_restricted_work(server: &MockServer) -> (Mock<'_>, Mock<'_>) {
         let with_session = server.mock(|when, then| {
             when.method(GET)
                 .path(format!("/works/{FIC_ID}"))
                 .header_includes("cookie", "remember_user_token=abc");
-            then.status(200).body(fic_html());
+            then.status(200).body(restricted_fic_html());
         });
         let without_session = server.mock(|when, then| {
             when.method(GET)
@@ -121,6 +129,8 @@ mod tests {
         with_session.assert_calls(1);
         assert_eq!(h.app.fics().len(), 1);
         assert_eq!(h.app.fics()[0].id, FIC_ID);
+        assert_eq!(h.app.fics()[0].title, "Featherlight");
+        assert!(h.app.fics()[0].restricted);
     }
 
     #[test]
