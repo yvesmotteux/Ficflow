@@ -38,4 +38,6 @@ pub struct Fanfiction {
     pub user_rating: Option<UserRating>,  // Custom field
     pub personal_note: Option<String>,    // Custom field
     pub last_checked_date: DateTime<Utc>, // Custom field (last update check)
+    #[serde(skip)]
+    pub chapter_ids: Vec<u64>,
 }

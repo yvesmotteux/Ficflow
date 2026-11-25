@@ -274,6 +274,7 @@ pub mod fixtures {
             user_rating: None,
             personal_note: None,
             last_checked_date: Utc::now(),
+            chapter_ids: Vec::new(),
         }
     }
 
