@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     steps:
       - name: Checkout master
         uses: actions/checkout@v6
@@ -80,6 +81,19 @@ jobs:
             Cargo.lock, and aur/PKGBUILD, so the version shown in Settings on a
             local `cargo run` stays in step with the latest release.
           delete-branch: true
+
+      - name: Wait for the test check on the bump PR to finish
+        if: steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.cpr.outputs.pull-request-head-sha }}
+        run: |
+          for _ in $(seq 1 30); do
+            status=$(gh run list --workflow test.yml --commit "$SHA" --json status -q '.[0].status')
+            [ "$status" = completed ] && exit 0
+            sleep 10
+          done
+          echo "No finished test run after 5 minutes, merging anyway"
 
       - name: Enable auto-merge on the bump PR
         if: steps.cpr.outputs.pull-request-number
