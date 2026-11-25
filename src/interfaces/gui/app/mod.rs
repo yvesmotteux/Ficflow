@@ -11,6 +11,7 @@ use egui_notify::Toasts;
 use rusqlite::Connection;
 
 use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref, ThemeChoice};
+use crate::application::background_refresh::RefreshSchedule;
 use crate::application::{
     add_to_shelf::add_to_shelf,
     clear_inbox::clear_inbox,
@@ -124,6 +125,7 @@ pub struct FicflowConfig {
     pub latest_release_url: String,
     pub session_store: Arc<dyn SessionStore>,
     pub session_site: String,
+    pub background_refresh: Option<RefreshSchedule>,
 }
 
 impl Default for FicflowConfig {
@@ -136,6 +138,7 @@ impl Default for FicflowConfig {
             latest_release_url: LATEST_RELEASE_URL.to_string(),
             session_store: Arc::new(KeychainSessionStore),
             session_site: session_site_from_env(),
+            background_refresh: Some(RefreshSchedule::default()),
         }
     }
 }
@@ -175,6 +178,8 @@ impl FicflowApp {
             db_path.clone(),
             Arc::clone(&config.session_store),
             config.session_site.clone(),
+            config.background_refresh,
+            app_config.background_checks,
         );
         let mut app = Self {
             connection,
@@ -347,6 +352,16 @@ impl FicflowApp {
 
     pub fn clear_finished_tasks(&self) {
         self.task_executor.clear_completed();
+    }
+
+    pub fn check_for_updates_now(&self) {
+        self.task_executor.check_all_now();
+    }
+
+    pub fn set_background_checks(&mut self, enabled: bool) {
+        self.config.background_checks = enabled;
+        self.task_executor.set_background_enabled(enabled);
+        self.save_config();
     }
 
     pub fn submit_add_fic(&self, input: impl Into<String>) {

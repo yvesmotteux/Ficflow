@@ -64,3 +64,6 @@ mod ao3_login;
 
 #[path = "gui/inbox.rs"]
 mod inbox;
+
+#[path = "gui/background_refresh.rs"]
+mod background_refresh;

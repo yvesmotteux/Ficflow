@@ -137,5 +137,6 @@ fn format_kind(kind: &TaskKind) -> &'static str {
     match kind {
         TaskKind::Add { .. } => "Add",
         TaskKind::Refresh { .. } => "Refresh",
+        TaskKind::BackgroundCheck => "Update check",
     }
 }

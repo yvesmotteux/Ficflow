@@ -280,9 +280,15 @@ impl FicflowApp {
                         &self.current_db_path,
                         self.update_check.newer_release(),
                         &mut self.ao3_account,
+                        &self.task_executor.background_status(),
                     );
                     if outcome.config_changed {
+                        self.task_executor
+                            .set_background_enabled(self.config.background_checks);
                         self.save_config();
+                    }
+                    if outcome.check_now {
+                        self.task_executor.check_all_now();
                     }
                     // The native picker is opened later from `ui()`, which holds
                     // the window handle needed to parent the dialog above us.
@@ -347,6 +353,21 @@ impl FicflowApp {
                     .info(format!("New chapter for \u{201C}{}\u{201D}", title));
             }
             self.cache.reload_inbox(&self.connection);
+        }
+        for found in self.task_executor.take_finished_manual_checks() {
+            match found {
+                0 => self.toasts.info("Update check done: no new chapters"),
+                1 => self
+                    .toasts
+                    .info("Update check done: 1 fic has new chapters"),
+                n => self
+                    .toasts
+                    .info(format!("Update check done: {n} fics have new chapters")),
+            };
+        }
+        if self.task_executor.take_library_changed() {
+            self.cache.reload_fics(&self.connection);
+            self.refresh_shelf_members();
         }
         let refreshes = self.task_executor.take_refreshes();
         if !refreshes.is_empty() {

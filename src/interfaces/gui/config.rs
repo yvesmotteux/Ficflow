@@ -152,11 +152,17 @@ pub struct AppConfig {
     pub text_zoom: f32,
     #[serde(default)]
     pub theme: ThemeChoice,
+    #[serde(default = "default_background_checks")]
+    pub background_checks: bool,
     #[serde(flatten)]
     pub shared: Config,
 }
 
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
+
+fn default_background_checks() -> bool {
+    true
+}
 
 fn default_text_zoom() -> f32 {
     1.0
@@ -202,6 +208,7 @@ impl Default for AppConfig {
             last_view: None,
             text_zoom: 1.0,
             theme: ThemeChoice::System,
+            background_checks: true,
             shared: Config::default(),
         }
     }

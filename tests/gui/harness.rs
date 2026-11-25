@@ -23,6 +23,7 @@ use std::time::Duration;
 use rusqlite::Connection;
 use tempfile::TempDir;
 
+use ficflow::application::background_refresh::RefreshSchedule;
 use ficflow::error::FicflowError;
 use ficflow::infrastructure::external::ao3::session::{Ao3Session, SessionStore};
 use ficflow::interfaces::gui::{FicflowApp, FicflowConfig};
@@ -70,6 +71,7 @@ pub struct GuiHarness {
     pub conn: Connection,
     pub db_path: PathBuf,
     pub session_store: Arc<MemorySessionStore>,
+    background_refresh: Option<RefreshSchedule>,
     /// Held so the temp file doesn't get unlinked until the harness drops.
     _temp_dir: TempDir,
     /// Keeps `XDG_CONFIG_HOME` pinned to this harness's scratch dir for as
@@ -103,6 +105,24 @@ impl GuiHarness {
             conn,
             db_path,
             temp_dir,
+            None,
+        )
+    }
+
+    pub fn with_background_refresh(
+        ao3_urls: Vec<String>,
+        conn: Connection,
+        db_path: PathBuf,
+        temp_dir: TempDir,
+        schedule: RefreshSchedule,
+    ) -> Self {
+        Self::build(
+            ao3_urls,
+            "http://127.0.0.1:1".into(),
+            conn,
+            db_path,
+            temp_dir,
+            Some(schedule),
         )
     }
 
@@ -114,6 +134,7 @@ impl GuiHarness {
             conn,
             db_path,
             temp_dir,
+            None,
         )
     }
 
@@ -123,6 +144,7 @@ impl GuiHarness {
         conn: Connection,
         db_path: PathBuf,
         temp_dir: TempDir,
+        background_refresh: Option<RefreshSchedule>,
     ) -> Self {
         // A poisoned lock (previous test panicked while holding it) is
         // still safe to reuse here — we're about to overwrite the env var
@@ -148,6 +170,7 @@ impl GuiHarness {
             // 2- or 3-cycle retry storm.
             max_retry_cycles: 1,
             latest_release_url,
+            background_refresh,
         };
         let app = FicflowApp::with_config(&ctx, config)
             .expect("FicflowApp::with_config failed in test harness");
@@ -157,6 +180,7 @@ impl GuiHarness {
             conn,
             db_path,
             session_store,
+            background_refresh,
             _temp_dir: temp_dir,
             _config_env_guard: config_env_guard,
         }
@@ -173,6 +197,7 @@ impl GuiHarness {
             ao3_urls,
             max_retry_cycles: 1,
             latest_release_url: "http://127.0.0.1:1".into(),
+            background_refresh: self.background_refresh,
         };
         self.app = FicflowApp::with_config(&self.ctx, config)
             .expect("FicflowApp::with_config failed on restart");

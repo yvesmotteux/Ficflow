@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc};
 use egui::{RichText, ScrollArea, Ui};
 
 use super::super::ao3_account::Ao3Account;
 use super::super::config::{self, AppConfig, TEXT_ZOOM_RANGE, ThemeChoice};
-use super::super::format::erisian_date;
+use super::super::format::{erisian_date, relative_time};
+use super::super::tasks::BackgroundStatus;
 use crate::infrastructure::config::config_file_path;
 use crate::infrastructure::external::github::Release;
 use crate::version::{LICENSE, RELEASE_DATE, VERSION};
@@ -23,6 +24,7 @@ pub enum LibraryRequest {
 pub struct SettingsOutcome {
     pub config_changed: bool,
     pub request: Option<LibraryRequest>,
+    pub check_now: bool,
 }
 
 pub fn draw(
@@ -31,9 +33,11 @@ pub fn draw(
     current_db_path: &Path,
     newer_release: Option<&Release>,
     account: &mut Ao3Account,
+    background: &BackgroundStatus,
 ) -> SettingsOutcome {
     let mut changed = false;
     let mut request = None;
+    let mut check_now = false;
 
     ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -107,6 +111,46 @@ pub fn draw(
             draw_account(ui, account);
 
             ui.add_space(12.0);
+            ui.label(RichText::new("Updates").strong());
+            changed |= ui
+                .checkbox(
+                    &mut config.background_checks,
+                    "Check for new chapters automatically",
+                )
+                .changed();
+            ui.label(
+                RichText::new(
+                    "While Ficflow is open, unfinished fics are checked when it starts and then \
+                    one every few minutes. Other fics get their stats refreshed every two weeks.",
+                )
+                .weak()
+                .italics(),
+            );
+            ui.horizontal(|ui| {
+                let checking = background.remaining > 0;
+                if ui
+                    .add_enabled(!checking, egui::Button::new("Check for updates now"))
+                    .clicked()
+                {
+                    check_now = true;
+                }
+                let status = if checking {
+                    match background.remaining {
+                        1 => "Checking, 1 fic left…".to_string(),
+                        n => format!("Checking, {n} fics left…"),
+                    }
+                } else {
+                    match background.last_full_check {
+                        Some(when) => {
+                            format!("Last full check {}", relative_time(when, Utc::now()))
+                        }
+                        None => "Not checked yet since Ficflow started".to_string(),
+                    }
+                };
+                ui.label(RichText::new(status).weak());
+            });
+
+            ui.add_space(12.0);
             ui.label(RichText::new("Library").strong());
             info_row(ui, "Location", current_db_path.display().to_string());
             ui.horizontal(|ui| {
@@ -135,6 +179,7 @@ pub fn draw(
     SettingsOutcome {
         config_changed: changed,
         request,
+        check_now,
     }
 }
 
