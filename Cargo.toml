@@ -27,7 +27,7 @@ thiserror = "2.0.18"
 keyring = "4.2.0"
 rpassword = "7.5.5"
 
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "wayland", "x11", "persistence"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "wayland", "x11", "persistence", "links"] }
 egui = { version = "0.37", features = ["default_fonts", "monochrome_emoji_fonts"] }
 egui_extras = "0.37"
 egui-notify = "0.24"
