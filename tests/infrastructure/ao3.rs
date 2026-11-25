@@ -152,7 +152,9 @@ mod tests {
     #[test]
     fn test_check_fic_updates() {
         use ficflow::{
-            application::check_updates::check_fic_updates, domain::fanfiction::FanfictionOps,
+            application::check_updates::check_fic_updates,
+            domain::fanfiction::FanfictionOps,
+            domain::inbox::{InboxOps, MessageContent},
             infrastructure::persistence::repository::SqliteRepository,
         };
 
@@ -184,12 +186,32 @@ mod tests {
             .expect("Failed to save outdated fic");
 
         // When
-        let (has_new_chapters, updated_fic) =
-            check_fic_updates(&updated_fetcher, &fanfiction_ops, fic_id)
+        let (updated_fic, message) =
+            check_fic_updates(&updated_fetcher, &fanfiction_ops, &fanfiction_ops, fic_id)
                 .expect("Failed to check for updates");
 
         // Then
-        assert!(has_new_chapters, "Should detect new chapters");
+        let message = message.expect("Should post a new chapters message");
+        match &message.content {
+            MessageContent::NewChapters {
+                fic_id: message_fic_id,
+                title,
+                previous_count,
+                new_count,
+                first_new_chapter_id,
+                ..
+            } => {
+                assert_eq!(*message_fic_id, fic_id);
+                assert_eq!(title, &updated_fic.title);
+                assert_eq!((*previous_count, *new_count), (18, 32));
+                assert_eq!(*first_new_chapter_id, Some(142624333));
+            }
+        }
+        assert_eq!(
+            fanfiction_ops.list_messages().unwrap(),
+            vec![message],
+            "the message is stored in the inbox"
+        );
         assert_eq!(
             updated_fic.chapters_published, 32,
             "Updated fic should have 32 chapters"
@@ -235,12 +257,14 @@ mod tests {
         assert_eq!(stored_fic.read_count, 3, "Read count should be preserved");
 
         // Verify no changes reported when checking again
-        let (has_newer_chapters, _) = check_fic_updates(&updated_fetcher, &fanfiction_ops, fic_id)
-            .expect("Failed to check for updates second time");
+        let (_, message) =
+            check_fic_updates(&updated_fetcher, &fanfiction_ops, &fanfiction_ops, fic_id)
+                .expect("Failed to check for updates second time");
 
         assert!(
-            !has_newer_chapters,
+            message.is_none(),
             "Second update should report no new chapters"
         );
+        assert_eq!(fanfiction_ops.list_messages().unwrap().len(), 1);
     }
 }

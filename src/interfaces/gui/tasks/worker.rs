@@ -12,7 +12,7 @@ use crate::infrastructure::external::ao3::session::SessionStore;
 use crate::infrastructure::persistence::database::connection::open_configured_db;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
-use super::{TaskStatus, WorkerCommand, WorkerInbox, lock};
+use super::{TaskStatus, WorkerCommand, WorkerShared, lock};
 
 pub struct FetcherSetup {
     pub urls: Vec<String>,
@@ -23,7 +23,7 @@ pub struct FetcherSetup {
 
 pub fn run(
     rx: Receiver<WorkerCommand>,
-    inbox: Arc<WorkerInbox>,
+    shared: Arc<WorkerShared>,
     setup: FetcherSetup,
     db_path: PathBuf,
 ) {
@@ -55,18 +55,21 @@ pub fn run(
                 let outcome =
                     catch_unwind(AssertUnwindSafe(|| process_add(&fetcher, &repo, &input)))
                         .unwrap_or_else(|payload| Err(panic_to_error(payload)));
-                if let Some(title) = record(&inbox, task_id, outcome) {
-                    lock(&inbox.recent_completions).push(title);
+                if let Some(title) = record(&shared, task_id, outcome) {
+                    lock(&shared.recent_completions).push(title);
                 }
             }
             WorkerCommand::RefreshFic { task_id, fic_id } => {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
-                    check_fic_updates(&fetcher, &repo, fic_id)
+                    check_fic_updates(&fetcher, &repo, &repo, fic_id)
                 }))
                 .unwrap_or_else(|payload| Err(panic_to_error(payload)))
-                .map(|(_, fic)| fic.title);
-                if record(&inbox, task_id, outcome).is_some() {
-                    lock(&inbox.recent_refreshes).push(fic_id);
+                .map(|(fic, message)| {
+                    lock(&shared.new_messages).extend(message);
+                    fic.title
+                });
+                if record(&shared, task_id, outcome).is_some() {
+                    lock(&shared.recent_refreshes).push(fic_id);
                 }
             }
         }
@@ -76,11 +79,11 @@ pub fn run(
 /// Marks the task Done (showing the fic title) or Failed; returns the
 /// title on success.
 fn record(
-    inbox: &WorkerInbox,
+    shared: &WorkerShared,
     task_id: u64,
     outcome: Result<String, FicflowError>,
 ) -> Option<String> {
-    let mut tasks = lock(&inbox.tasks);
+    let mut tasks = lock(&shared.tasks);
     let task = tasks.iter_mut().find(|t| t.id == task_id);
     match (task, outcome) {
         (Some(task), Ok(title)) => {
