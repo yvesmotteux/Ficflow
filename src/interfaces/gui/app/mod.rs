@@ -303,6 +303,10 @@ impl FicflowApp {
         self.task_executor.snapshot()
     }
 
+    pub fn failed_task_count(&self) -> usize {
+        self.task_executor.failed_count()
+    }
+
     // ---- Control surface ----
     // The `set_*` / `bulk_*` methods bypass widget glue (combo box,
     // DragValue, star widget). A test calling `set_status(id, Read)`
@@ -319,6 +323,10 @@ impl FicflowApp {
 
     pub fn log_out_of_ao3(&mut self) {
         self.ao3_account.log_out();
+    }
+
+    pub fn clear_finished_tasks(&self) {
+        self.task_executor.clear_completed();
     }
 
     pub fn submit_add_fic(&self, input: impl Into<String>) {

@@ -90,6 +90,23 @@ mod tests {
     }
 
     #[test]
+    fn failed_task_flags_tasks_button_until_cleared() {
+        let mock_server = httpmock::MockServer::start();
+        let mut h = GuiHarness::new(vec![mock_server.base_url()]);
+        h.step_n(1);
+        assert_eq!(h.app.failed_task_count(), 0);
+
+        h.app.submit_add_fic("9999999");
+        assert!(h.wait_for_tasks(80), "worker did not finish in time");
+        h.step_n(1);
+        assert_eq!(h.app.failed_task_count(), 1);
+
+        h.app.clear_finished_tasks();
+        h.step_n(1);
+        assert_eq!(h.app.failed_task_count(), 0);
+    }
+
+    #[test]
     fn add_restricted_fic_fails_once_with_login_message() {
         let mock_server = httpmock::MockServer::start();
         let work = mock_server.mock(|when, then| {

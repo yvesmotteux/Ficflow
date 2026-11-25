@@ -23,6 +23,7 @@ pub struct SidebarState<'a> {
     /// Missing shelf ids render as 0.
     pub shelf_counts: &'a HashMap<u64, usize>,
     pub running_tasks: usize,
+    pub failed_tasks: usize,
 }
 
 /// At most one variant fires per frame — the three are mutually-exclusive
@@ -56,6 +57,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         library_counts,
         shelf_counts,
         running_tasks,
+        failed_tasks,
     } = state;
     let mut outcome = Outcome::None;
 
@@ -77,7 +79,11 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 View::Tasks,
                 "Tasks",
                 None,
-                Some(running_tasks),
+                Some(if failed_tasks > 0 {
+                    Badge::Alert(failed_tasks)
+                } else {
+                    Badge::Count(running_tasks)
+                }),
                 None,
             );
             view_row(
@@ -110,7 +116,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 View::AllFics,
                 "All Fanfictions",
                 Some(LIBRARY_ICON_ALL),
-                Some(library_counts.all),
+                Some(Badge::Count(library_counts.all)),
                 None,
             );
             for status in ReadingStatus::ALL {
@@ -120,7 +126,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                     View::ByStatus(status),
                     format_status(&status),
                     Some(status_icon(status)),
-                    Some(library_counts.by_status[status as usize]),
+                    Some(Badge::Count(library_counts.by_status[status as usize])),
                     None,
                 );
             }
@@ -288,7 +294,7 @@ fn shelf_rows(
             View::Shelf(shelf.id),
             &shelf.name,
             is_auto.then_some("\u{2699}"),
-            Some(count),
+            Some(Badge::Count(count)),
             Some(TreeRow {
                 depth,
                 expanded: has_children.then_some(!collapsed),
@@ -378,13 +384,19 @@ fn section_label(ui: &mut Ui, text: &str) {
     });
 }
 
+#[derive(Clone, Copy)]
+enum Badge {
+    Count(usize),
+    Alert(usize),
+}
+
 fn view_row(
     ui: &mut Ui,
     current_view: &mut View,
     target: View,
     label: &str,
     icon: Option<&str>,
-    count: Option<usize>,
+    badge: Option<Badge>,
     tree: Option<TreeRow>,
 ) -> (egui::Response, bool, bool) {
     let selected = *current_view == target;
@@ -420,7 +432,8 @@ fn view_row(
         );
     }
 
-    let text_color = visuals.text_color();
+    let alert_color = matches!(badge, Some(Badge::Alert(_))).then(|| theme::error(ui.visuals()));
+    let text_color = alert_color.unwrap_or_else(|| visuals.text_color());
     let body_font = egui::TextStyle::Body.resolve(ui.style());
     // Slightly smaller than the label so the count reads as secondary
     // info, but uses the row's full text colour (not weak) so it stays
@@ -432,7 +445,8 @@ fn view_row(
     // Right side: count badge (if any). Pre-laid-out here so we know its
     // width before clipping the label, then painted *after* the label so
     // it always sits on top.
-    let badge = count.map(|n| {
+    let badge = badge.map(|badge| {
+        let (Badge::Count(n) | Badge::Alert(n)) = badge;
         let galley = ui
             .painter()
             .layout_no_wrap(n.to_string(), count_font, text_color);
@@ -527,11 +541,15 @@ fn view_row(
     // Paint the count badge on top of (the clip-stopped) label.
     if let Some((badge_rect, galley, pad)) = badge {
         let inactive = &ui.style().visuals.widgets.inactive;
+        let stroke = match alert_color {
+            Some(color) => Stroke::new(1.0, color),
+            None => inactive.bg_stroke,
+        };
         ui.painter().rect(
             badge_rect,
             4.0,
             inactive.weak_bg_fill,
-            inactive.bg_stroke,
+            stroke,
             StrokeKind::Inside,
         );
         ui.painter()
