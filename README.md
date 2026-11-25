@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one (settings, refresh every x time, + notifications for all manual and auto refreshes when a new update was found! And an inbox too)
 - [ ] add works with not only single fics, but collections, a user list of fics, a tag, a user profile,...
 - [ ] opt-in option to back up the epub files of all fanfictions added to the database
 - [ ] detect when a fanfic was removed from AO3 and tag it specially / send a message to the inbox. If epub dl optin, explicitly offer access to the fic
