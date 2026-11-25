@@ -15,6 +15,8 @@ mod update_check;
 mod view;
 mod views;
 mod widgets;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod window_activation;
 
 use std::process::ExitCode;
 

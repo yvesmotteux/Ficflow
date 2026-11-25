@@ -1660,6 +1660,7 @@ dependencies = [
  "log",
  "notify-rust",
  "predicates",
+ "raw-window-handle",
  "regex",
  "reqwest",
  "resvg",
@@ -1675,6 +1676,10 @@ dependencies = [
  "term-table",
  "thiserror 2.0.18",
  "toml",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "zbus 5.18.0",
 ]
 
 [[package]]

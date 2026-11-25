@@ -26,6 +26,7 @@ use tempfile::TempDir;
 use ficflow::application::background_refresh::RefreshSchedule;
 use ficflow::error::FicflowError;
 use ficflow::infrastructure::external::ao3::session::{Ao3Session, SessionStore};
+use ficflow::interfaces::gui::desktop_notifications::ClickHandler;
 use ficflow::interfaces::gui::{DesktopNotification, DesktopNotifier, FicflowApp, FicflowConfig};
 
 use crate::common::fixtures;
@@ -63,8 +64,6 @@ impl SessionStore for MemorySessionStore {
     }
 }
 
-type ClickHandler = Box<dyn FnOnce() + Send>;
-
 #[derive(Default)]
 pub struct RecordingNotifier(Mutex<Vec<(DesktopNotification, Option<ClickHandler>)>>);
 
@@ -80,7 +79,7 @@ impl RecordingNotifier {
 
     pub fn click(&self, index: usize) {
         let on_click = self.0.lock().unwrap()[index].1.take();
-        on_click.expect("notification already clicked")();
+        on_click.expect("notification already clicked")(None);
     }
 }
 

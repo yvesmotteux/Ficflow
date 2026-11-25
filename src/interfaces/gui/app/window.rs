@@ -60,6 +60,9 @@ impl eframe::App for FicflowApp {
         if let Some(request) = self.pending_library_request.take() {
             self.open_library_picker(request, frame);
         }
+        if let Some(token) = self.pending_activation_token.take() {
+            raise_with_token(frame, &token);
+        }
     }
 
     /// Transparent so the chrome's painted edges show through the
@@ -72,3 +75,16 @@ impl eframe::App for FicflowApp {
         self.checkpoint_wal();
     }
 }
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn raise_with_token(frame: &eframe::Frame, token: &str) {
+    use super::super::window_activation;
+    if window_activation::is_wayland(frame)
+        && let Err(err) = window_activation::activate(frame, token)
+    {
+        log::warn!("couldn't bring the window to the front: {err}");
+    }
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn raise_with_token(_frame: &eframe::Frame, _token: &str) {}

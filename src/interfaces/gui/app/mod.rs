@@ -6,7 +6,7 @@ mod window;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use egui_notify::Toasts;
 use rusqlite::Connection;
@@ -93,7 +93,8 @@ pub struct FicflowApp {
     ao3_account: Ao3Account,
     was_on_settings: bool,
     notifier: Arc<dyn DesktopNotifier>,
-    inbox_requested: Arc<AtomicBool>,
+    inbox_requested: Arc<Mutex<Option<Option<String>>>>,
+    pending_activation_token: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -210,7 +211,8 @@ impl FicflowApp {
             ao3_account: Ao3Account::new(config.session_store, config.session_site),
             was_on_settings: false,
             notifier: config.notifier,
-            inbox_requested: Arc::new(AtomicBool::new(false)),
+            inbox_requested: Arc::new(Mutex::new(None)),
+            pending_activation_token: None,
         };
         // Restoring straight into a shelf view skips the sidebar's
         // prev/post diff (see `paint_sidebar`) that normally populates
@@ -379,18 +381,24 @@ impl FicflowApp {
         let ctx = ctx.clone();
         self.notifier.notify(
             notification,
-            Box::new(move || {
-                requested.store(true, Ordering::Relaxed);
+            Box::new(move |token| {
+                *requested.lock().unwrap_or_else(|e| e.into_inner()) = Some(token);
                 ctx.request_repaint();
             }),
         );
     }
 
     fn open_inbox_if_requested(&mut self, ctx: &egui::Context) {
-        if self.inbox_requested.swap(false, Ordering::Relaxed) {
+        let request = self
+            .inbox_requested
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(token) = request {
             self.open_view(View::Inbox);
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.pending_activation_token = token;
         }
     }
 
