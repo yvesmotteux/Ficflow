@@ -191,6 +191,50 @@ mod tests {
     }
 
     #[test]
+    fn the_cloudflare_shield_stops_an_add_with_advice() {
+        let server = MockServer::start();
+        let work = server.mock(|when, then| {
+            when.method(GET).path(format!("/works/{FIC_ID}"));
+            then.status(429)
+                .header("cf-mitigated", "challenge")
+                .body("<html>Just a moment...</html>");
+        });
+        let mut h = GuiHarness::new(vec![server.base_url()]);
+
+        h.app.submit_add_fic(FIC_ID.to_string());
+        assert!(h.wait_for_tasks(80));
+
+        work.assert_calls(1);
+        let message = failure_message(&h);
+        assert!(
+            message.contains("open https://archiveofourown.org in your browser"),
+            "unexpected message: {message}"
+        );
+    }
+
+    #[test]
+    fn the_cloudflare_shield_stops_a_login_with_advice() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/token_dispenser.json");
+            then.status(429)
+                .body(r#"<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"></script>"#);
+        });
+        let mut h = GuiHarness::new(vec![server.base_url()]);
+
+        log_in(&mut h, "hunter2");
+
+        assert_eq!(h.app.ao3_username(), None);
+        assert!(
+            h.app
+                .ao3_login_error()
+                .is_some_and(|e| e.contains("Cloudflare protection")),
+            "unexpected error: {:?}",
+            h.app.ao3_login_error()
+        );
+    }
+
+    #[test]
     fn a_connection_failure_shows_its_real_cause() {
         let mut h = GuiHarness::new(vec!["http://127.0.0.1:1".into()]);
 

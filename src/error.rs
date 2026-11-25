@@ -7,6 +7,12 @@ pub enum FicflowError {
     #[error("network error: {}", with_causes(.0))]
     Network(#[from] reqwest::Error),
 
+    #[error(
+        "AO3's Cloudflare protection wants to check you're human: open \
+         https://archiveofourown.org in your browser, then try again"
+    )]
+    CloudflareChallenge,
+
     #[error("fanfiction with ID {fic_id} not found")]
     NotFound { fic_id: u64 },
 

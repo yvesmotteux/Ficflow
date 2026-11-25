@@ -1,6 +1,6 @@
 use crate::error::FicflowError;
 use reqwest::{
-    blocking::Client,
+    blocking::{Client, Response},
     header::{
         ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CONNECTION, COOKIE, HeaderMap, HeaderName,
         HeaderValue, UPGRADE_INSECURE_REQUESTS, USER_AGENT,
@@ -54,6 +54,22 @@ pub fn browser_headers() -> HeaderMap {
         );
     }
     headers
+}
+
+pub fn read_page(response: Response) -> Result<String, FicflowError> {
+    let challenged = response
+        .headers()
+        .get("cf-mitigated")
+        .is_some_and(|value| value == "challenge");
+    let failure = response.error_for_status_ref().err();
+    let body = response.text()?;
+    if challenged || (failure.is_some() && body.contains("/cdn-cgi/challenge-platform")) {
+        return Err(FicflowError::CloudflareChallenge);
+    }
+    match failure {
+        Some(err) => Err(err.into()),
+        None => Ok(body),
+    }
 }
 
 pub struct Ao3Client {
@@ -110,6 +126,6 @@ impl Ao3Client {
         if response.url().path().starts_with("/users/login") {
             return Err(FicflowError::RestrictedWork { fic_id });
         }
-        Ok(response.error_for_status()?.text()?)
+        read_page(response)
     }
 }

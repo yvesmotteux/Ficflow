@@ -7,7 +7,7 @@ use reqwest::header::{ACCEPT, ORIGIN, REFERER};
 use serde::{Deserialize, Serialize};
 
 use crate::error::FicflowError;
-use crate::infrastructure::external::ao3::ao3_client::browser_headers;
+use crate::infrastructure::external::ao3::ao3_client::{browser_headers, read_page};
 
 const KEYCHAIN_SERVICE: &str = "ficflow";
 const KEYCHAIN_ENTRY: &str = "ao3-session";
@@ -91,10 +91,7 @@ pub fn log_in(base_url: &str, username: &str, password: &str) -> Result<Ao3Sessi
         .header("sec-fetch-mode", "cors")
         .header("sec-fetch-site", "same-origin")
         .send()?;
-    let token = dispenser
-        .error_for_status()?
-        .json::<TokenDispenser>()?
-        .token;
+    let token = serde_json::from_str::<TokenDispenser>(&read_page(dispenser)?)?.token;
 
     let response = client
         .post(&login_url)
@@ -110,7 +107,7 @@ pub fn log_in(base_url: &str, username: &str, password: &str) -> Result<Ao3Sessi
             ("commit", "Log in"),
         ])
         .send()?;
-    let page = response.error_for_status()?.text()?;
+    let page = read_page(response)?;
     if !page.contains(LOGOUT_LINK) {
         return Err(FicflowError::LoginRejected);
     }
