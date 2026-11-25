@@ -61,3 +61,6 @@ mod shared_config;
 
 #[path = "gui/ao3_login.rs"]
 mod ao3_login;
+
+#[path = "gui/inbox.rs"]
+mod inbox;

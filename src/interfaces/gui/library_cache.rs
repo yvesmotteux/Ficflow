@@ -7,11 +7,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rusqlite::Connection;
 
 use crate::application::{
-    count_fics_per_shelf::count_fics_per_shelf, list_fics::list_fics,
+    count_fics_per_shelf::count_fics_per_shelf, list_fics::list_fics, list_inbox::list_inbox,
     list_shelf_fics::list_shelf_fics, list_shelves::list_shelves,
     list_shelves_for_fic::list_shelves_for_fic,
 };
 use crate::domain::fanfiction::Fanfiction;
+use crate::domain::inbox::InboxMessage;
 use crate::domain::shelf::{Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
@@ -29,6 +30,7 @@ pub struct LibraryCache {
     pub selection_shelf_ids: HashSet<u64>,
     /// Sidebar count per shelf; missing keys default to 0.
     pub shelf_counts: HashMap<u64, usize>,
+    pub inbox: Vec<InboxMessage>,
     /// Live-computed membership for every auto-shelf, keyed by shelf id.
     /// Never backed by `fic_shelf` rows — recomputed from `fics`/`shelves`
     /// on every mutation, same as `shelf_counts`.
@@ -53,6 +55,7 @@ impl LibraryCache {
             shelf_members: HashSet::new(),
             selection_shelf_ids: HashSet::new(),
             shelf_counts,
+            inbox: load_inbox_inner(connection),
             auto_shelf_members,
             generation: next_generation(),
             distinct_values: None,
@@ -89,6 +92,14 @@ impl LibraryCache {
     pub fn reload_fics(&mut self, connection: &Connection) {
         self.fics = load_fics_inner(connection);
         self.refresh_auto_shelf_members();
+    }
+
+    pub fn reload_inbox(&mut self, connection: &Connection) {
+        self.inbox = load_inbox_inner(connection);
+    }
+
+    pub fn unread_inbox_count(&self) -> usize {
+        self.inbox.iter().filter(|m| m.is_unread()).count()
     }
 
     pub fn reload_shelves(&mut self, connection: &Connection) {
@@ -241,6 +252,17 @@ fn load_fics_inner(connection: &Connection) -> Vec<Fanfiction> {
         Ok(fics) => fics,
         Err(err) => {
             log::error!("Failed to load fanfictions: {}", err);
+            Vec::new()
+        }
+    }
+}
+
+fn load_inbox_inner(connection: &Connection) -> Vec<InboxMessage> {
+    let repo = SqliteRepository::new(connection);
+    match list_inbox(&repo) {
+        Ok(messages) => messages,
+        Err(err) => {
+            log::error!("Failed to load inbox: {}", err);
             Vec::new()
         }
     }

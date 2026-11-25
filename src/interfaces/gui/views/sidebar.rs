@@ -22,6 +22,7 @@ pub struct SidebarState<'a> {
     pub library_counts: &'a LibraryCounts,
     /// Missing shelf ids render as 0.
     pub shelf_counts: &'a HashMap<u64, usize>,
+    pub unread_messages: usize,
     pub running_tasks: usize,
     pub failed_tasks: usize,
 }
@@ -56,6 +57,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         shelves,
         library_counts,
         shelf_counts,
+        unread_messages,
         running_tasks,
         failed_tasks,
     } = state;
@@ -108,6 +110,18 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         .frame(egui::Frame::NONE)
         .show(ui, |ui| {
             ui.add_space(6.0);
+            view_row(
+                ui,
+                current_view,
+                View::Inbox,
+                "Inbox",
+                Some(INBOX_ICON),
+                (unread_messages > 0).then_some(Badge::Pulse(unread_messages)),
+                None,
+            );
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
             section_label(ui, "LIBRARY");
             ui.add_space(2.0);
             view_row(
@@ -185,6 +199,8 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
 // Emoji is bundled, so symbols outside Ubuntu-Light fall back cleanly).
 // Candidates for proper SVG icons that match the Art Nouveau chrome.
 const LIBRARY_ICON_ALL: &str = "\u{25C6}"; // ◆ filled diamond
+const INBOX_ICON: &str = "\u{2709}";
+const PULSE_PERIOD_SECS: f64 = 1.6;
 
 const DROP_FICS_COLOR: Color32 = Color32::from_rgb(120, 200, 120);
 const DROP_SHELF_COLOR: Color32 = Color32::from_rgb(120, 160, 220);
@@ -388,6 +404,7 @@ fn section_label(ui: &mut Ui, text: &str) {
 enum Badge {
     Count(usize),
     Alert(usize),
+    Pulse(usize),
 }
 
 fn view_row(
@@ -432,7 +449,21 @@ fn view_row(
         );
     }
 
-    let alert_color = matches!(badge, Some(Badge::Alert(_))).then(|| theme::error(ui.visuals()));
+    let alert_color = match badge {
+        Some(Badge::Alert(_)) => Some(theme::error(ui.visuals())),
+        Some(Badge::Pulse(_)) if !selected => {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(50));
+            let phase = (ui.input(|i| i.time) * std::f64::consts::TAU / PULSE_PERIOD_SECS).sin();
+            let t = (0.5 + 0.5 * phase) as f32;
+            Some(
+                visuals
+                    .text_color()
+                    .lerp_to_gamma(theme::pulse(ui.visuals()), t),
+            )
+        }
+        _ => None,
+    };
     let text_color = alert_color.unwrap_or_else(|| visuals.text_color());
     let body_font = egui::TextStyle::Body.resolve(ui.style());
     // Slightly smaller than the label so the count reads as secondary
@@ -446,7 +477,7 @@ fn view_row(
     // width before clipping the label, then painted *after* the label so
     // it always sits on top.
     let badge = badge.map(|badge| {
-        let (Badge::Count(n) | Badge::Alert(n)) = badge;
+        let (Badge::Count(n) | Badge::Alert(n) | Badge::Pulse(n)) = badge;
         let galley = ui
             .painter()
             .layout_no_wrap(n.to_string(), count_font, text_color);

@@ -12,12 +12,23 @@ use rusqlite::Connection;
 
 use super::config::{self, AppConfig, ColumnKey, SortDirection, SortPref, ThemeChoice};
 use crate::application::{
-    add_to_shelf::add_to_shelf, create_shelf::create_shelf, delete_fic, delete_shelf, move_shelf,
-    pin_shelf::pin_shelf, remove_from_shelf, rename_shelf::rename_shelf, unpin_shelf::unpin_shelf,
+    add_to_shelf::add_to_shelf,
+    clear_inbox::clear_inbox,
+    create_shelf::create_shelf,
+    delete_fic,
+    delete_inbox_message::delete_inbox_message,
+    delete_shelf,
+    mark_inbox_read::{mark_all_read, mark_message_read},
+    move_shelf,
+    pin_shelf::pin_shelf,
+    remove_from_shelf,
+    rename_shelf::rename_shelf,
+    unpin_shelf::unpin_shelf,
     update_chapters, update_note, update_rating, update_read_count, update_status,
     upsert_auto_shelf,
 };
 use crate::domain::fanfiction::{Fanfiction, ReadingStatus, UserRating};
+use crate::domain::inbox::{InboxMessage, MessageContent};
 use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
@@ -40,12 +51,12 @@ use super::view::View;
 use super::views::details_panel::DetailsState;
 use super::views::modals::add_fic_dialog::{self, AddFicState};
 use super::views::modals::shelf_modals::{self, AutoShelfState, CreateState, RenameState};
-use super::views::modals::{bulk_modals, column_picker, quit_modal, restore_modal};
+use super::views::modals::{bulk_modals, column_picker, inbox_modal, quit_modal, restore_modal};
 use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
     LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TableOutcome, TaskFilter,
-    TasksViewState, details_panel, library_view, selection_bar, sidebar,
+    TasksViewState, details_panel, inbox_view, library_view, selection_bar, sidebar,
 };
 
 pub struct FicflowApp {
@@ -100,6 +111,7 @@ pub enum ActiveModal {
     AddFic(AddFicState),
     ConfirmQuit,
     ConfirmRestore(PathBuf),
+    ConfirmClearInbox,
 }
 
 /// Explicit wiring so embedders and integration tests can inject a
@@ -303,6 +315,14 @@ impl FicflowApp {
         self.task_executor.snapshot()
     }
 
+    pub fn inbox_messages(&self) -> &[InboxMessage] {
+        &self.cache.inbox
+    }
+
+    pub fn clear_inbox_open(&self) -> bool {
+        matches!(self.active_modal, ActiveModal::ConfirmClearInbox)
+    }
+
     pub fn failed_task_count(&self) -> usize {
         self.task_executor.failed_count()
     }
@@ -366,6 +386,54 @@ impl FicflowApp {
         if let Some(persisted) = self.current_view.to_persisted() {
             self.config.last_view = Some(persisted);
             self.save_config();
+        }
+    }
+
+    pub fn delete_inbox_message(&mut self, message_id: u64) -> Result<(), FicflowError> {
+        let result = delete_inbox_message(&self.repo(), message_id);
+        self.cache.reload_inbox(&self.connection);
+        result
+    }
+
+    pub fn clear_inbox(&mut self) -> Result<(), FicflowError> {
+        let result = clear_inbox(&self.repo());
+        self.cache.reload_inbox(&self.connection);
+        result
+    }
+
+    pub fn mark_inbox_message_read(&mut self, message_id: u64) -> Result<(), FicflowError> {
+        let result = mark_message_read(&self.repo(), message_id);
+        self.cache.reload_inbox(&self.connection);
+        result
+    }
+
+    pub fn mark_all_inbox_read(&mut self) -> Result<(), FicflowError> {
+        let result = mark_all_read(&self.repo());
+        self.cache.reload_inbox(&self.connection);
+        result
+    }
+
+    fn handle_inbox_outcome(&mut self, ctx: &egui::Context, outcome: inbox_view::Outcome) {
+        let result = match outcome {
+            inbox_view::Outcome::None => Ok(()),
+            inbox_view::Outcome::Open { message_id, url } => {
+                ctx.open_url(egui::OpenUrl::new_tab(url));
+                self.mark_inbox_message_read(message_id)
+            }
+            inbox_view::Outcome::ShowInLibrary { message_id, fic_id } => {
+                self.open_view(View::AllFics);
+                self.select_fic(fic_id);
+                self.mark_inbox_message_read(message_id)
+            }
+            inbox_view::Outcome::Delete(message_id) => self.delete_inbox_message(message_id),
+            inbox_view::Outcome::MarkAllRead => self.mark_all_inbox_read(),
+            inbox_view::Outcome::ClearAll => {
+                self.active_modal = ActiveModal::ConfirmClearInbox;
+                Ok(())
+            }
+        };
+        if let Err(err) = result {
+            self.toasts.error(err.to_string());
         }
     }
 

@@ -101,6 +101,7 @@ impl FicflowApp {
                         shelves: &self.cache.shelves,
                         library_counts: &library_counts,
                         shelf_counts: &self.cache.shelf_counts,
+                        unread_messages: self.cache.unread_inbox_count(),
                         running_tasks: self.task_executor.running_count(),
                         failed_tasks: self.task_executor.failed_count(),
                     },
@@ -236,6 +237,7 @@ impl FicflowApp {
     pub(super) fn paint_central(&mut self, host: &mut egui::Ui) {
         let mut table_outcome = TableOutcome::default();
         let mut empty_area_clicked = false;
+        let mut inbox_outcome = inbox_view::Outcome::None;
         let prev_selection = self.selection.current().clone();
         let view_title = self.current_view.header_title(&self.cache.shelves);
         egui::CentralPanel::default().show(host, |ui| {
@@ -256,6 +258,12 @@ impl FicflowApp {
                             shelf_members: &self.cache.shelf_members,
                         },
                     );
+                }
+                View::Inbox => {
+                    let fics = &self.cache.fics;
+                    inbox_outcome = inbox_view::draw(ui, &self.cache.inbox, |id| {
+                        fics.iter().any(|f| f.id == id)
+                    });
                 }
                 View::Tasks => tasks_view::draw(
                     ui,
@@ -294,6 +302,7 @@ impl FicflowApp {
                 }
             }
         });
+        self.handle_inbox_outcome(host.ctx(), inbox_outcome);
         if empty_area_clicked && self.current_view.shows_library() {
             self.clear_selection();
         }
@@ -329,6 +338,15 @@ impl FicflowApp {
             self.cache.reload_fics(&self.connection);
             self.refresh_shelf_members();
             self.refresh_selection_shelf_ids();
+        }
+        let new_messages = self.task_executor.take_new_messages();
+        if !new_messages.is_empty() {
+            for message in &new_messages {
+                let MessageContent::NewChapters { title, .. } = &message.content;
+                self.toasts
+                    .info(format!("New chapter for \u{201C}{}\u{201D}", title));
+            }
+            self.cache.reload_inbox(&self.connection);
         }
         let refreshes = self.task_executor.take_refreshes();
         if !refreshes.is_empty() {

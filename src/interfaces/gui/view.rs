@@ -13,6 +13,7 @@ pub enum View {
     AllFics,
     ByStatus(ReadingStatus),
     Shelf(u64),
+    Inbox,
     Tasks,
     Settings,
 }
@@ -30,6 +31,7 @@ impl View {
                 .find(|s| s.id == *id)
                 .map(|s| s.name.to_uppercase())
                 .unwrap_or_else(|| "SHELF".to_string()),
+            View::Inbox => "INBOX".to_string(),
             View::Tasks => "TASKS".to_string(),
             View::Settings => "SETTINGS".to_string(),
         }
@@ -43,7 +45,7 @@ impl View {
             View::AllFics => true,
             View::ByStatus(status) => fic.reading_status == *status,
             View::Shelf(_) => shelf_members.contains(&fic.id),
-            View::Tasks | View::Settings => false,
+            View::Inbox | View::Tasks | View::Settings => false,
         }
     }
 
@@ -59,7 +61,7 @@ impl View {
             View::AllFics => Some(PersistedView::AllFics),
             View::ByStatus(status) => Some(PersistedView::ByStatus(*status)),
             View::Shelf(id) => Some(PersistedView::Shelf(*id)),
-            View::Tasks | View::Settings => None,
+            View::Inbox | View::Tasks | View::Settings => None,
         }
     }
 

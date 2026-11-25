@@ -49,6 +49,15 @@ pub fn erisian_date(date: NaiveDate) -> String {
     format!("{weekday}, {season} {day}, YOLD {yold}")
 }
 
+pub fn ao3_work_url(fic_id: u64, chapter_id: Option<u64>) -> String {
+    match chapter_id {
+        Some(chapter_id) => {
+            format!("https://archiveofourown.org/works/{fic_id}/chapters/{chapter_id}")
+        }
+        None => format!("https://archiveofourown.org/works/{fic_id}"),
+    }
+}
+
 pub fn relative_time(when: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let secs = (now - when).num_seconds().max(0);
     let (value, unit) = match secs {

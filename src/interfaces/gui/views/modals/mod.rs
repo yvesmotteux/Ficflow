@@ -7,6 +7,7 @@
 pub mod add_fic_dialog;
 pub mod bulk_modals;
 pub mod column_picker;
+pub mod inbox_modal;
 pub mod quit_modal;
 pub mod restore_modal;
 pub mod shelf_modals;
