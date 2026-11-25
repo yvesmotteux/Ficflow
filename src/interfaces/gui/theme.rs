@@ -26,6 +26,14 @@ pub fn frame_tint(visuals: &Visuals) -> Color32 {
     pick(visuals, Color32::WHITE, FRAME_TINT_LIGHT_MODE)
 }
 
+pub fn error(visuals: &Visuals) -> Color32 {
+    pick(
+        visuals,
+        Color32::from_rgb(220, 100, 100),
+        Color32::from_rgb(185, 40, 40),
+    )
+}
+
 pub fn pick(visuals: &Visuals, dark: Color32, light: Color32) -> Color32 {
     if visuals.dark_mode { dark } else { light }
 }

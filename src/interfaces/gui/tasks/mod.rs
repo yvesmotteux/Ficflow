@@ -216,6 +216,13 @@ impl TaskExecutor {
         self.running_count() > 0
     }
 
+    pub fn failed_count(&self) -> usize {
+        lock(&self.inbox.tasks)
+            .iter()
+            .filter(|t| matches!(t.status, TaskStatus::Failed(_)))
+            .count()
+    }
+
     pub fn running_count(&self) -> usize {
         lock(&self.inbox.tasks)
             .iter()

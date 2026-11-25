@@ -102,6 +102,7 @@ impl FicflowApp {
                         library_counts: &library_counts,
                         shelf_counts: &self.cache.shelf_counts,
                         running_tasks: self.task_executor.running_count(),
+                        failed_tasks: self.task_executor.failed_count(),
                     },
                 );
             });

@@ -92,7 +92,7 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                                 if ui.button("Retry").clicked() {
                                     executor.retry(task.id);
                                 }
-                                ui.label(RichText::new("Failed").color(failed_color(ui)));
+                                ui.label(RichText::new("Failed").color(theme::error(ui.visuals())));
                             }
                         }
                     });
@@ -101,7 +101,7 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                 // wrapped to the panel width.
                 if let TaskStatus::Failed(msg) = &task.status {
                     ui.add(
-                        egui::Label::new(RichText::new(msg).color(failed_color(ui)))
+                        egui::Label::new(RichText::new(msg).color(theme::error(ui.visuals())))
                             .wrap()
                             .selectable(true),
                     );
@@ -138,12 +138,4 @@ fn format_kind(kind: &TaskKind) -> &'static str {
         TaskKind::Add { .. } => "Add",
         TaskKind::Refresh { .. } => "Refresh",
     }
-}
-
-fn failed_color(ui: &Ui) -> egui::Color32 {
-    theme::pick(
-        ui.visuals(),
-        egui::Color32::from_rgb(220, 100, 100),
-        egui::Color32::from_rgb(185, 40, 40),
-    )
 }
