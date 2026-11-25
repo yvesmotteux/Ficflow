@@ -1,7 +1,10 @@
 use crate::error::FicflowError;
 use reqwest::{
     blocking::Client,
-    header::{ACCEPT, ACCEPT_LANGUAGE, COOKIE, HeaderMap, HeaderValue, USER_AGENT},
+    header::{
+        ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CONNECTION, COOKIE, HeaderMap, HeaderName,
+        HeaderValue, UPGRADE_INSECURE_REQUESTS, USER_AGENT,
+    },
 };
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -9,19 +12,47 @@ use std::time::{Duration, Instant};
 /// Minimum gap between successive AO3 requests.
 pub const DEFAULT_MIN_REQUEST_GAP: Duration = Duration::from_secs(4);
 
+#[cfg(target_os = "windows")]
+const FIREFOX_PLATFORM: &str = "Windows NT 10.0; Win64; x64";
+#[cfg(target_os = "macos")]
+const FIREFOX_PLATFORM: &str = "Macintosh; Intel Mac OS X 10.15";
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const FIREFOX_PLATFORM: &str = "X11; Linux x86_64";
+
+const FIREFOX_VERSION: &str = "153.0";
+
 pub fn browser_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
+    let user_agent = format!(
+        "Mozilla/5.0 ({FIREFOX_PLATFORM}; rv:{FIREFOX_VERSION}) Gecko/20100101 Firefox/{FIREFOX_VERSION}"
+    );
     headers.insert(
         USER_AGENT,
-        HeaderValue::from_static(
-            "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
-        ),
+        HeaderValue::from_str(&user_agent).expect("valid user agent"),
     );
     headers.insert(
         ACCEPT,
         HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
     );
     headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"));
+    headers.insert(
+        ACCEPT_ENCODING,
+        HeaderValue::from_static("gzip, deflate, br, zstd"),
+    );
+    headers.insert(CONNECTION, HeaderValue::from_static("keep-alive"));
+    headers.insert(UPGRADE_INSECURE_REQUESTS, HeaderValue::from_static("1"));
+    for (name, value) in [
+        ("sec-fetch-dest", "document"),
+        ("sec-fetch-mode", "navigate"),
+        ("sec-fetch-site", "none"),
+        ("sec-fetch-user", "?1"),
+        ("priority", "u=0, i"),
+    ] {
+        headers.insert(
+            HeaderName::from_static(name),
+            HeaderValue::from_static(value),
+        );
+    }
     headers
 }
 
@@ -39,6 +70,7 @@ impl Ao3Client {
             .timeout(Duration::from_secs(60))
             .default_headers(browser_headers())
             .http1_only()
+            .http1_title_case_headers()
             .build()?;
 
         Ok(Self {

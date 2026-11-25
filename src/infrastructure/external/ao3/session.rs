@@ -3,6 +3,7 @@ use std::sync::Arc;
 use reqwest::Url;
 use reqwest::blocking::Client;
 use reqwest::cookie::{CookieStore, Jar};
+use reqwest::header::{ACCEPT, ORIGIN, REFERER};
 use serde::{Deserialize, Serialize};
 
 use crate::error::FicflowError;
@@ -75,18 +76,31 @@ pub fn log_in(base_url: &str, username: &str, password: &str) -> Result<Ao3Sessi
         .default_headers(browser_headers())
         .cookie_provider(Arc::clone(&jar))
         .http1_only()
+        .http1_title_case_headers()
         .build()?;
     let base = base_url.trim_end_matches('/');
 
-    let token = client
+    let login_url = format!("{base}/users/login");
+
+    let dispenser = client
         .get(format!("{base}/token_dispenser.json"))
-        .send()?
+        .header(ACCEPT, "application/json, text/javascript, */*; q=0.01")
+        .header("x-requested-with", "XMLHttpRequest")
+        .header(REFERER, &login_url)
+        .header("sec-fetch-dest", "empty")
+        .header("sec-fetch-mode", "cors")
+        .header("sec-fetch-site", "same-origin")
+        .send()?;
+    let token = dispenser
         .error_for_status()?
         .json::<TokenDispenser>()?
         .token;
 
-    let page = client
-        .post(format!("{base}/users/login"))
+    let response = client
+        .post(&login_url)
+        .header(ORIGIN, base)
+        .header(REFERER, &login_url)
+        .header("sec-fetch-site", "same-origin")
         .form(&[
             ("utf8", "\u{2713}"),
             ("authenticity_token", token.as_str()),
@@ -95,9 +109,8 @@ pub fn log_in(base_url: &str, username: &str, password: &str) -> Result<Ao3Sessi
             ("user[remember_me]", "1"),
             ("commit", "Log in"),
         ])
-        .send()?
-        .error_for_status()?
-        .text()?;
+        .send()?;
+    let page = response.error_for_status()?.text()?;
     if !page.contains(LOGOUT_LINK) {
         return Err(FicflowError::LoginRejected);
     }
