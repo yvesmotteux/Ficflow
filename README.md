@@ -83,7 +83,8 @@ cargo build --release
 - [ ] add works with not only single fics, but collections, a user list of fics, a tag, a user profile,...
 - [ ] opt-in option to back up the epub files of all fanfictions added to the database
 - [ ] detect when a fanfic was removed from AO3 and tag it specially / send a message to the inbox. If epub dl optin, explicitly offer access to the fic
-- [ ] Add a search system based on tags, with an option to filter out fics already catalogued
+- [ ] add the ability to follow a user (new fics from followed users land in the inbox)
+- [ ] Add a "search" system based on tags, with an option to filter out fics already catalogued. New fics land in the inbox
 - [ ] Setting to make it start in the background on computer start-up, and stay on background when closing (opt-in, different settings or same? SHould add a proper, cleaner "quit" option if so)
 - [ ] Create a mobile phone app
 
