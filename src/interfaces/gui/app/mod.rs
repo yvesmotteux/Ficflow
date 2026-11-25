@@ -6,6 +6,7 @@ mod window;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use egui_notify::Toasts;
 use rusqlite::Connection;
@@ -42,6 +43,7 @@ use crate::infrastructure::persistence::database::connection::{
 
 use super::ao3_account::Ao3Account;
 use super::chrome::FrameChrome;
+use super::desktop_notifications::{DesktopNotifier, SystemNotifier, new_chapters_notification};
 use super::library_cache::LibraryCache;
 use super::selection::Selection;
 use super::selection_controller::SelectionController;
@@ -90,6 +92,8 @@ pub struct FicflowApp {
     update_check: UpdateCheck,
     ao3_account: Ao3Account,
     was_on_settings: bool,
+    notifier: Arc<dyn DesktopNotifier>,
+    inbox_requested: Arc<AtomicBool>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -126,6 +130,7 @@ pub struct FicflowConfig {
     pub session_store: Arc<dyn SessionStore>,
     pub session_site: String,
     pub background_refresh: Option<RefreshSchedule>,
+    pub notifier: Arc<dyn DesktopNotifier>,
 }
 
 impl Default for FicflowConfig {
@@ -139,6 +144,7 @@ impl Default for FicflowConfig {
             session_store: Arc::new(KeychainSessionStore),
             session_site: session_site_from_env(),
             background_refresh: Some(RefreshSchedule::default()),
+            notifier: Arc::new(SystemNotifier),
         }
     }
 }
@@ -203,6 +209,8 @@ impl FicflowApp {
             update_check: UpdateCheck::new(config.latest_release_url),
             ao3_account: Ao3Account::new(config.session_store, config.session_site),
             was_on_settings: false,
+            notifier: config.notifier,
+            inbox_requested: Arc::new(AtomicBool::new(false)),
         };
         // Restoring straight into a shelf view skips the sidebar's
         // prev/post diff (see `paint_sidebar`) that normally populates
@@ -352,6 +360,38 @@ impl FicflowApp {
 
     pub fn clear_finished_tasks(&self) {
         self.task_executor.clear_completed();
+    }
+
+    pub fn set_desktop_notifications(&mut self, enabled: bool) {
+        self.config.desktop_notifications = enabled;
+        self.save_config();
+    }
+
+    fn notify_new_chapters(&self, ctx: &egui::Context, messages: &[InboxMessage]) {
+        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
+        if !self.config.desktop_notifications || focused {
+            return;
+        }
+        let Some(notification) = new_chapters_notification(messages) else {
+            return;
+        };
+        let requested = Arc::clone(&self.inbox_requested);
+        let ctx = ctx.clone();
+        self.notifier.notify(
+            notification,
+            Box::new(move || {
+                requested.store(true, Ordering::Relaxed);
+                ctx.request_repaint();
+            }),
+        );
+    }
+
+    fn open_inbox_if_requested(&mut self, ctx: &egui::Context) {
+        if self.inbox_requested.swap(false, Ordering::Relaxed) {
+            self.open_view(View::Inbox);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
     }
 
     pub fn check_for_updates_now(&self) {

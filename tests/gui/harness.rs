@@ -26,7 +26,7 @@ use tempfile::TempDir;
 use ficflow::application::background_refresh::RefreshSchedule;
 use ficflow::error::FicflowError;
 use ficflow::infrastructure::external::ao3::session::{Ao3Session, SessionStore};
-use ficflow::interfaces::gui::{FicflowApp, FicflowConfig};
+use ficflow::interfaces::gui::{DesktopNotification, DesktopNotifier, FicflowApp, FicflowConfig};
 
 use crate::common::fixtures;
 
@@ -63,6 +63,33 @@ impl SessionStore for MemorySessionStore {
     }
 }
 
+type ClickHandler = Box<dyn FnOnce() + Send>;
+
+#[derive(Default)]
+pub struct RecordingNotifier(Mutex<Vec<(DesktopNotification, Option<ClickHandler>)>>);
+
+impl RecordingNotifier {
+    pub fn sent(&self) -> Vec<DesktopNotification> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect()
+    }
+
+    pub fn click(&self, index: usize) {
+        let on_click = self.0.lock().unwrap()[index].1.take();
+        on_click.expect("notification already clicked")();
+    }
+}
+
+impl DesktopNotifier for RecordingNotifier {
+    fn notify(&self, notification: DesktopNotification, on_click: ClickHandler) {
+        self.0.lock().unwrap().push((notification, Some(on_click)));
+    }
+}
+
 pub struct GuiHarness {
     pub app: FicflowApp,
     pub ctx: egui::Context,
@@ -71,6 +98,7 @@ pub struct GuiHarness {
     pub conn: Connection,
     pub db_path: PathBuf,
     pub session_store: Arc<MemorySessionStore>,
+    pub notifier: Arc<RecordingNotifier>,
     background_refresh: Option<RefreshSchedule>,
     /// Held so the temp file doesn't get unlinked until the harness drops.
     _temp_dir: TempDir,
@@ -161,6 +189,7 @@ impl GuiHarness {
 
         let ctx = egui::Context::default();
         let session_store = Arc::new(MemorySessionStore::default());
+        let notifier = Arc::new(RecordingNotifier::default());
         let config = FicflowConfig {
             db_path: Some(db_path.clone()),
             session_store: session_store.clone(),
@@ -171,6 +200,7 @@ impl GuiHarness {
             max_retry_cycles: 1,
             latest_release_url,
             background_refresh,
+            notifier: notifier.clone(),
         };
         let app = FicflowApp::with_config(&ctx, config)
             .expect("FicflowApp::with_config failed in test harness");
@@ -180,6 +210,7 @@ impl GuiHarness {
             conn,
             db_path,
             session_store,
+            notifier,
             background_refresh,
             _temp_dir: temp_dir,
             _config_env_guard: config_env_guard,
@@ -198,6 +229,7 @@ impl GuiHarness {
             max_retry_cycles: 1,
             latest_release_url: "http://127.0.0.1:1".into(),
             background_refresh: self.background_refresh,
+            notifier: self.notifier.clone(),
         };
         self.app = FicflowApp::with_config(&self.ctx, config)
             .expect("FicflowApp::with_config failed on restart");

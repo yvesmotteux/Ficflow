@@ -4,6 +4,7 @@ mod assets;
 mod auto_shelf;
 mod chrome;
 mod config;
+pub mod desktop_notifications;
 mod format;
 mod library_cache;
 mod selection;
@@ -19,6 +20,7 @@ use std::process::ExitCode;
 
 pub use app::{FicflowApp, FicflowConfig, InitError};
 pub use config::{AppConfig, ColumnKey, SortDirection, SortPref, ThemeChoice};
+pub use desktop_notifications::{DesktopNotification, DesktopNotifier};
 pub use selection::Selection;
 pub use tasks::{TaskKind, TaskState, TaskStatus};
 pub use view::View;
