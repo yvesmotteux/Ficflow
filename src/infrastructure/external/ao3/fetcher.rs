@@ -119,6 +119,7 @@ fn retryable(err: &FicflowError) -> bool {
         FicflowError::Network(e) => e.status() != Some(StatusCode::NOT_FOUND),
         // Parse failures may be transient when AO3 serves a degraded page under load.
         FicflowError::Parse { .. } => true,
+        FicflowError::CloudflareChallenge => true,
         _ => false,
     }
 }
@@ -126,6 +127,7 @@ fn retryable(err: &FicflowError) -> bool {
 impl FanfictionFetcher for Ao3Fetcher {
     fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError> {
         let mut last_err: Option<FicflowError> = None;
+        let mut challenged = false;
 
         for cycle in 1..=self.max_cycles {
             if cycle > 1 {
@@ -155,12 +157,16 @@ impl FanfictionFetcher for Ao3Fetcher {
                             self.max_cycles,
                             e
                         );
+                        challenged |= matches!(e, FicflowError::CloudflareChallenge);
                         last_err = Some(e);
                     }
                 }
             }
         }
 
+        if challenged {
+            return Err(FicflowError::CloudflareChallenge);
+        }
         Err(last_err.unwrap_or_else(|| FicflowError::Other("Fetch failed after retries".into())))
     }
 }

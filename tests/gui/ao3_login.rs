@@ -200,21 +200,49 @@ mod tests {
         assert_eq!(h.app.fics().len(), 1);
     }
 
-    #[test]
-    fn the_cloudflare_shield_stops_an_add_with_advice() {
-        let server = MockServer::start();
-        let work = server.mock(|when, then| {
+    fn given_shielded_work(server: &MockServer) -> Mock<'_> {
+        server.mock(|when, then| {
             when.method(GET).path(format!("/works/{FIC_ID}"));
             then.status(429)
                 .header("cf-mitigated", "challenge")
                 .body("<html>Just a moment...</html>");
+        })
+    }
+
+    #[test]
+    fn a_mirror_takes_over_when_the_cloudflare_shield_blocks_ao3() {
+        let primary = MockServer::start();
+        let shielded = given_shielded_work(&primary);
+        let mirror = MockServer::start();
+        mirror.mock(|when, then| {
+            when.method(GET).path(format!("/works/{FIC_ID}"));
+            then.status(200).body(fic_html());
         });
-        let mut h = GuiHarness::new(vec![server.base_url()]);
+        let mut h = GuiHarness::new(vec![primary.base_url(), mirror.base_url()]);
 
         h.app.submit_add_fic(FIC_ID.to_string());
-        assert!(h.wait_for_tasks(80));
+        assert!(h.wait_for_tasks(600));
 
-        work.assert_calls(1);
+        shielded.assert_calls(1);
+        assert_eq!(h.app.fics().len(), 1);
+    }
+
+    #[test]
+    fn the_cloudflare_advice_wins_when_every_address_fails() {
+        let primary = MockServer::start();
+        given_shielded_work(&primary);
+        let mirror = MockServer::start();
+        let broken = mirror.mock(|when, then| {
+            when.method(GET).path(format!("/works/{FIC_ID}"));
+            then.status(503);
+        });
+        let mut h = GuiHarness::new(vec![primary.base_url(), mirror.base_url()]);
+
+        h.app.submit_add_fic(FIC_ID.to_string());
+        assert!(h.wait_for_tasks(600));
+
+        broken.assert_calls(1);
+        assert!(h.app.fics().is_empty());
         let message = failure_message(&h);
         assert!(
             message.contains("open https://archiveofourown.org in your browser"),
