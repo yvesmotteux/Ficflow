@@ -4,6 +4,7 @@ use rusqlite::types::Type;
 use serde::de::DeserializeOwned;
 
 use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
+use crate::domain::inbox::InboxMessage;
 use crate::domain::shelf::{Shelf, ShelfKind};
 
 pub fn row_to_shelf(row: &Row) -> Result<Shelf, rusqlite::Error> {
@@ -66,6 +67,21 @@ pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
             .and_then(|n| UserRating::try_from(n).ok()),
         personal_note: row.get("personal_note")?,
         last_checked_date: timestamp(row, "last_checked_date")?,
+        chapter_ids: Vec::new(),
+    })
+}
+
+pub fn row_to_inbox_message(row: &Row) -> Result<InboxMessage, rusqlite::Error> {
+    let content: String = row.get("content")?;
+    let read_at = match row.get::<_, Option<String>>("read_at")? {
+        Some(_) => Some(timestamp(row, "read_at")?),
+        None => None,
+    };
+    Ok(InboxMessage {
+        id: row.get("id")?,
+        created_at: timestamp(row, "created_at")?,
+        read_at,
+        content: serde_json::from_str(&content).map_err(|_| invalid_text_column(row, "content"))?,
     })
 }
 

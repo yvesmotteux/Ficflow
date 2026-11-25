@@ -34,6 +34,14 @@ pub fn error(visuals: &Visuals) -> Color32 {
     )
 }
 
+pub fn pulse(visuals: &Visuals) -> Color32 {
+    pick(
+        visuals,
+        Color32::from_rgb(240, 190, 90),
+        Color32::from_rgb(175, 115, 15),
+    )
+}
+
 pub fn pick(visuals: &Visuals, dark: Color32, light: Color32) -> Color32 {
     if visuals.dark_mode { dark } else { light }
 }

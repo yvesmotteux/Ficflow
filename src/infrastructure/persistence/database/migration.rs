@@ -76,6 +76,16 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
             ALTER TABLE shelf ADD COLUMN auto_criteria TEXT;
         "#,
         ),
+        M::up(
+            r#"
+            CREATE TABLE inbox_message (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                read_at TEXT
+            );
+        "#,
+        ),
     ]);
 
     migrations.to_latest(conn)?;

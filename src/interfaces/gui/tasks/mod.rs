@@ -14,6 +14,7 @@ use std::thread;
 
 use chrono::{DateTime, Utc};
 
+use crate::domain::inbox::InboxMessage;
 use crate::infrastructure::external::ao3::session::SessionStore;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,7 +53,7 @@ pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-pub(super) struct WorkerInbox {
+pub(super) struct WorkerShared {
     pub tasks: Mutex<Vec<TaskState>>,
     /// Titles of fics that were just successfully added. The GUI drains this
     /// each frame to (a) reload its `fics` cache and (b) toast a confirmation
@@ -62,20 +63,22 @@ pub(super) struct WorkerInbox {
     /// this to reload the in-memory cache so the new metadata + bumped
     /// `last_checked_date` show in the details panel.
     pub recent_refreshes: Mutex<Vec<u64>>,
+    pub new_messages: Mutex<Vec<InboxMessage>>,
 }
 
-impl WorkerInbox {
+impl WorkerShared {
     fn new() -> Self {
         Self {
             tasks: Mutex::new(Vec::new()),
             recent_completions: Mutex::new(Vec::new()),
             recent_refreshes: Mutex::new(Vec::new()),
+            new_messages: Mutex::new(Vec::new()),
         }
     }
 }
 
 pub struct TaskExecutor {
-    inbox: Arc<WorkerInbox>,
+    shared: Arc<WorkerShared>,
     sender: Sender<WorkerCommand>,
     next_id: AtomicU64,
     /// Worker terminates when `sender` is dropped (rx.recv returns Err);
@@ -94,9 +97,9 @@ impl TaskExecutor {
         session_store: Arc<dyn SessionStore>,
         session_site: String,
     ) -> Self {
-        let inbox = Arc::new(WorkerInbox::new());
+        let shared = Arc::new(WorkerShared::new());
         let (tx, rx) = mpsc::channel();
-        let worker_inbox = Arc::clone(&inbox);
+        let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
             .name("ficflow-tasks".into())
             .spawn(move || {
@@ -106,11 +109,11 @@ impl TaskExecutor {
                     session_store,
                     session_site,
                 };
-                worker::run(rx, worker_inbox, fetcher_setup, db_path)
+                worker::run(rx, worker_shared, fetcher_setup, db_path)
             })
             .expect("failed to spawn task-worker thread");
         Self {
-            inbox,
+            shared,
             sender: tx,
             next_id: AtomicU64::new(1),
             _worker: worker,
@@ -147,7 +150,7 @@ impl TaskExecutor {
 
     fn push_task(&self, kind: TaskKind, display: String) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        lock(&self.inbox.tasks).push(TaskState {
+        lock(&self.shared.tasks).push(TaskState {
             id,
             kind,
             display,
@@ -158,11 +161,11 @@ impl TaskExecutor {
     }
 
     pub fn snapshot(&self) -> Vec<TaskState> {
-        lock(&self.inbox.tasks).clone()
+        lock(&self.shared.tasks).clone()
     }
 
     pub fn clear_completed(&self) {
-        lock(&self.inbox.tasks).retain(|t| matches!(t.status, TaskStatus::Running));
+        lock(&self.shared.tasks).retain(|t| matches!(t.status, TaskStatus::Running));
     }
 
     /// Re-runs a failed task using its original input, dropping the failed
@@ -170,7 +173,7 @@ impl TaskExecutor {
     /// failed Refresh retries as a Refresh, not as an Add.
     pub fn retry(&self, task_id: u64) {
         let failed = {
-            let mut tasks = lock(&self.inbox.tasks);
+            let mut tasks = lock(&self.shared.tasks);
             let Some(i) = tasks
                 .iter()
                 .position(|t| t.id == task_id && matches!(t.status, TaskStatus::Failed(_)))
@@ -187,7 +190,7 @@ impl TaskExecutor {
 
     pub fn retry_all_failed(&self) {
         let failed_ids: Vec<u64> = {
-            let tasks = lock(&self.inbox.tasks);
+            let tasks = lock(&self.shared.tasks);
             tasks
                 .iter()
                 .filter_map(|t| matches!(t.status, TaskStatus::Failed(_)).then_some(t.id))
@@ -202,14 +205,18 @@ impl TaskExecutor {
     /// Caller should reload its `fics` cache when this returns a non-empty
     /// vec, and may surface one toast per title.
     pub fn take_completions(&self) -> Vec<String> {
-        mem::take(&mut *lock(&self.inbox.recent_completions))
+        mem::take(&mut *lock(&self.shared.recent_completions))
     }
 
     /// Drains the queue of fic IDs that were successfully refreshed. The
     /// GUI reloads its `fics` cache so the new metadata (and the bumped
     /// `last_checked_date`) are visible immediately.
     pub fn take_refreshes(&self) -> Vec<u64> {
-        mem::take(&mut *lock(&self.inbox.recent_refreshes))
+        mem::take(&mut *lock(&self.shared.recent_refreshes))
+    }
+
+    pub fn take_new_messages(&self) -> Vec<InboxMessage> {
+        mem::take(&mut *lock(&self.shared.new_messages))
     }
 
     pub fn has_running(&self) -> bool {
@@ -217,14 +224,14 @@ impl TaskExecutor {
     }
 
     pub fn failed_count(&self) -> usize {
-        lock(&self.inbox.tasks)
+        lock(&self.shared.tasks)
             .iter()
             .filter(|t| matches!(t.status, TaskStatus::Failed(_)))
             .count()
     }
 
     pub fn running_count(&self) -> usize {
-        lock(&self.inbox.tasks)
+        lock(&self.shared.tasks)
             .iter()
             .filter(|t| matches!(t.status, TaskStatus::Running))
             .count()

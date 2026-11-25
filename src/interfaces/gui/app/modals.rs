@@ -18,6 +18,7 @@ enum ModalAction {
     RemoveFicsFromShelf { ids: Vec<u64>, shelf_id: u64 },
     AddFic(String),
     RestoreBackup(PathBuf),
+    ClearInbox,
     Quit,
 }
 
@@ -92,6 +93,10 @@ impl FicflowApp {
                     ModalAction::RestoreBackup(backup.clone())
                 })
             }
+            ActiveModal::ConfirmClearInbox => on_submit(
+                inbox_modal::draw_clear_confirm(ctx, self.cache.inbox.len()),
+                |()| ModalAction::ClearInbox,
+            ),
         };
         if !matches!(action, ModalAction::None) {
             self.active_modal = ActiveModal::None;
@@ -120,6 +125,11 @@ impl FicflowApp {
             }
             ModalAction::AddFic(input) => self.task_executor.enqueue_add(input),
             ModalAction::RestoreBackup(backup) => self.restore_library_backup(backup),
+            ModalAction::ClearInbox => {
+                if let Err(err) = self.clear_inbox() {
+                    self.toasts.error(err.to_string());
+                }
+            }
             ModalAction::Quit => {
                 self.confirm_quit();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

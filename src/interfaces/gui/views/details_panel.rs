@@ -15,7 +15,7 @@ use crate::domain::fanfiction::{
 };
 use crate::domain::shelf::Shelf;
 
-use super::super::format::{format_status, relative_time};
+use super::super::format::{ao3_work_url, format_status, relative_time};
 use super::super::widgets::shelves_dropdown::{self, DropdownOutcome};
 use super::super::widgets::star_rating;
 use super::modals::shelf_modals::ClauseFieldKind;
@@ -158,7 +158,7 @@ fn draw_header(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
     });
 
     ui.add_space(4.0);
-    let url = format!("https://archiveofourown.org/works/{}", fic.id);
+    let url = ao3_work_url(fic.id, None);
     ui.hyperlink_to(RichText::new(&url).small(), &url);
     outcome
 }

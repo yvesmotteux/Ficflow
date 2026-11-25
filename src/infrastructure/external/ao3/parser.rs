@@ -71,7 +71,14 @@ pub fn parse_work(fic_id: u64, html: &str) -> Result<Fanfiction, FicflowError> {
         user_rating: None,
         personal_note: None,
         last_checked_date: Utc::now(),
+        chapter_ids: chapter_ids(&doc),
     })
+}
+
+fn chapter_ids(doc: &Html) -> Vec<u64> {
+    doc.select(selector!("select#selected_id option"))
+        .filter_map(|option| option.value().attr("value")?.parse().ok())
+        .collect()
 }
 
 fn text_of(element: ElementRef) -> String {
