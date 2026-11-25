@@ -451,6 +451,7 @@ impl FicflowApp {
                             egui::TextEdit::singleline(&mut self.search_query)
                                 .hint_text("Search title, author, fandom, tags…")
                                 .frame(egui::Frame::NONE)
+                                .align(egui::Align2::LEFT_CENTER)
                                 .desired_width(f32::INFINITY),
                         );
                         if self.focus_search_pending {
