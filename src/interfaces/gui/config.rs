@@ -154,6 +154,8 @@ pub struct AppConfig {
     pub theme: ThemeChoice,
     #[serde(default = "default_background_checks")]
     pub background_checks: bool,
+    #[serde(default = "default_desktop_notifications")]
+    pub desktop_notifications: bool,
     #[serde(flatten)]
     pub shared: Config,
 }
@@ -161,6 +163,10 @@ pub struct AppConfig {
 pub const TEXT_ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
 fn default_background_checks() -> bool {
+    true
+}
+
+fn default_desktop_notifications() -> bool {
     true
 }
 
@@ -209,6 +215,7 @@ impl Default for AppConfig {
             text_zoom: 1.0,
             theme: ThemeChoice::System,
             background_checks: true,
+            desktop_notifications: true,
             shared: Config::default(),
         }
     }

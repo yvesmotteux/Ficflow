@@ -34,6 +34,14 @@ egui-notify = "0.24"
 toml = "1"
 resvg = "0.47"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+notify-rust = "4.19"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+raw-window-handle = "0.6"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+zbus = "5"
 
 [dev-dependencies]
 httpmock = "0.8.3"

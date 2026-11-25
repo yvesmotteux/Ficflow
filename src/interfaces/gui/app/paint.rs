@@ -27,6 +27,7 @@ impl FicflowApp {
         self.handle_close_request(&ctx);
         self.handle_shortcuts(&ctx);
         self.ao3_account.poll();
+        self.open_inbox_if_requested(&ctx);
         let on_settings = matches!(self.current_view, View::Settings);
         if on_settings && !self.was_on_settings {
             self.ao3_account.reload();
@@ -353,6 +354,7 @@ impl FicflowApp {
                     .info(format!("New chapter for \u{201C}{}\u{201D}", title));
             }
             self.cache.reload_inbox(&self.connection);
+            self.notify_new_chapters(ctx, &new_messages);
         }
         for found in self.task_executor.take_finished_manual_checks() {
             match found {

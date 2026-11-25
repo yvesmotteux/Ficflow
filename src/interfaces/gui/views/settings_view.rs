@@ -126,6 +126,12 @@ pub fn draw(
                 .weak()
                 .italics(),
             );
+            changed |= ui
+                .checkbox(
+                    &mut config.desktop_notifications,
+                    "Show a desktop notification when new chapters come out",
+                )
+                .changed();
             ui.horizontal(|ui| {
                 let checking = background.remaining > 0;
                 if ui
