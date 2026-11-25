@@ -26,6 +26,12 @@ impl FicflowApp {
         self.sync_text_zoom(&ctx);
         self.handle_close_request(&ctx);
         self.handle_shortcuts(&ctx);
+        self.ao3_account.poll();
+        let on_settings = matches!(self.current_view, View::Settings);
+        if on_settings && !self.was_on_settings {
+            self.ao3_account.reload();
+        }
+        self.was_on_settings = on_settings;
 
         let screen = ctx.content_rect();
         self.chrome.paint_background(&ctx, screen);
@@ -264,6 +270,7 @@ impl FicflowApp {
                         &mut self.config,
                         &self.current_db_path,
                         self.update_check.newer_release(),
+                        &mut self.ao3_account,
                     );
                     if outcome.config_changed {
                         self.save_config();

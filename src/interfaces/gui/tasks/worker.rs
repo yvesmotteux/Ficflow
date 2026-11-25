@@ -8,16 +8,23 @@ use crate::application::check_updates::check_fic_updates;
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
+use crate::infrastructure::external::ao3::session::SessionStore;
 use crate::infrastructure::persistence::database::connection::open_configured_db;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
 use super::{TaskStatus, WorkerCommand, WorkerInbox, lock};
 
+pub struct FetcherSetup {
+    pub urls: Vec<String>,
+    pub max_cycles: u32,
+    pub session_store: Arc<dyn SessionStore>,
+    pub session_site: String,
+}
+
 pub fn run(
     rx: Receiver<WorkerCommand>,
     inbox: Arc<WorkerInbox>,
-    urls: Vec<String>,
-    max_cycles: u32,
+    setup: FetcherSetup,
     db_path: PathBuf,
 ) {
     // Open the same SQLite file the GUI reads from so the worker's writes
@@ -29,8 +36,8 @@ pub fn run(
             return;
         }
     };
-    let fetcher = match Ao3Fetcher::new(urls, max_cycles) {
-        Ok(f) => f,
+    let fetcher = match Ao3Fetcher::new(setup.urls, setup.max_cycles) {
+        Ok(f) => f.with_session(setup.session_store, setup.session_site),
         Err(err) => {
             log::error!("task worker couldn't build Ao3Fetcher: {}", err);
             return;

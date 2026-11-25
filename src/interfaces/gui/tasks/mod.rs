@@ -14,6 +14,8 @@ use std::thread;
 
 use chrono::{DateTime, Utc};
 
+use crate::infrastructure::external::ao3::session::SessionStore;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskKind {
     Add { input: String },
@@ -85,13 +87,27 @@ impl TaskExecutor {
     /// Worker opens its own SQLite connection (`Connection: !Send`); it
     /// must point at the same file as the GUI's so writes are visible
     /// to subsequent reads, hence the shared `db_path`.
-    pub fn spawn(urls: Vec<String>, max_cycles: u32, db_path: PathBuf) -> Self {
+    pub fn spawn(
+        urls: Vec<String>,
+        max_cycles: u32,
+        db_path: PathBuf,
+        session_store: Arc<dyn SessionStore>,
+        session_site: String,
+    ) -> Self {
         let inbox = Arc::new(WorkerInbox::new());
         let (tx, rx) = mpsc::channel();
         let worker_inbox = Arc::clone(&inbox);
         let worker = thread::Builder::new()
             .name("ficflow-tasks".into())
-            .spawn(move || worker::run(rx, worker_inbox, urls, max_cycles, db_path))
+            .spawn(move || {
+                let fetcher_setup = worker::FetcherSetup {
+                    urls,
+                    max_cycles,
+                    session_store,
+                    session_site,
+                };
+                worker::run(rx, worker_inbox, fetcher_setup, db_path)
+            })
             .expect("failed to spawn task-worker thread");
         Self {
             inbox,
