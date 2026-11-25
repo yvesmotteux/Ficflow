@@ -1,13 +1,29 @@
 use crate::error::FicflowError;
 use reqwest::{
     blocking::Client,
-    header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderValue, USER_AGENT},
+    header::{ACCEPT, ACCEPT_LANGUAGE, COOKIE, HeaderMap, HeaderValue, USER_AGENT},
 };
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Minimum gap between successive AO3 requests.
 pub const DEFAULT_MIN_REQUEST_GAP: Duration = Duration::from_secs(4);
+
+pub fn browser_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static(
+            "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        ),
+    );
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+    );
+    headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"));
+    headers
+}
 
 pub struct Ao3Client {
     client: Client,
@@ -19,24 +35,9 @@ impl Ao3Client {
     /// Override the minimum inter-request gap. Pass `Duration::ZERO` in tests
     /// so the mock-backed suite doesn't wait between calls.
     pub fn with_min_gap(min_gap: Duration) -> Result<Self, FicflowError> {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            USER_AGENT,
-            HeaderValue::from_static(
-                "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
-            ),
-        );
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            ),
-        );
-        headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"));
-
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
-            .default_headers(headers)
+            .default_headers(browser_headers())
             .http1_only()
             .build()?;
 
@@ -61,10 +62,19 @@ impl Ao3Client {
         *slot = Some(Instant::now());
     }
 
-    pub fn fetch_work(&self, fic_id: u64, base_url: &str) -> Result<String, FicflowError> {
+    pub fn fetch_work(
+        &self,
+        fic_id: u64,
+        base_url: &str,
+        cookie: Option<&str>,
+    ) -> Result<String, FicflowError> {
         self.throttle();
         let url = format!("{}/works/{}", base_url, fic_id);
-        let response = self.client.get(&url).send()?;
+        let mut request = self.client.get(&url);
+        if let Some(cookie) = cookie {
+            request = request.header(COOKIE, cookie);
+        }
+        let response = request.send()?;
         if response.url().path().starts_with("/users/login") {
             return Err(FicflowError::RestrictedWork { fic_id });
         }

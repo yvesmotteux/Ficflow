@@ -11,6 +11,15 @@ pub enum FicflowError {
     #[error("fanfiction with ID {fic_id} is only visible to logged-in AO3 users")]
     RestrictedWork { fic_id: u64 },
 
+    #[error("your AO3 login has expired, please log in again")]
+    SessionExpired,
+
+    #[error("AO3 didn't accept that user name and password")]
+    LoginRejected,
+
+    #[error("couldn't use the system keychain: {0}")]
+    Keychain(String),
+
     #[error("fanfiction with ID {fic_id} already exists in your library")]
     AlreadyExists { fic_id: u64 },
 
