@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] Ability to login to access restricted fics
 - [ ] Investigate inability to paste into the Add fic modal
 - [ ] Create a rule that automatically checks for updates when the GUI is open and sends notifications to the user in case there is a new one (settings, refresh every x time, + notifications for all manual and auto refreshes when a new update was found! And an inbox too)
 - [ ] add works with not only single fics, but collections, a user list of fics, a tag, a user profile,...
