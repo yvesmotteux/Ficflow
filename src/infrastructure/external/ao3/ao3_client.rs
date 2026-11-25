@@ -64,7 +64,10 @@ impl Ao3Client {
     pub fn fetch_work(&self, fic_id: u64, base_url: &str) -> Result<String, FicflowError> {
         self.throttle();
         let url = format!("{}/works/{}", base_url, fic_id);
-        let response = self.client.get(&url).send()?.error_for_status()?.text()?;
-        Ok(response)
+        let response = self.client.get(&url).send()?;
+        if response.url().path().starts_with("/users/login") {
+            return Err(FicflowError::RestrictedWork { fic_id });
+        }
+        Ok(response.error_for_status()?.text()?)
     }
 }

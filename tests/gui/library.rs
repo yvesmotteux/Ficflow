@@ -89,6 +89,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn add_restricted_fic_fails_once_with_login_message() {
+        let mock_server = httpmock::MockServer::start();
+        let work = mock_server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/works/52726045");
+            then.status(302).header(
+                "Location",
+                "/users/login?restricted=true&return_to=%2Fworks%2F52726045",
+            );
+        });
+        mock_server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/users/login");
+            then.status(200).body("<html><body>Log In</body></html>");
+        });
+        let mut h = GuiHarness::new(vec![mock_server.base_url()]);
+        h.step_n(1);
+
+        h.app.submit_add_fic("52726045");
+
+        assert!(h.wait_for_tasks(80), "worker did not finish in time");
+        assert!(h.app.fics().is_empty());
+        let states = h.app.task_states();
+        match &states[0].status {
+            TaskStatus::Failed(msg) => assert!(
+                msg.contains("only visible to logged-in AO3 users"),
+                "unexpected failure message: {msg}"
+            ),
+            other => panic!("expected Failed, got {:?}", other),
+        }
+        work.assert_calls(1);
+    }
+
     /// A4 — selecting a row populates the details panel by switching
     /// `selection` to `Single(id)` and refreshing the per-fic shelf-id
     /// cache (which is what feeds the shelves dropdown's checked
