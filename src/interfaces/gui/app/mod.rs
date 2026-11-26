@@ -308,6 +308,7 @@ impl FicflowApp {
             &self.cache.shelf_members,
             &self.search_query,
             self.sort,
+            self.config.group_series,
         )
     }
 
@@ -327,6 +328,7 @@ impl FicflowApp {
             query: &self.search_query,
             sort: self.sort,
             collapsed: &self.config.collapsed_series,
+            group_series: self.config.group_series,
             shelf_members: &self.cache.shelf_members,
         })
         .iter()
@@ -337,6 +339,11 @@ impl FicflowApp {
     pub fn select_row(&mut self, key: RowKey) {
         self.selection.select_row(key);
         self.refresh_selection_shelf_ids();
+    }
+
+    pub fn set_group_series(&mut self, enabled: bool) {
+        self.config.group_series = enabled;
+        self.save_config();
     }
 
     pub fn collapsed_series(&self) -> &[u64] {

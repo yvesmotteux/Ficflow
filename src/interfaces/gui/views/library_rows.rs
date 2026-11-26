@@ -60,6 +60,7 @@ pub struct RowInputs<'a> {
     pub query: &'a str,
     pub sort: SortPref,
     pub collapsed: &'a [u64],
+    pub group_series: bool,
     pub shelf_members: &'a HashSet<u64>,
 }
 
@@ -81,6 +82,7 @@ pub fn build_rows(input: &RowInputs) -> Vec<LibraryRow> {
         query,
         sort,
         collapsed,
+        group_series,
         shelf_members,
     } = *input;
     let query = query.trim().to_lowercase();
@@ -90,7 +92,7 @@ pub fn build_rows(input: &RowInputs) -> Vec<LibraryRow> {
     let matches = |i: usize| rank.contains_key(&i) && matches_search(&fics[i], &query);
 
     let mut groups: Vec<Group> = Vec::new();
-    for (s, series) in series.iter().enumerate() {
+    for (s, series) in series.iter().enumerate().filter(|_| group_series) {
         let local: Vec<(u32, usize)> = series
             .works
             .iter()

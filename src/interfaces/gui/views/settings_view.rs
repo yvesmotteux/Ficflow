@@ -223,6 +223,20 @@ fn draw_display(ui: &mut Ui, config: &mut AppConfig) -> bool {
             }
         }
     });
+
+    ui.add_space(12.0);
+    ui.label(RichText::new("Library").strong());
+    changed |= ui
+        .checkbox(&mut config.group_series, "Group fics from the same series")
+        .changed();
+    ui.label(
+        RichText::new(
+            "Fics that belong to a series are listed under it, with the parts you don't have \
+            yet. When off, every fic gets its own row.",
+        )
+        .weak()
+        .italics(),
+    );
     changed
 }
 

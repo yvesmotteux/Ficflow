@@ -304,6 +304,7 @@ impl FicflowApp {
                             fics: &self.cache.fics,
                             series: &self.cache.series,
                             collapsed: &self.config.collapsed_series,
+                            group_series: self.config.group_series,
                             generation: self.cache.generation,
                             sort: &mut self.sort,
                             search_query: &self.search_query,

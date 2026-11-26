@@ -297,4 +297,32 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn turning_grouping_off_lists_every_fic_on_its_own_row_and_sticks() {
+        let mut h = given_library_with_series();
+
+        h.app.set_group_series(false);
+
+        assert_eq!(
+            h.app.library_rows(),
+            vec![Fic(1), Fic(2), Fic(3), Fic(4), Fic(5)]
+        );
+        h.restart(vec!["http://127.0.0.1:1".into()]);
+        h.app.set_sort(ColumnKey::Title, SortDirection::Ascending);
+        assert_eq!(h.app.library_rows().len(), 5);
+    }
+
+    #[test]
+    fn the_series_column_sorts_fics_by_series_then_part() {
+        let mut h = given_library_with_series();
+        h.app.set_group_series(false);
+
+        h.app.set_sort(ColumnKey::Series, SortDirection::Ascending);
+
+        assert_eq!(h.app.visible_ids(), vec![4, 1, 2, 3, 5]);
+        let first = h.app.fics().iter().find(|f| f.id == 1).unwrap();
+        let labels: Vec<(u64, u32)> = first.series.iter().map(|s| (s.id, s.part)).collect();
+        assert_eq!(labels, vec![(10, 1), (20, 1)]);
+    }
 }

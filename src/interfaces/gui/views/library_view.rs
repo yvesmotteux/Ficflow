@@ -25,6 +25,7 @@ pub struct LibraryViewState<'a> {
     pub fics: &'a [Fanfiction],
     pub series: &'a [Series],
     pub collapsed: &'a [u64],
+    pub group_series: bool,
     pub generation: u64,
     pub sort: &'a mut SortPref,
     pub search_query: &'a str,
@@ -55,9 +56,24 @@ struct TableMemo {
 
 const MEMO_ID: &str = "ficflow-table-memo";
 
-fn rows_key(generation: u64, query: &str, sort: SortPref, view: &View, collapsed: &[u64]) -> u64 {
+fn rows_key(
+    generation: u64,
+    query: &str,
+    sort: SortPref,
+    view: &View,
+    collapsed: &[u64],
+    group_series: bool,
+) -> u64 {
     let mut hasher = DefaultHasher::new();
-    (generation, query.trim(), sort, view, collapsed).hash(&mut hasher);
+    (
+        generation,
+        query.trim(),
+        sort,
+        view,
+        collapsed,
+        group_series,
+    )
+        .hash(&mut hasher);
     hasher.finish()
 }
 
@@ -76,6 +92,7 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         fics,
         series,
         collapsed,
+        group_series,
         generation,
         sort,
         search_query,
@@ -86,7 +103,14 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         keyboard_nav,
     } = state;
 
-    let rows_key = rows_key(generation, search_query, *sort, view, collapsed);
+    let rows_key = rows_key(
+        generation,
+        search_query,
+        *sort,
+        view,
+        collapsed,
+        group_series,
+    );
     let widths_key = widths_key(rows_key, visible_columns, ui.ctx().pixels_per_point());
     let memo = match cached_memo(ui.ctx()) {
         Some(memo) if memo.widths_key == widths_key => memo,
@@ -100,6 +124,7 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
                     query: search_query,
                     sort: *sort,
                     collapsed,
+                    group_series,
                     shelf_members,
                 }),
             };
@@ -191,6 +216,7 @@ pub fn visible_ids(
     shelf_members: &HashSet<u64>,
     search_query: &str,
     sort: SortPref,
+    group_series: bool,
 ) -> Vec<u64> {
     let rows = build_rows(&RowInputs {
         fics,
@@ -199,6 +225,7 @@ pub fn visible_ids(
         query: search_query,
         sort,
         collapsed: &[],
+        group_series,
         shelf_members,
     });
     fic_ids(&rows, fics)
@@ -216,7 +243,7 @@ pub fn visible_count(
     search_query: &str,
     sort: SortPref,
 ) -> usize {
-    let key = rows_key(generation, search_query, sort, view, &[]);
+    let key = rows_key(generation, search_query, sort, view, &[], true);
     match cached_memo(ctx) {
         Some(memo) if memo.rows_key == key => fic_ids(&memo.rows, fics).len(),
         _ => {
@@ -396,6 +423,7 @@ fn arrow_key(ctx: &egui::Context) -> Option<Arrow> {
 fn default_initial_width(col: ColumnKey) -> f32 {
     match col {
         ColumnKey::Title => 180.0,
+        ColumnKey::Series => 150.0,
         ColumnKey::Author => 110.0,
         ColumnKey::Fandom => 150.0,
         ColumnKey::Pairing => 150.0,
@@ -549,6 +577,12 @@ fn cell_padding(col: ColumnKey) -> f32 {
 fn cell_text(fic: &Fanfiction, column: ColumnKey) -> String {
     match column {
         ColumnKey::Title => fic.title.clone(),
+        ColumnKey::Series => fic
+            .series
+            .iter()
+            .map(|s| format!("{} #{}", s.title, s.part))
+            .collect::<Vec<_>>()
+            .join(", "),
         ColumnKey::Author => fic.authors.join(", "),
         ColumnKey::Fandom => first_or_dash(&fic.fandoms),
         ColumnKey::Pairing => fic
@@ -881,6 +915,11 @@ enum SortKey {
 fn sort_key(fic: &Fanfiction, column: ColumnKey) -> SortKey {
     match column {
         ColumnKey::Title => SortKey::Text(Some(fic.title.to_lowercase())),
+        ColumnKey::Series => SortKey::Text(
+            fic.series
+                .first()
+                .map(|s| format!("{} {:06}", s.title.to_lowercase(), s.part)),
+        ),
         ColumnKey::Author => SortKey::Text(first_lower(&fic.authors)),
         ColumnKey::Fandom => SortKey::Text(first_lower(&fic.fandoms)),
         ColumnKey::Pairing => SortKey::Text(fic.relationships.as_deref().and_then(first_lower)),
