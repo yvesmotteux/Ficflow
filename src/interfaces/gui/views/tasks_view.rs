@@ -171,6 +171,7 @@ fn format_kind(kind: &TaskKind) -> &'static str {
         TaskKind::Add { .. } => "Add",
         TaskKind::Import { .. } => "Import",
         TaskKind::Refresh { .. } => "Refresh",
+        TaskKind::RefreshSeries { .. } => "Refresh series",
         TaskKind::BackgroundCheck => "Update check",
     }
 }

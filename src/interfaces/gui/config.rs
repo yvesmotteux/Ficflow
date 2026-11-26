@@ -156,6 +156,8 @@ pub struct AppConfig {
     pub background_checks: bool,
     #[serde(default = "default_desktop_notifications")]
     pub desktop_notifications: bool,
+    #[serde(default)]
+    pub collapsed_series: Vec<u64>,
     #[serde(flatten)]
     pub shared: Config,
 }
@@ -212,6 +214,7 @@ impl Default for AppConfig {
             window_maximized: false,
             window_fullscreen: false,
             last_view: None,
+            collapsed_series: Vec::new(),
             text_zoom: 1.0,
             theme: ThemeChoice::System,
             background_checks: true,

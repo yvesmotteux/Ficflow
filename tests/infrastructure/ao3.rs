@@ -4,6 +4,7 @@ use crate::common::{assertions, fixtures};
 mod tests {
     use super::*;
     use chrono::Utc;
+    use ficflow::domain::series::SeriesRef;
     use ficflow::{
         domain::fanfiction::{
             ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus,
@@ -72,6 +73,7 @@ mod tests {
             personal_note: None,
             last_checked_date: Utc::now(),
             chapter_ids: Vec::new(),
+            series: Vec::new(),
         };
 
         // When
@@ -118,6 +120,14 @@ mod tests {
 
         assert_eq!(fic.id, fic_id);
         assert_eq!(fic.authors, vec!["Anonymous".to_string()]);
+        assert_eq!(
+            fic.series,
+            vec![SeriesRef {
+                id: 5747376,
+                title: "Enemies to Lovers".to_string(),
+                part: 3,
+            }]
+        );
     }
 
     #[test]
@@ -186,9 +196,14 @@ mod tests {
             .expect("Failed to save outdated fic");
 
         // When
-        let (updated_fic, message) =
-            check_fic_updates(&updated_fetcher, &fanfiction_ops, &fanfiction_ops, fic_id)
-                .expect("Failed to check for updates");
+        let (updated_fic, message) = check_fic_updates(
+            &updated_fetcher,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            fic_id,
+        )
+        .expect("Failed to check for updates");
 
         // Then
         let message = message.expect("Should post a new chapters message");
@@ -257,9 +272,14 @@ mod tests {
         assert_eq!(stored_fic.read_count, 3, "Read count should be preserved");
 
         // Verify no changes reported when checking again
-        let (_, message) =
-            check_fic_updates(&updated_fetcher, &fanfiction_ops, &fanfiction_ops, fic_id)
-                .expect("Failed to check for updates second time");
+        let (_, message) = check_fic_updates(
+            &updated_fetcher,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            fic_id,
+        )
+        .expect("Failed to check for updates second time");
 
         assert!(
             message.is_none(),

@@ -47,7 +47,7 @@ use super::ao3_account::Ao3Account;
 use super::chrome::FrameChrome;
 use super::desktop_notifications::{DesktopNotifier, SystemNotifier, new_chapters_notification};
 use super::library_cache::LibraryCache;
-use super::selection::Selection;
+use super::selection::{RowKey, Selection};
 use super::selection_controller::SelectionController;
 use super::tasks::{FetcherSetup, ImportNotice, ImportSource, TaskExecutor};
 use super::theme;
@@ -61,7 +61,7 @@ use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
     LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TableOutcome, TaskFilter,
-    TasksViewState, details_panel, inbox_view, library_view, selection_bar, sidebar,
+    TasksViewState, details_panel, inbox_view, library_rows, library_view, selection_bar, sidebar,
 };
 use crate::interfaces::utils::url_parser::subscriptions_list;
 
@@ -301,6 +301,7 @@ impl FicflowApp {
     pub fn visible_ids(&self) -> Vec<u64> {
         library_view::visible_ids(
             &self.cache.fics,
+            &self.cache.series,
             &self.current_view,
             &self.cache.shelf_members,
             &self.search_query,
@@ -308,9 +309,76 @@ impl FicflowApp {
         )
     }
 
+    pub fn set_series_collapsed(&mut self, series_id: u64, collapsed: bool) {
+        self.config.collapsed_series.retain(|id| *id != series_id);
+        if collapsed {
+            self.config.collapsed_series.push(series_id);
+        }
+        self.save_config();
+    }
+
+    pub fn library_rows(&self) -> Vec<RowKey> {
+        library_rows::build_rows(&library_rows::RowInputs {
+            fics: &self.cache.fics,
+            series: &self.cache.series,
+            view: &self.current_view,
+            query: &self.search_query,
+            sort: self.sort,
+            collapsed: &self.config.collapsed_series,
+            shelf_members: &self.cache.shelf_members,
+        })
+        .iter()
+        .map(|row| row.key(&self.cache.fics, &self.cache.series))
+        .collect()
+    }
+
+    pub fn select_row(&mut self, key: RowKey) {
+        self.selection.select_row(key);
+        self.refresh_selection_shelf_ids();
+    }
+
+    pub fn collapsed_series(&self) -> &[u64] {
+        &self.config.collapsed_series
+    }
+
+    pub fn refresh_series(&self, series_id: u64) {
+        if let Some(series) = self.cache.series(series_id) {
+            self.task_executor
+                .enqueue_series_refresh(series_id, series.title.clone());
+        }
+    }
+
+    pub fn add_series_parts(&self, mut work_ids: Vec<u64>) {
+        match work_ids.len() {
+            0 => {}
+            1 => self
+                .task_executor
+                .enqueue_add(work_ids.remove(0).to_string()),
+            _ => self
+                .task_executor
+                .enqueue_import(ImportSource::Ids(work_ids)),
+        }
+    }
+
+    pub(super) fn selected_fic_ids(&self) -> Vec<u64> {
+        match self.selection.current() {
+            Selection::Series(id) => self
+                .cache
+                .series(*id)
+                .map(|series| library_rows::series_fic_ids(series, &self.cache.fics))
+                .unwrap_or_default(),
+            _ => self.selection.ids_vec(),
+        }
+    }
+
     pub fn details_panel_visible(&self) -> bool {
-        matches!(self.selection.current(), Selection::Single(_))
-            && self.current_view.shows_library()
+        matches!(
+            self.selection.current(),
+            Selection::Single(_)
+                | Selection::Series(_)
+                | Selection::Missing { .. }
+                | Selection::Hidden { .. }
+        ) && self.current_view.shows_library()
     }
 
     pub fn has_running_tasks(&self) -> bool {
@@ -529,7 +597,7 @@ impl FicflowApp {
     }
 
     pub fn delete_selected(&mut self) {
-        let ids = self.selection.ids_vec();
+        let ids = self.selected_fic_ids();
         if !ids.is_empty() {
             self.handle_bulk_delete(&ids);
         }

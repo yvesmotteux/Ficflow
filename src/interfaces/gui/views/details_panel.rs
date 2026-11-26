@@ -435,7 +435,7 @@ fn draw_ao3_metadata(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
 /// room for the longer labels like "Additional Tags". Labels are
 /// right-aligned inside the gutter so they all sit flush against the
 /// value column — easier to scan vertically than ragged-right labels.
-fn ao3_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
+pub(super) fn ao3_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
             egui::vec2(110.0, 22.0),

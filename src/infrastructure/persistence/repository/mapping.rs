@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 
 use crate::domain::fanfiction::{Fanfiction, Rating, ReadingStatus, UserRating};
 use crate::domain::inbox::InboxMessage;
+use crate::domain::series::{Series, SeriesWork};
 use crate::domain::shelf::{Shelf, ShelfKind};
 
 pub fn row_to_shelf(row: &Row) -> Result<Shelf, rusqlite::Error> {
@@ -68,15 +69,45 @@ pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
         personal_note: row.get("personal_note")?,
         last_checked_date: timestamp(row, "last_checked_date")?,
         chapter_ids: Vec::new(),
+        series: Vec::new(),
     })
+}
+
+pub fn row_to_series(row: &Row) -> Result<Series, rusqlite::Error> {
+    let id: u64 = row.get("id")?;
+    Ok(Series {
+        id,
+        title: row.get("title")?,
+        authors: json_column(row, id, "authors")?,
+        description: row.get("description")?,
+        notes: row.get("notes")?,
+        date_begun: optional_timestamp(row, "date_begun")?,
+        date_updated: optional_timestamp(row, "date_updated")?,
+        words: row.get("words")?,
+        works_count: row.get("works_count")?,
+        complete: row.get("complete")?,
+        bookmarks: row.get("bookmarks")?,
+        last_checked_date: timestamp(row, "last_checked_date")?,
+        works: Vec::new(),
+    })
+}
+
+pub fn row_to_series_work(row: &Row) -> Result<(u64, SeriesWork), rusqlite::Error> {
+    let work_id: u64 = row.get("work_id")?;
+    Ok((
+        row.get("series_id")?,
+        SeriesWork {
+            work_id,
+            part: row.get("part")?,
+            title: row.get("title")?,
+            authors: json_column(row, work_id, "authors")?,
+        },
+    ))
 }
 
 pub fn row_to_inbox_message(row: &Row) -> Result<InboxMessage, rusqlite::Error> {
     let content: String = row.get("content")?;
-    let read_at = match row.get::<_, Option<String>>("read_at")? {
-        Some(_) => Some(timestamp(row, "read_at")?),
-        None => None,
-    };
+    let read_at = optional_timestamp(row, "read_at")?;
     Ok(InboxMessage {
         id: row.get("id")?,
         created_at: timestamp(row, "created_at")?,
@@ -90,6 +121,13 @@ fn timestamp(row: &Row, column: &str) -> Result<DateTime<Utc>, rusqlite::Error> 
     DateTime::parse_from_rfc3339(&text)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| invalid_text_column(row, column))
+}
+
+fn optional_timestamp(row: &Row, column: &str) -> Result<Option<DateTime<Utc>>, rusqlite::Error> {
+    match row.get::<_, Option<String>>(column)? {
+        Some(_) => timestamp(row, column).map(Some),
+        None => Ok(None),
+    }
 }
 
 fn json_column<T: DeserializeOwned>(

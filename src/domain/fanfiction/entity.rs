@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 
 use super::rating::{ArchiveWarnings, Categories, Rating, UserRating};
 use super::status::ReadingStatus;
+use crate::domain::series::{Series, SeriesRef};
 use crate::error::FicflowError;
 
 pub trait FanfictionFetcher {
     fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError>;
     fn fetch_work_ids(&self, list_path: &str, limit: usize) -> Result<WorkList, FicflowError>;
+    fn fetch_series(&self, series_id: u64) -> Result<Series, FicflowError>;
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,4 +49,6 @@ pub struct Fanfiction {
     pub last_checked_date: DateTime<Utc>, // Custom field (last update check)
     #[serde(skip)]
     pub chapter_ids: Vec<u64>,
+    #[serde(skip)]
+    pub series: Vec<SeriesRef>,
 }

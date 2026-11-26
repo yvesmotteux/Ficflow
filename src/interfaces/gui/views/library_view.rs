@@ -8,11 +8,14 @@ use std::collections::HashSet;
 
 use super::super::config::{ColumnKey, SortDirection, SortPref};
 use crate::domain::fanfiction::{ArchiveWarnings, Fanfiction, Rating, ReadingStatus};
+use crate::domain::series::Series;
 
 use super::super::format::format_status;
+use super::super::selection::{RowKey, Selection};
 use super::super::selection_controller::SelectionController;
 use super::super::theme;
 use super::super::view::View;
+use super::library_rows::{LibraryRow, RowInputs, build_rows, fic_ids, series_fic_ids};
 use crate::interfaces::utils::formatter::format_thousands;
 
 const HEADER_HEIGHT: f32 = 22.0;
@@ -20,6 +23,8 @@ const ROW_HEIGHT: f32 = 28.0;
 
 pub struct LibraryViewState<'a> {
     pub fics: &'a [Fanfiction],
+    pub series: &'a [Series],
+    pub collapsed: &'a [u64],
     pub generation: u64,
     pub sort: &'a mut SortPref,
     pub search_query: &'a str,
@@ -35,6 +40,7 @@ pub struct TableOutcome {
     pub sort_changed: bool,
     pub column_reorder: Option<(ColumnKey, ColumnKey, bool)>,
     pub column_removed: Option<ColumnKey>,
+    pub collapse: Option<(u64, bool)>,
 }
 
 /// Filtered + sorted row indices and natural column widths, kept in egui
@@ -43,15 +49,15 @@ pub struct TableOutcome {
 struct TableMemo {
     rows_key: u64,
     widths_key: u64,
-    rows: Vec<usize>,
+    rows: Vec<LibraryRow>,
     widths: Vec<f32>,
 }
 
 const MEMO_ID: &str = "ficflow-table-memo";
 
-fn rows_key(generation: u64, query: &str, sort: SortPref, view: &View) -> u64 {
+fn rows_key(generation: u64, query: &str, sort: SortPref, view: &View, collapsed: &[u64]) -> u64 {
     let mut hasher = DefaultHasher::new();
-    (generation, query.trim(), sort, view).hash(&mut hasher);
+    (generation, query.trim(), sort, view, collapsed).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -68,6 +74,8 @@ fn cached_memo(ctx: &egui::Context) -> Option<Arc<TableMemo>> {
 pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
     let LibraryViewState {
         fics,
+        series,
+        collapsed,
         generation,
         sort,
         search_query,
@@ -78,17 +86,25 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         keyboard_nav,
     } = state;
 
-    let rows_key = rows_key(generation, search_query, *sort, view);
+    let rows_key = rows_key(generation, search_query, *sort, view, collapsed);
     let widths_key = widths_key(rows_key, visible_columns, ui.ctx().pixels_per_point());
     let memo = match cached_memo(ui.ctx()) {
         Some(memo) if memo.widths_key == widths_key => memo,
         cached => {
             let rows = match cached {
                 Some(memo) if memo.rows_key == rows_key => memo.rows.clone(),
-                _ => filter_and_sort(fics, search_query, *sort, view, shelf_members),
+                _ => build_rows(&RowInputs {
+                    fics,
+                    series,
+                    view,
+                    query: search_query,
+                    sort: *sort,
+                    collapsed,
+                    shelf_members,
+                }),
             };
-            let visible: Vec<&Fanfiction> = rows.iter().map(|&i| &fics[i]).collect();
-            let widths = natural_widths(ui, &visible, visible_columns, *sort);
+            let cells = Cells { fics, series };
+            let widths = natural_widths(ui, &cells, &rows, visible_columns, *sort);
             let memo = Arc::new(TableMemo {
                 rows_key,
                 widths_key,
@@ -108,8 +124,7 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         );
         return TableOutcome::default();
     }
-    let visible: Vec<&Fanfiction> = memo.rows.iter().map(|&i| &fics[i]).collect();
-    if visible.is_empty() {
+    if memo.rows.is_empty() {
         let empty_message = if fics.is_empty() {
             "No fanfictions yet. Click \u{201C}+ Add Fic(s)\u{201D} in the header to add one."
         } else if !search_query.trim().is_empty() {
@@ -122,35 +137,71 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         return TableOutcome::default();
     }
 
+    let cells = Cells { fics, series };
+    let keys: Vec<RowKey> = memo.rows.iter().map(|r| r.key(fics, series)).collect();
+    let mut collapse = None;
     let scroll_to = if keyboard_nav {
-        arrow_key(ui.ctx()).and_then(|down| selection.step(&visible, down))
+        match arrow_key(ui.ctx()) {
+            Some(Arrow::Vertical(down)) => selection.step(&keys, down),
+            Some(Arrow::Horizontal(open)) => {
+                if let Selection::Series(id) = selection.current() {
+                    collapse = Some((*id, !open));
+                }
+                None
+            }
+            None => None,
+        }
     } else {
         None
     };
-    draw_table(
+    let mut outcome = draw_table(
         ui,
-        &visible,
+        &TableRows {
+            cells: &cells,
+            rows: &memo.rows,
+            keys: &keys,
+        },
         sort,
         visible_columns,
         selection,
         &memo.widths,
         scroll_to,
-    )
+    );
+    outcome.collapse = outcome.collapse.or(collapse);
+    outcome
+}
+
+struct Cells<'a> {
+    fics: &'a [Fanfiction],
+    series: &'a [Series],
+}
+
+struct TableRows<'a> {
+    cells: &'a Cells<'a>,
+    rows: &'a [LibraryRow],
+    keys: &'a [RowKey],
 }
 
 /// All fic ids that pass the current view filter + search query, in sort order.
 /// Used by `Ctrl+A` to select-all-visible without library_view re-rendering.
 pub fn visible_ids(
     fics: &[Fanfiction],
+    series: &[Series],
     view: &View,
     shelf_members: &HashSet<u64>,
     search_query: &str,
     sort: SortPref,
 ) -> Vec<u64> {
-    filter_and_sort(fics, search_query, sort, view, shelf_members)
-        .into_iter()
-        .map(|i| fics[i].id)
-        .collect()
+    let rows = build_rows(&RowInputs {
+        fics,
+        series,
+        view,
+        query: search_query,
+        sort,
+        collapsed: &[],
+        shelf_members,
+    });
+    fic_ids(&rows, fics)
 }
 
 /// Count of fics that match the current view filter + search query. Reads
@@ -165,9 +216,9 @@ pub fn visible_count(
     search_query: &str,
     sort: SortPref,
 ) -> usize {
-    let key = rows_key(generation, search_query, sort, view);
+    let key = rows_key(generation, search_query, sort, view, &[]);
     match cached_memo(ctx) {
-        Some(memo) if memo.rows_key == key => memo.rows.len(),
+        Some(memo) if memo.rows_key == key => fic_ids(&memo.rows, fics).len(),
         _ => {
             let query = search_query.trim().to_lowercase();
             fics.iter()
@@ -180,7 +231,7 @@ pub fn visible_count(
 
 fn draw_table(
     ui: &mut Ui,
-    fics: &[&Fanfiction],
+    table: &TableRows,
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
     selection: &mut SelectionController,
@@ -195,7 +246,7 @@ fn draw_table(
     if auto_fit {
         build_table(
             ui,
-            fics,
+            table,
             sort,
             visible_columns,
             selection,
@@ -209,7 +260,7 @@ fn draw_table(
         // unbounded inner width.
         egui::ScrollArea::horizontal()
             .show(ui, |ui| {
-                build_table(ui, fics, sort, visible_columns, selection, None, scroll_to)
+                build_table(ui, table, sort, visible_columns, selection, None, scroll_to)
             })
             .inner
     }
@@ -221,7 +272,7 @@ fn draw_table(
 /// viewport and the user pans to see the rest).
 fn build_table(
     ui: &mut Ui,
-    fics: &[&Fanfiction],
+    table: &TableRows,
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
     selection: &mut SelectionController,
@@ -267,47 +318,78 @@ fn build_table(
             }
         })
         .body(|body| {
-            body.rows(ROW_HEIGHT, fics.len(), |mut row| {
-                let fic = fics[row.index()];
+            body.rows(ROW_HEIGHT, table.rows.len(), |mut row| {
                 let row_idx = row.index();
-                row.set_selected(selection.contains(fic.id));
+                let library_row = table.rows[row_idx];
+                let key = table.keys[row_idx];
+                row.set_selected(selection.shows(key));
+                let mut arrow = None;
                 for col in visible_columns {
-                    row.col(|ui| render_cell(ui, fic, *col));
+                    row.col(|ui| {
+                        if let Some(rect) = render_cell(ui, table.cells, library_row, *col) {
+                            arrow = Some(rect);
+                        }
+                    });
                 }
                 let resp = row.response();
                 if resp.clicked() {
-                    let mods = resp.ctx.input(|i| i.modifiers);
-                    selection.handle_row_click(fics, row_idx, mods);
+                    let on_arrow = arrow
+                        .zip(resp.interact_pointer_pos())
+                        .is_some_and(|(rect, pos)| rect.expand(4.0).contains(pos));
+                    match (library_row, key) {
+                        (LibraryRow::Series { collapsed, .. }, RowKey::Series(id)) if on_arrow => {
+                            outcome.collapse = Some((id, !collapsed));
+                        }
+                        _ => {
+                            let mods = resp.ctx.input(|i| i.modifiers);
+                            selection.handle_row_click(table.keys, row_idx, mods);
+                        }
+                    }
                 }
                 if resp.drag_started() {
                     // If the user starts dragging a row that's already part
                     // of the selection, we drag the whole selection. Else
                     // drag just that row (without changing the selection,
                     // which would feel surprising).
-                    let drag_ids: Vec<u64> = if selection.contains(fic.id) {
-                        selection.ids_vec()
-                    } else {
-                        vec![fic.id]
+                    let drag_ids: Vec<u64> = match key {
+                        RowKey::Fic(id) if selection.contains(id) => selection.ids_vec(),
+                        RowKey::Fic(id) => vec![id],
+                        RowKey::Series(_) => match library_row {
+                            LibraryRow::Series { series, .. } => {
+                                series_fic_ids(&table.cells.series[series], table.cells.fics)
+                            }
+                            _ => Vec::new(),
+                        },
+                        RowKey::Missing { .. } | RowKey::Hidden { .. } => Vec::new(),
                     };
-                    resp.dnd_set_drag_payload(drag_ids);
+                    if !drag_ids.is_empty() {
+                        resp.dnd_set_drag_payload(drag_ids);
+                    }
                 }
             });
         });
     outcome
 }
 
-fn arrow_key(ctx: &egui::Context) -> Option<bool> {
+enum Arrow {
+    Vertical(bool),
+    Horizontal(bool),
+}
+
+fn arrow_key(ctx: &egui::Context) -> Option<Arrow> {
     if ctx.egui_wants_keyboard_input() {
         return None;
     }
     ctx.input_mut(|i| {
-        if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
-            Some(true)
-        } else if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
-            Some(false)
-        } else {
-            None
-        }
+        [
+            (Key::ArrowDown, Arrow::Vertical(true)),
+            (Key::ArrowUp, Arrow::Vertical(false)),
+            (Key::ArrowRight, Arrow::Horizontal(true)),
+            (Key::ArrowLeft, Arrow::Horizontal(false)),
+        ]
+        .into_iter()
+        .find(|(key, _)| i.consume_key(Modifiers::NONE, *key))
+        .map(|(_, arrow)| arrow)
     })
 }
 
@@ -417,7 +499,8 @@ fn header_cell(
 /// drives the auto-fit-vs-overflow decision.
 fn natural_widths(
     ui: &Ui,
-    fics: &[&Fanfiction],
+    cells: &Cells,
+    rows: &[LibraryRow],
     visible_columns: &[ColumnKey],
     sort: SortPref,
 ) -> Vec<f32> {
@@ -431,13 +514,20 @@ fn natural_widths(
                 .layout_no_wrap(header_text, body_font.clone(), egui::Color32::WHITE)
                 .size()
                 .x;
-            let content_w = fics
+            let content_w = rows
                 .iter()
-                .map(|f| {
+                .map(|row| {
+                    let text = row_text(cells, *row, *col);
+                    let indent = if *col == ColumnKey::Title {
+                        row_indent(*row)
+                    } else {
+                        0.0
+                    };
                     ui.painter()
-                        .layout_no_wrap(cell_text(f, *col), body_font.clone(), egui::Color32::WHITE)
+                        .layout_no_wrap(text, body_font.clone(), egui::Color32::WHITE)
                         .size()
                         .x
+                        + indent
                 })
                 .fold(0.0f32, f32::max);
             header_w.max(content_w) + cell_padding(*col)
@@ -511,16 +601,108 @@ fn format_warning(w: &ArchiveWarnings) -> &'static str {
     }
 }
 
-fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
-    if matches!(column, ColumnKey::Status) {
-        render_status_pill(ui, &fic.reading_status);
-        return;
+const ARROW_WIDTH: f32 = 18.0;
+const NESTED_INDENT: f32 = 22.0;
+
+fn row_indent(row: LibraryRow) -> f32 {
+    match row {
+        LibraryRow::Series { .. } => ARROW_WIDTH,
+        LibraryRow::Fic { part: Some(_), .. }
+        | LibraryRow::Missing { .. }
+        | LibraryRow::Hidden { .. } => NESTED_INDENT,
+        LibraryRow::Fic { part: None, .. } => 0.0,
+    }
+}
+
+fn row_text(cells: &Cells, row: LibraryRow, column: ColumnKey) -> String {
+    match row {
+        LibraryRow::Fic { fic, part } => {
+            let text = cell_text(&cells.fics[fic], column);
+            match part {
+                Some((part, total)) if column == ColumnKey::Title => {
+                    format!("{part}/{total} \u{00B7} {text}")
+                }
+                _ => text,
+            }
+        }
+        LibraryRow::Series {
+            series,
+            local,
+            total,
+            ..
+        } => {
+            let series = &cells.series[series];
+            match column {
+                ColumnKey::Title => format!("{} ({local}/{total})", series.title),
+                ColumnKey::Author => series.authors.join(", "),
+                ColumnKey::Complete => if series.complete { "Yes" } else { "No" }.to_string(),
+                ColumnKey::Words => format_thousands(series.words),
+                ColumnKey::DatePublished => format_date(series.date_begun),
+                ColumnKey::Updated => format_date(series.date_updated),
+                _ => String::new(),
+            }
+        }
+        LibraryRow::Missing {
+            series,
+            work,
+            total,
+        } => {
+            let work = &cells.series[series].works[work];
+            match column {
+                ColumnKey::Title => format!("{}/{total} \u{00B7} {}", work.part, work.title),
+                ColumnKey::Author => work.authors.join(", "),
+                _ => String::new(),
+            }
+        }
+        LibraryRow::Hidden { part, total, .. } => match column {
+            ColumnKey::Title => format!("{part}/{total} \u{00B7} Hidden part"),
+            _ => String::new(),
+        },
+    }
+}
+
+fn format_date(date: Option<chrono::DateTime<chrono::Utc>>) -> String {
+    date.map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
+}
+
+/// Returns the collapse arrow's rect when this cell drew one.
+fn render_cell(
+    ui: &mut Ui,
+    cells: &Cells,
+    row: LibraryRow,
+    column: ColumnKey,
+) -> Option<egui::Rect> {
+    let mut arrow = None;
+    if column == ColumnKey::Title {
+        match row {
+            LibraryRow::Series { collapsed, .. } => {
+                let glyph = if collapsed { "\u{25B6}" } else { "\u{25BC}" };
+                let resp = ui.add_sized(
+                    [ARROW_WIDTH, ui.available_height()],
+                    egui::Label::new(RichText::new(glyph).small()).selectable(false),
+                );
+                arrow = Some(resp.rect);
+            }
+            _ => ui.add_space(row_indent(row)),
+        }
+    }
+    match row {
+        LibraryRow::Fic { fic, .. } if column == ColumnKey::Status => {
+            render_status_pill(ui, &cells.fics[fic].reading_status);
+            return arrow;
+        }
+        _ => {}
+    }
+    let mut text = RichText::new(row_text(cells, row, column));
+    match row {
+        LibraryRow::Series { .. } => text = text.strong(),
+        LibraryRow::Missing { .. } | LibraryRow::Hidden { .. } => text = text.italics().weak(),
+        LibraryRow::Fic { .. } => {}
     }
     // `selectable(false)`: a default `Label` swallows row-click events
     // for text-selection.
-    let label = egui::Label::new(cell_text(fic, column))
-        .truncate()
-        .selectable(false);
+    let label = egui::Label::new(text).truncate().selectable(false);
     if is_centered_column(column) {
         ui.with_layout(
             Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -531,6 +713,7 @@ fn render_cell(ui: &mut Ui, fic: &Fanfiction, column: ColumnKey) {
     } else {
         ui.add(label);
     }
+    arrow
 }
 
 fn is_centered_column(col: ColumnKey) -> bool {
@@ -642,7 +825,7 @@ fn format_rating(fic: &Fanfiction) -> String {
     "\u{2605}".repeat(filled) + &"\u{2606}".repeat(5 - filled)
 }
 
-fn filter_and_sort(
+pub(super) fn filter_and_sort(
     fics: &[Fanfiction],
     query: &str,
     sort: SortPref,
@@ -664,7 +847,7 @@ fn filter_and_sort(
 }
 
 /// `query` must already be trimmed and lowercased.
-fn matches_search(fic: &Fanfiction, query: &str) -> bool {
+pub(super) fn matches_search(fic: &Fanfiction, query: &str) -> bool {
     if query.is_empty() {
         return true;
     }

@@ -27,6 +27,7 @@ pub enum TaskKind {
     Add { input: String, import: Option<u64> },
     Import { source: ImportSource },
     Refresh { fic_id: u64 },
+    RefreshSeries { series_id: u64 },
     BackgroundCheck,
 }
 
@@ -85,6 +86,10 @@ pub(super) enum WorkerCommand {
     RefreshFic {
         task_id: u64,
         fic_id: u64,
+    },
+    RefreshSeries {
+        task_id: u64,
+        series_id: u64,
     },
     CheckAllNow,
     ResumeBackground,
@@ -267,6 +272,13 @@ impl TaskExecutor {
             .send(WorkerCommand::RefreshFic { task_id, fic_id });
     }
 
+    pub fn enqueue_series_refresh(&self, series_id: u64, display: String) {
+        let task_id = self.push_task(TaskKind::RefreshSeries { series_id }, display);
+        let _ = self
+            .sender
+            .send(WorkerCommand::RefreshSeries { task_id, series_id });
+    }
+
     fn push_task(&self, kind: TaskKind, display: String) -> u64 {
         self.shared.push_task(kind, display, TaskStatus::Running)
     }
@@ -319,6 +331,9 @@ impl TaskExecutor {
             TaskKind::Add { input, .. } => self.enqueue_add(input),
             TaskKind::Import { source } => self.enqueue_import(source),
             TaskKind::Refresh { fic_id } => self.enqueue_refresh(fic_id, failed.display),
+            TaskKind::RefreshSeries { series_id } => {
+                self.enqueue_series_refresh(series_id, failed.display)
+            }
             TaskKind::BackgroundCheck => {
                 let _ = self.sender.send(WorkerCommand::ResumeBackground);
             }

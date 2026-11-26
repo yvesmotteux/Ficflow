@@ -23,7 +23,7 @@ use std::process::ExitCode;
 pub use app::{FicflowApp, FicflowConfig, InitError};
 pub use config::{AppConfig, ColumnKey, SortDirection, SortPref, ThemeChoice};
 pub use desktop_notifications::{DesktopNotification, DesktopNotifier};
-pub use selection::Selection;
+pub use selection::{RowKey, Selection};
 pub use tasks::{IMPORT_LIMIT, ImportSource, TaskKind, TaskState, TaskStatus};
 pub use view::View;
 

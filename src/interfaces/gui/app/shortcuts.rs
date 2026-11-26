@@ -28,7 +28,7 @@ impl FicflowApp {
         }
 
         if pressed_delete {
-            let selected_fics = self.selection.ids_vec();
+            let selected_fics = self.selected_fic_ids();
             if !selected_fics.is_empty() {
                 if let View::Shelf(shelf_id) = &self.current_view {
                     let shelf_id = *shelf_id;
@@ -45,7 +45,9 @@ impl FicflowApp {
                 } else if self.current_view.shows_library() {
                     self.active_modal = ActiveModal::DeleteFics(selected_fics);
                 }
-            } else if let View::Shelf(shelf_id) = &self.current_view {
+            } else if let View::Shelf(shelf_id) = &self.current_view
+                && matches!(self.selection.current(), Selection::None)
+            {
                 // No fic selection on a shelf view → Delete targets the
                 // shelf itself.
                 self.active_modal = ActiveModal::DeleteShelf(*shelf_id);
@@ -55,6 +57,7 @@ impl FicflowApp {
         if ctrl_a && self.current_view.shows_library() {
             let ids = library_view::visible_ids(
                 &self.cache.fics,
+                &self.cache.series,
                 &self.current_view,
                 &self.cache.shelf_members,
                 &self.search_query,

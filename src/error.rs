@@ -16,6 +16,9 @@ pub enum FicflowError {
     #[error("fanfiction with ID {fic_id} not found")]
     NotFound { fic_id: u64 },
 
+    #[error("series with ID {series_id} not found")]
+    SeriesNotFound { series_id: u64 },
+
     #[error("fanfiction with ID {fic_id} is only visible to logged-in AO3 users")]
     RestrictedWork { fic_id: u64 },
 
