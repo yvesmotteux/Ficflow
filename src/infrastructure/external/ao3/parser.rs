@@ -15,8 +15,9 @@ macro_rules! selector {
     }};
 }
 
-static WORK_PATH_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^/works/(\d+)$").expect("valid work path regex"));
+static WORK_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:/collections/[^/]+)?/works/(\d+)$").expect("valid work path regex")
+});
 
 static LIST_TOTAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"([\d,]+)\s+(?:Works?|Bookmarks?)\b").expect("valid list total regex")

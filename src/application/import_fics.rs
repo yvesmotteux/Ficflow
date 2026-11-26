@@ -22,6 +22,9 @@ pub fn plan_import(
         ImportFrom::Ids(ids) => ids.to_vec(),
         ImportFrom::List(path) => {
             let list = fetcher.fetch_work_ids(path, limit.unwrap_or(usize::MAX))?;
+            if list.ids.is_empty() {
+                return Err(FicflowError::EmptyList);
+            }
             if let Some(limit) = limit
                 && list.total.unwrap_or(list.ids.len()) > limit
             {
