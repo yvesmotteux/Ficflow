@@ -21,7 +21,6 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'v')
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - name: Checkout master
         uses: actions/checkout@v6
@@ -66,23 +65,15 @@ jobs:
           post_process: |
             rm -f ficflow-* LICENSE-*
 
-      - name: Open PR to sync the bump on master
-        id: cpr
-        uses: peter-evans/create-pull-request@v8
-        with:
-          branch: version-bump/${{ steps.version.outputs.version }}
-          base: master
-          title: ":bookmark: Bump version to ${{ steps.version.outputs.version }}"
-          commit-message: ":bookmark: Bump version to ${{ steps.version.outputs.version }}"
-          body: |
-            Auto-generated after the release of v${{ steps.version.outputs.version }}.
-            Syncs the in-repo version with the release across Cargo.toml,
-            Cargo.lock, and aur/PKGBUILD, so the version shown in Settings on a
-            local `cargo run` stays in step with the latest release.
-          delete-branch: true
-
-      - name: Merge the bump PR
-        if: steps.cpr.outputs.pull-request-number
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr merge --squash ${{ steps.cpr.outputs.pull-request-number }}
+      - name: Commit the bump to master
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock aur/PKGBUILD
+          if git diff --cached --quiet; then
+            echo "Version already at $VERSION"
+            exit 0
+          fi
+          git commit -m ":bookmark: Bump version to $VERSION"
+          git push origin HEAD:master
