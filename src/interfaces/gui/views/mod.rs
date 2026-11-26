@@ -4,6 +4,7 @@ pub mod library_rows;
 pub mod library_view;
 pub mod modals;
 pub mod selection_bar;
+pub mod series_panel;
 pub mod settings_view;
 pub mod sidebar;
 pub mod tasks_view;

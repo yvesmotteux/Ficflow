@@ -341,9 +341,41 @@ impl FicflowApp {
         &self.config.collapsed_series
     }
 
+    pub fn refresh_series(&self, series_id: u64) {
+        if let Some(series) = self.cache.series(series_id) {
+            self.task_executor
+                .enqueue_series_refresh(series_id, series.title.clone());
+        }
+    }
+
+    pub fn add_series_parts(&self, mut work_ids: Vec<u64>) {
+        match work_ids.len() {
+            0 => {}
+            1 => self
+                .task_executor
+                .enqueue_add(work_ids.remove(0).to_string()),
+            _ => self
+                .task_executor
+                .enqueue_import(ImportSource::Ids(work_ids)),
+        }
+    }
+
+    pub(super) fn selected_fic_ids(&self) -> Vec<u64> {
+        match self.selection.current() {
+            Selection::Series(id) => self
+                .cache
+                .series(*id)
+                .map(|series| library_rows::series_fic_ids(series, &self.cache.fics))
+                .unwrap_or_default(),
+            _ => self.selection.ids_vec(),
+        }
+    }
+
     pub fn details_panel_visible(&self) -> bool {
-        matches!(self.selection.current(), Selection::Single(_))
-            && self.current_view.shows_library()
+        matches!(
+            self.selection.current(),
+            Selection::Single(_) | Selection::Series(_) | Selection::Missing { .. }
+        ) && self.current_view.shows_library()
     }
 
     pub fn has_running_tasks(&self) -> bool {
@@ -562,7 +594,7 @@ impl FicflowApp {
     }
 
     pub fn delete_selected(&mut self) {
-        let ids = self.selection.ids_vec();
+        let ids = self.selected_fic_ids();
         if !ids.is_empty() {
             self.handle_bulk_delete(&ids);
         }

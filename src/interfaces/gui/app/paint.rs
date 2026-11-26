@@ -1,5 +1,6 @@
 use super::*;
 use crate::interfaces::gui::views::library_rows::series_fic_ids;
+use crate::interfaces::gui::views::series_panel::{self, SeriesOutcome};
 
 fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
     let mut counts = LibraryCounts {
@@ -163,8 +164,13 @@ impl FicflowApp {
     }
 
     pub(super) fn paint_details_panel(&mut self, host: &mut egui::Ui) {
-        let Selection::Single(id) = *self.selection.current() else {
-            return;
+        let id = match *self.selection.current() {
+            Selection::Single(id) => id,
+            Selection::Series(id) => return self.paint_series_panel(host, id, None),
+            Selection::Missing { series_id, work_id } => {
+                return self.paint_series_panel(host, series_id, Some(work_id));
+            }
+            _ => return,
         };
         if !self.current_view.shows_library() {
             return;
@@ -193,6 +199,40 @@ impl FicflowApp {
             });
 
         self.dispatch_details_outcome(id, outcome);
+    }
+
+    fn paint_series_panel(&mut self, host: &mut egui::Ui, series_id: u64, work_id: Option<u64>) {
+        if !self.current_view.shows_library() {
+            return;
+        }
+        let Some(series) = self.cache.series(series_id).cloned() else {
+            return;
+        };
+        let local = series_fic_ids(&series, &self.cache.fics);
+        let missing: Vec<u64> = series
+            .works
+            .iter()
+            .map(|w| w.work_id)
+            .filter(|id| !local.contains(id))
+            .collect();
+        let work = work_id.and_then(|id| series.works.iter().find(|w| w.work_id == id));
+        let mut outcome = SeriesOutcome::None;
+        egui::Panel::right("ficflow-details-v2")
+            .default_size(320.0)
+            .size_range(280.0..=900.0)
+            .resizable(true)
+            .show(host, |ui| {
+                outcome = match work {
+                    Some(work) => series_panel::draw_missing(ui, &series, work)
+                        .map_or(SeriesOutcome::None, |id| SeriesOutcome::Add(vec![id])),
+                    None => series_panel::draw_series(ui, &series, &missing),
+                };
+            });
+        match outcome {
+            SeriesOutcome::None => {}
+            SeriesOutcome::Refresh => self.refresh_series(series.id),
+            SeriesOutcome::Add(ids) => self.add_series_parts(ids),
+        }
     }
 
     pub(super) fn paint_selection_bar(&mut self, host: &mut egui::Ui) {
@@ -328,6 +368,11 @@ impl FicflowApp {
             self.refresh_selection_shelf_ids();
         }
         // Selected fic got deleted this frame: drop the orphan selection.
+        if let Selection::Missing { work_id, .. } = *self.selection.current()
+            && self.cache.fic(work_id).is_some()
+        {
+            self.select_fic(work_id);
+        }
         let orphaned = match *self.selection.current() {
             Selection::Single(id) => self.cache.fic(id).is_none(),
             Selection::Series(id) | Selection::Missing { series_id: id, .. } => self

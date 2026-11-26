@@ -15,7 +15,7 @@ use super::super::selection::{RowKey, Selection};
 use super::super::selection_controller::SelectionController;
 use super::super::theme;
 use super::super::view::View;
-use super::library_rows::{LibraryRow, RowInputs, build_rows, fic_ids};
+use super::library_rows::{LibraryRow, RowInputs, build_rows, fic_ids, series_fic_ids};
 use crate::interfaces::utils::formatter::format_thousands;
 
 const HEADER_HEIGHT: f32 = 22.0;
@@ -354,7 +354,13 @@ fn build_table(
                     let drag_ids: Vec<u64> = match key {
                         RowKey::Fic(id) if selection.contains(id) => selection.ids_vec(),
                         RowKey::Fic(id) => vec![id],
-                        RowKey::Series(_) | RowKey::Missing { .. } => Vec::new(),
+                        RowKey::Series(_) => match library_row {
+                            LibraryRow::Series { series, .. } => {
+                                series_fic_ids(&table.cells.series[series], table.cells.fics)
+                            }
+                            _ => Vec::new(),
+                        },
+                        RowKey::Missing { .. } => Vec::new(),
                     };
                     if !drag_ids.is_empty() {
                         resp.dnd_set_drag_payload(drag_ids);
