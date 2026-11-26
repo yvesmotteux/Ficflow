@@ -1,7 +1,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use egui::{Align, Color32, Layout, RichText, Sense, Stroke, StrokeKind, Ui};
+use egui::{Align, Color32, Key, Layout, Modifiers, RichText, Sense, Stroke, StrokeKind, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use std::collections::HashSet;
@@ -27,6 +27,7 @@ pub struct LibraryViewState<'a> {
     pub selection: &'a mut SelectionController,
     pub view: &'a View,
     pub shelf_members: &'a HashSet<u64>,
+    pub keyboard_nav: bool,
 }
 
 #[derive(Default)]
@@ -74,6 +75,7 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         selection,
         view,
         shelf_members,
+        keyboard_nav,
     } = state;
 
     let rows_key = rows_key(generation, search_query, *sort, view);
@@ -98,13 +100,32 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         }
     };
 
+    if visible_columns.is_empty() {
+        ui.label(
+            RichText::new("All columns are hidden — open the column picker to enable some.")
+                .italics()
+                .weak(),
+        );
+        return TableOutcome::default();
+    }
     let visible: Vec<&Fanfiction> = memo.rows.iter().map(|&i| &fics[i]).collect();
-    let empty_message = if fics.is_empty() {
-        "No fanfictions yet. Click \u{201C}+ Add Fic\u{201D} in the header to add one."
-    } else if !search_query.trim().is_empty() {
-        "No fanfictions match your search."
+    if visible.is_empty() {
+        let empty_message = if fics.is_empty() {
+            "No fanfictions yet. Click \u{201C}+ Add Fic\u{201D} in the header to add one."
+        } else if !search_query.trim().is_empty() {
+            "No fanfictions match your search."
+        } else {
+            "No fanfictions in this view yet."
+        };
+        ui.add_space(8.0);
+        ui.label(RichText::new(empty_message).italics().weak());
+        return TableOutcome::default();
+    }
+
+    let scroll_to = if keyboard_nav {
+        arrow_key(ui.ctx()).and_then(|down| selection.step(&visible, down))
     } else {
-        "No fanfictions in this view yet."
+        None
     };
     draw_table(
         ui,
@@ -113,7 +134,7 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
         visible_columns,
         selection,
         &memo.widths,
-        empty_message,
+        scroll_to,
     )
 }
 
@@ -164,29 +185,23 @@ fn draw_table(
     visible_columns: &[ColumnKey],
     selection: &mut SelectionController,
     natural: &[f32],
-    empty_message: &str,
+    scroll_to: Option<usize>,
 ) -> TableOutcome {
-    if visible_columns.is_empty() {
-        ui.label(
-            RichText::new("All columns are hidden — open the column picker to enable some.")
-                .italics()
-                .weak(),
-        );
-        return TableOutcome::default();
-    }
-    if fics.is_empty() {
-        ui.add_space(8.0);
-        ui.label(RichText::new(empty_message).italics().weak());
-        return TableOutcome::default();
-    }
-
     // Compute auto-fit decision against the *outer* width — before any
     // ScrollArea wrapper expands `ui.available_width()` to infinity.
     let outer_avail = ui.available_width();
     let auto_fit = natural.iter().sum::<f32>() <= outer_avail;
 
     if auto_fit {
-        build_table(ui, fics, sort, visible_columns, selection, natural, true)
+        build_table(
+            ui,
+            fics,
+            sort,
+            visible_columns,
+            selection,
+            Some(natural),
+            scroll_to,
+        )
     } else {
         // Doesn't fit — wrap in a horizontal ScrollArea so the user can
         // pan to overflowed columns. Fixed-width columns only inside,
@@ -194,7 +209,7 @@ fn draw_table(
         // unbounded inner width.
         egui::ScrollArea::horizontal()
             .show(ui, |ui| {
-                build_table(ui, fics, sort, visible_columns, selection, natural, false)
+                build_table(ui, fics, sort, visible_columns, selection, None, scroll_to)
             })
             .inner
     }
@@ -210,8 +225,8 @@ fn build_table(
     sort: &mut SortPref,
     visible_columns: &[ColumnKey],
     selection: &mut SelectionController,
-    natural: &[f32],
-    auto_fit: bool,
+    auto_fit: Option<&[f32]>,
+    scroll_to: Option<usize>,
 ) -> TableOutcome {
     let mut outcome = TableOutcome::default();
     let mut builder = TableBuilder::new(ui)
@@ -223,12 +238,14 @@ fn build_table(
         .cell_layout(Layout::left_to_right(Align::Center));
     for (i, col) in visible_columns.iter().enumerate() {
         let is_last = i == visible_columns.len() - 1;
-        let column = if auto_fit && is_last {
+        let column = if let Some(natural) = auto_fit
+            && is_last
+        {
             // Last column eats the leftover so the table still fills the
             // panel — `at_least(natural)` keeps it from collapsing narrower
             // than its content needs.
             Column::remainder().at_least(natural[i]).clip(true)
-        } else if auto_fit {
+        } else if let Some(natural) = auto_fit {
             Column::initial(natural[i]).at_least(20.0).clip(true)
         } else {
             // Overflow path: fixed initial widths for every column,
@@ -239,6 +256,9 @@ fn build_table(
                 .clip(true)
         };
         builder = builder.column(column);
+    }
+    if let Some(row) = scroll_to {
+        builder = builder.scroll_to_row(row, None);
     }
     builder
         .header(HEADER_HEIGHT, |mut header| {
@@ -274,6 +294,21 @@ fn build_table(
             });
         });
     outcome
+}
+
+fn arrow_key(ctx: &egui::Context) -> Option<bool> {
+    if ctx.egui_wants_keyboard_input() {
+        return None;
+    }
+    ctx.input_mut(|i| {
+        if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
+            Some(true)
+        } else if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
+            Some(false)
+        } else {
+            None
+        }
+    })
 }
 
 fn default_initial_width(col: ColumnKey) -> f32 {

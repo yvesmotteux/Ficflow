@@ -51,6 +51,21 @@ impl SelectionController {
         self.last_clicked_id = None;
     }
 
+    pub fn step(&mut self, visible: &[&Fanfiction], down: bool) -> Option<usize> {
+        let last = visible.len().checked_sub(1)?;
+        let current = self
+            .last_clicked_id
+            .and_then(|id| visible.iter().position(|f| f.id == id));
+        let idx = match current {
+            Some(i) if down => (i + 1).min(last),
+            Some(i) => i.saturating_sub(1),
+            None if down => 0,
+            None => last,
+        };
+        self.select_single(visible[idx].id);
+        Some(idx)
+    }
+
     /// `mods` from the click itself so ctrl/shift work right across
     /// platforms (`Modifiers::command` is Cmd on macOS, Ctrl elsewhere).
     pub fn handle_row_click(
