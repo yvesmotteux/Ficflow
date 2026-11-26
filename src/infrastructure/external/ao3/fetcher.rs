@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use reqwest::StatusCode;
 
-use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher};
+use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher, WorkList};
 use crate::error::FicflowError;
 use crate::infrastructure::external::ao3::ao3_client::{Ao3Client, DEFAULT_MIN_REQUEST_GAP};
 use crate::infrastructure::external::ao3::parser;
@@ -93,39 +93,34 @@ impl Ao3Fetcher {
             .is_some_and(|access| access.store.load().is_some())
     }
 
-    fn scrape(&self, fic_id: u64, base_url: &str) -> Result<Fanfiction, FicflowError> {
+    fn get(
+        &self,
+        path: &str,
+        base_url: &str,
+        needs_login: FicflowError,
+    ) -> Result<String, FicflowError> {
         let access = self
             .session
             .as_ref()
             .filter(|access| access.site == base_url);
         let session = access.and_then(|access| access.store.load());
         let cookie = session.as_ref().map(|session| session.cookie.as_str());
-        match self.client.fetch_work(fic_id, base_url, cookie) {
-            Ok(response) => parser::parse_work(fic_id, &response),
-            Err(FicflowError::RestrictedWork { .. }) if session.is_some() => {
+        match self.client.fetch_page(path, base_url, cookie)? {
+            Some(html) => Ok(html),
+            None if session.is_some() => {
                 if let Some(access) = access {
                     access.store.clear()?;
                 }
                 Err(FicflowError::SessionExpired)
             }
-            Err(err) => Err(err),
+            None => Err(needs_login),
         }
     }
-}
 
-fn retryable(err: &FicflowError) -> bool {
-    match err {
-        // HTTP 404 is authoritative — the fic doesn't exist. Stop regardless of source URL.
-        FicflowError::Network(e) => e.status() != Some(StatusCode::NOT_FOUND),
-        // Parse failures may be transient when AO3 serves a degraded page under load.
-        FicflowError::Parse { .. } => true,
-        FicflowError::CloudflareChallenge => true,
-        _ => false,
-    }
-}
-
-impl FanfictionFetcher for Ao3Fetcher {
-    fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError> {
+    fn with_retries<T>(
+        &self,
+        mut attempt: impl FnMut(&str) -> Result<T, FicflowError>,
+    ) -> Result<T, FicflowError> {
         let mut last_err: Option<FicflowError> = None;
         let mut challenged = false;
 
@@ -142,11 +137,13 @@ impl FanfictionFetcher for Ao3Fetcher {
             }
 
             for url in &self.urls {
-                match self.scrape(fic_id, url) {
-                    Ok(fic) => return Ok(fic),
+                match attempt(url) {
+                    Ok(value) => return Ok(value),
                     Err(e) => {
-                        let mirror_lacks_session =
-                            matches!(e, FicflowError::RestrictedWork { .. }) && self.logged_in();
+                        let mirror_lacks_session = matches!(
+                            e,
+                            FicflowError::RestrictedWork { .. } | FicflowError::LoginRequired
+                        ) && self.logged_in();
                         if !retryable(&e) && !mirror_lacks_session {
                             return Err(e);
                         }
@@ -168,5 +165,48 @@ impl FanfictionFetcher for Ao3Fetcher {
             return Err(FicflowError::CloudflareChallenge);
         }
         Err(last_err.unwrap_or_else(|| FicflowError::Other("Fetch failed after retries".into())))
+    }
+}
+
+fn retryable(err: &FicflowError) -> bool {
+    match err {
+        // HTTP 404 is authoritative — the fic doesn't exist. Stop regardless of source URL.
+        FicflowError::Network(e) => e.status() != Some(StatusCode::NOT_FOUND),
+        // Parse failures may be transient when AO3 serves a degraded page under load.
+        FicflowError::Parse { .. } => true,
+        FicflowError::CloudflareChallenge => true,
+        _ => false,
+    }
+}
+
+impl FanfictionFetcher for Ao3Fetcher {
+    fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError> {
+        let path = format!("/works/{fic_id}");
+        self.with_retries(|base_url| {
+            let html = self.get(&path, base_url, FicflowError::RestrictedWork { fic_id })?;
+            parser::parse_work(fic_id, &html)
+        })
+    }
+
+    fn fetch_work_ids(&self, list_path: &str, limit: usize) -> Result<WorkList, FicflowError> {
+        let mut list = WorkList::default();
+        let mut next = Some(list_path.to_string());
+        while let Some(path) = next {
+            let page = self.with_retries(|base_url| {
+                let html = self.get(&path, base_url, FicflowError::LoginRequired)?;
+                Ok(parser::parse_work_list(&html))
+            })?;
+            list.total = list.total.or(page.total);
+            for id in page.ids {
+                if !list.ids.contains(&id) {
+                    list.ids.push(id);
+                }
+            }
+            if list.total.unwrap_or(list.ids.len()) > limit || list.ids.len() > limit {
+                break;
+            }
+            next = page.next_path;
+        }
+        Ok(list)
     }
 }

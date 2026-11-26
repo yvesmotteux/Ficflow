@@ -110,22 +110,23 @@ impl Ao3Client {
         *slot = Some(Instant::now());
     }
 
-    pub fn fetch_work(
+    /// `None` when AO3 bounced the request to its login page.
+    pub fn fetch_page(
         &self,
-        fic_id: u64,
+        path: &str,
         base_url: &str,
         cookie: Option<&str>,
-    ) -> Result<String, FicflowError> {
+    ) -> Result<Option<String>, FicflowError> {
         self.throttle();
-        let url = format!("{}/works/{}", base_url, fic_id);
+        let url = format!("{}{}", base_url, path);
         let mut request = self.client.get(&url);
         if let Some(cookie) = cookie {
             request = request.header(COOKIE, cookie);
         }
         let response = request.send()?;
         if response.url().path().starts_with("/users/login") {
-            return Err(FicflowError::RestrictedWork { fic_id });
+            return Ok(None);
         }
-        read_page(response)
+        read_page(response).map(Some)
     }
 }
