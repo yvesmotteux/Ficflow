@@ -643,8 +643,7 @@ impl SeriesOps for SqliteRepository<'_> {
             self.conn.execute(
                 "INSERT INTO series_work (series_id, work_id, part, title, authors) \
                  SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM series WHERE id = ?1) \
-                 ON CONFLICT(series_id, work_id) DO UPDATE SET part = excluded.part, \
-                     title = excluded.title, authors = excluded.authors",
+                 ON CONFLICT(series_id, work_id) DO NOTHING",
                 params![series.id, fic.id, series.part, fic.title, authors],
             )?;
         }

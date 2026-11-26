@@ -86,6 +86,9 @@ fn a_fic_hidden_from_the_series_listing_stays_linked() {
     let (conn, _path, _temp_dir) = fixtures::given_test_database();
     let repo = SqliteRepository::new(&conn);
     repo.save_series(&series(10, vec![work(1, 1)])).unwrap();
+    let listed = fic_in(1, 10, 7);
+    repo.save_fanfiction(&listed).unwrap();
+    repo.link_fic_to_series(&listed).unwrap();
     let hidden = fic_in(2, 10, 2);
     repo.save_fanfiction(&hidden).unwrap();
     repo.link_fic_to_series(&hidden).unwrap();
@@ -93,15 +96,19 @@ fn a_fic_hidden_from_the_series_listing_stays_linked() {
     repo.save_series(&series(10, vec![work(1, 1)])).unwrap();
     let works = repo.get_series(10).unwrap().works;
     assert_eq!(
-        works.iter().map(|w| w.work_id).collect::<Vec<_>>(),
-        vec![1, 2]
+        works
+            .iter()
+            .map(|w| (w.work_id, w.part))
+            .collect::<Vec<_>>(),
+        vec![(1, 1), (2, 2)]
     );
     assert_eq!(works[1].title, "Fic 2");
 
     let mut left = hidden.clone();
     left.series.clear();
     repo.link_fic_to_series(&left).unwrap();
-    assert!(repo.get_series(10).is_err());
+    let works = repo.get_series(10).unwrap().works;
+    assert_eq!(works.iter().map(|w| w.work_id).collect::<Vec<_>>(), vec![1]);
 }
 
 #[test]
