@@ -16,13 +16,33 @@ use chrono::{DateTime, Utc};
 
 use crate::application::background_refresh::RefreshSchedule;
 use crate::domain::inbox::InboxMessage;
-use crate::infrastructure::external::ao3::session::SessionStore;
+use crate::interfaces::utils::url_parser::Ao3List;
+
+pub use worker::FetcherSetup;
+
+pub const IMPORT_LIMIT: usize = 100;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskKind {
-    Add { input: String },
+    Add { input: String, import: Option<u64> },
+    Import { source: ImportSource },
     Refresh { fic_id: u64 },
     BackgroundCheck,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImportSource {
+    Ids(Vec<u64>),
+    List(Ao3List),
+}
+
+impl ImportSource {
+    pub fn label(&self) -> String {
+        match self {
+            ImportSource::Ids(ids) => format!("{} fic IDs", ids.len()),
+            ImportSource::List(list) => list.label.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +50,14 @@ pub enum TaskStatus {
     Running,
     Done,
     Failed(String),
+    NeedsConfirmation(String),
+    Cancelled,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImportNotice {
+    Finished(String),
+    NeedsConfirmation(String),
 }
 
 #[derive(Clone, Debug)]
@@ -45,8 +73,19 @@ pub struct TaskState {
 }
 
 pub(super) enum WorkerCommand {
-    AddFic { task_id: u64, input: String },
-    RefreshFic { task_id: u64, fic_id: u64 },
+    AddFic {
+        task_id: u64,
+        input: String,
+    },
+    Import {
+        task_id: u64,
+        source: ImportSource,
+        confirmed: bool,
+    },
+    RefreshFic {
+        task_id: u64,
+        fic_id: u64,
+    },
     CheckAllNow,
     ResumeBackground,
 }
@@ -78,6 +117,7 @@ pub(super) struct WorkerShared {
     pub background_enabled: AtomicBool,
     pub background: Mutex<BackgroundStatus>,
     pub finished_manual_checks: Mutex<Vec<usize>>,
+    pub import_notices: Mutex<Vec<ImportNotice>>,
     next_id: AtomicU64,
 }
 
@@ -92,6 +132,7 @@ impl WorkerShared {
             background_enabled: AtomicBool::new(background_enabled),
             background: Mutex::new(BackgroundStatus::default()),
             finished_manual_checks: Mutex::new(Vec::new()),
+            import_notices: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
         }
     }
@@ -122,11 +163,8 @@ impl TaskExecutor {
     /// must point at the same file as the GUI's so writes are visible
     /// to subsequent reads, hence the shared `db_path`.
     pub fn spawn(
-        urls: Vec<String>,
-        max_cycles: u32,
+        fetcher_setup: FetcherSetup,
         db_path: PathBuf,
-        session_store: Arc<dyn SessionStore>,
-        session_site: String,
         schedule: Option<RefreshSchedule>,
         background_enabled: bool,
     ) -> Self {
@@ -135,15 +173,7 @@ impl TaskExecutor {
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
             .name("ficflow-tasks".into())
-            .spawn(move || {
-                let fetcher_setup = worker::FetcherSetup {
-                    urls,
-                    max_cycles,
-                    session_store,
-                    session_site,
-                };
-                worker::run(rx, worker_shared, fetcher_setup, db_path, schedule)
-            })
+            .spawn(move || worker::run(rx, worker_shared, fetcher_setup, db_path, schedule))
             .expect("failed to spawn task-worker thread");
         Self {
             shared,
@@ -156,6 +186,7 @@ impl TaskExecutor {
         let task_id = self.push_task(
             TaskKind::Add {
                 input: input.clone(),
+                import: None,
             },
             input.clone(),
         );
@@ -168,6 +199,58 @@ impl TaskExecutor {
         // there's nothing we can do here; the task stays Running and
         // the user sees a stuck spinner — acceptable trade-off.
         let _ = self.sender.send(WorkerCommand::AddFic { task_id, input });
+    }
+
+    pub fn enqueue_import(&self, source: ImportSource) {
+        self.send_import(source, false);
+    }
+
+    fn send_import(&self, source: ImportSource, confirmed: bool) {
+        let task_id = self.push_task(
+            TaskKind::Import {
+                source: source.clone(),
+            },
+            source.label(),
+        );
+        let _ = self.sender.send(WorkerCommand::Import {
+            task_id,
+            source,
+            confirmed,
+        });
+    }
+
+    pub fn confirm_import(&self, task_id: u64) {
+        let Some(task) = self.remove_task(task_id, |status| {
+            matches!(status, TaskStatus::NeedsConfirmation(_))
+        }) else {
+            return;
+        };
+        if let TaskKind::Import { source } = task.kind {
+            self.send_import(source, true);
+        }
+    }
+
+    pub fn cancel_import(&self, task_id: u64) {
+        let mut tasks = lock(&self.shared.tasks);
+        for task in tasks.iter_mut() {
+            let in_import = task.id == task_id
+                || matches!(task.kind, TaskKind::Add { import: Some(parent), .. } if parent == task_id);
+            if in_import && matches!(task.status, TaskStatus::Running) {
+                task.status = TaskStatus::Cancelled;
+            }
+        }
+    }
+
+    fn remove_task(
+        &self,
+        task_id: u64,
+        status_matches: impl Fn(&TaskStatus) -> bool,
+    ) -> Option<TaskState> {
+        let mut tasks = lock(&self.shared.tasks);
+        let i = tasks
+            .iter()
+            .position(|t| t.id == task_id && status_matches(&t.status))?;
+        Some(tasks.remove(i))
     }
 
     /// Enqueue a refresh of an existing fic. `display` carries the fic's
@@ -218,18 +301,14 @@ impl TaskExecutor {
     /// entry. New entry gets a fresh task id. Dispatches by `kind` so a
     /// failed Refresh retries as a Refresh, not as an Add.
     pub fn retry(&self, task_id: u64) {
-        let failed = {
-            let mut tasks = lock(&self.shared.tasks);
-            let Some(i) = tasks
-                .iter()
-                .position(|t| t.id == task_id && matches!(t.status, TaskStatus::Failed(_)))
-            else {
-                return;
-            };
-            tasks.remove(i)
+        let Some(failed) =
+            self.remove_task(task_id, |status| matches!(status, TaskStatus::Failed(_)))
+        else {
+            return;
         };
         match failed.kind {
-            TaskKind::Add { input } => self.enqueue_add(input),
+            TaskKind::Add { input, .. } => self.enqueue_add(input),
+            TaskKind::Import { source } => self.enqueue_import(source),
             TaskKind::Refresh { fic_id } => self.enqueue_refresh(fic_id, failed.display),
             TaskKind::BackgroundCheck => {
                 let _ = self.sender.send(WorkerCommand::ResumeBackground);
@@ -262,6 +341,10 @@ impl TaskExecutor {
     /// `last_checked_date`) are visible immediately.
     pub fn take_refreshes(&self) -> Vec<u64> {
         mem::take(&mut *lock(&self.shared.recent_refreshes))
+    }
+
+    pub fn take_import_notices(&self) -> Vec<ImportNotice> {
+        mem::take(&mut *lock(&self.shared.import_notices))
     }
 
     pub fn take_new_messages(&self) -> Vec<InboxMessage> {

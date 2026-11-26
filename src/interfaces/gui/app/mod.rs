@@ -7,6 +7,7 @@ mod window;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use egui_notify::Toasts;
 use rusqlite::Connection;
@@ -34,6 +35,7 @@ use crate::domain::inbox::{InboxMessage, MessageContent};
 use crate::domain::shelf::{AutoShelfCriteria, Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
+use crate::infrastructure::external::ao3::ao3_client::DEFAULT_MIN_REQUEST_GAP;
 use crate::infrastructure::external::ao3::fetcher::{ao3_urls_from_env, session_site_from_env};
 use crate::infrastructure::external::ao3::session::{KeychainSessionStore, SessionStore};
 use crate::infrastructure::external::github::{LATEST_RELEASE_URL, Release};
@@ -47,7 +49,7 @@ use super::desktop_notifications::{DesktopNotifier, SystemNotifier, new_chapters
 use super::library_cache::LibraryCache;
 use super::selection::Selection;
 use super::selection_controller::SelectionController;
-use super::tasks::TaskExecutor;
+use super::tasks::{FetcherSetup, ImportNotice, ImportSource, TaskExecutor};
 use super::theme;
 use super::update_check::UpdateCheck;
 use super::view::View;
@@ -132,6 +134,7 @@ pub struct FicflowConfig {
     pub session_site: String,
     pub background_refresh: Option<RefreshSchedule>,
     pub notifier: Arc<dyn DesktopNotifier>,
+    pub request_gap: Duration,
 }
 
 impl Default for FicflowConfig {
@@ -146,6 +149,7 @@ impl Default for FicflowConfig {
             session_site: session_site_from_env(),
             background_refresh: Some(RefreshSchedule::default()),
             notifier: Arc::new(SystemNotifier),
+            request_gap: DEFAULT_MIN_REQUEST_GAP,
         }
     }
 }
@@ -180,11 +184,14 @@ impl FicflowApp {
             .and_then(|pv| View::from_persisted(pv, &cache.shelves))
             .unwrap_or_default();
         let task_executor = TaskExecutor::spawn(
-            config.ao3_urls,
-            config.max_retry_cycles,
+            FetcherSetup {
+                urls: config.ao3_urls,
+                max_cycles: config.max_retry_cycles,
+                session_store: Arc::clone(&config.session_store),
+                session_site: config.session_site.clone(),
+                min_gap: config.request_gap,
+            },
             db_path.clone(),
-            Arc::clone(&config.session_store),
-            config.session_site.clone(),
             config.background_refresh,
             app_config.background_checks,
         );
@@ -414,6 +421,18 @@ impl FicflowApp {
 
     pub fn submit_add_fic(&self, input: impl Into<String>) {
         self.task_executor.enqueue_add(input.into());
+    }
+
+    pub fn submit_import(&self, source: ImportSource) {
+        self.task_executor.enqueue_import(source);
+    }
+
+    pub fn confirm_import(&self, task_id: u64) {
+        self.task_executor.confirm_import(task_id);
+    }
+
+    pub fn cancel_import(&self, task_id: u64) {
+        self.task_executor.cancel_import(task_id);
     }
 
     pub fn confirm_quit(&mut self) {

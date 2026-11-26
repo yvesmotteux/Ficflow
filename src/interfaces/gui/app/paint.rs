@@ -347,6 +347,14 @@ impl FicflowApp {
             self.refresh_shelf_members();
             self.refresh_selection_shelf_ids();
         }
+        for notice in self.task_executor.take_import_notices() {
+            match notice {
+                ImportNotice::Finished(summary) => self.toasts.success(summary),
+                ImportNotice::NeedsConfirmation(message) => self
+                    .toasts
+                    .warning(format!("{message} Open Tasks to add them anyway.")),
+            };
+        }
         let new_messages = self.task_executor.take_new_messages();
         if !new_messages.is_empty() {
             for message in &new_messages {

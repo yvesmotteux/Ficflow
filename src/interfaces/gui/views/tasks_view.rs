@@ -26,8 +26,9 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
     for task in &tasks {
         match task.status {
             TaskStatus::Running => running += 1,
-            TaskStatus::Done => done += 1,
+            TaskStatus::Done | TaskStatus::Cancelled => done += 1,
             TaskStatus::Failed(_) => failed += 1,
+            TaskStatus::NeedsConfirmation(_) => {}
         }
     }
 
@@ -78,8 +79,22 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                         ui.label(RichText::new(relative_time(task.started_at, now)).weak());
                         match &task.status {
                             TaskStatus::Running => {
+                                if matches!(task.kind, TaskKind::Import { .. })
+                                    && ui.button("Cancel").clicked()
+                                {
+                                    executor.cancel_import(task.id);
+                                }
                                 ui.spinner();
                                 ui.label("Running");
+                            }
+                            TaskStatus::Cancelled => {
+                                ui.label(RichText::new("Cancelled").weak());
+                            }
+                            TaskStatus::NeedsConfirmation(_) => {
+                                if ui.button("Add anyway").clicked() {
+                                    executor.confirm_import(task.id);
+                                }
+                                ui.label(RichText::new("Waiting for you").color(warning(ui)));
                             }
                             TaskStatus::Done => {
                                 ui.label(RichText::new("Done").color(theme::pick(
@@ -99,9 +114,14 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                 });
                 // Second line, only for failed tasks: the actual error message,
                 // wrapped to the panel width.
-                if let TaskStatus::Failed(msg) = &task.status {
+                let detail = match &task.status {
+                    TaskStatus::Failed(msg) => Some((msg, theme::error(ui.visuals()))),
+                    TaskStatus::NeedsConfirmation(msg) => Some((msg, warning(ui))),
+                    _ => None,
+                };
+                if let Some((msg, color)) = detail {
                     ui.add(
-                        egui::Label::new(RichText::new(msg).color(theme::error(ui.visuals())))
+                        egui::Label::new(RichText::new(msg).color(color))
                             .wrap()
                             .selectable(true),
                     );
@@ -109,6 +129,14 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                 ui.separator();
             }
         });
+}
+
+fn warning(ui: &Ui) -> egui::Color32 {
+    theme::pick(
+        ui.visuals(),
+        egui::Color32::from_rgb(230, 180, 80),
+        egui::Color32::from_rgb(170, 110, 0),
+    )
 }
 
 fn filter_tab(
@@ -128,7 +156,7 @@ fn matches_filter(task: &TaskState, filter: TaskFilter) -> bool {
     match filter {
         TaskFilter::All => true,
         TaskFilter::Running => matches!(task.status, TaskStatus::Running),
-        TaskFilter::Completed => matches!(task.status, TaskStatus::Done),
+        TaskFilter::Completed => matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled),
         TaskFilter::Failed => matches!(task.status, TaskStatus::Failed(_)),
     }
 }
@@ -136,6 +164,7 @@ fn matches_filter(task: &TaskState, filter: TaskFilter) -> bool {
 fn format_kind(kind: &TaskKind) -> &'static str {
     match kind {
         TaskKind::Add { .. } => "Add",
+        TaskKind::Import { .. } => "Import",
         TaskKind::Refresh { .. } => "Refresh",
         TaskKind::BackgroundCheck => "Update check",
     }

@@ -31,6 +31,7 @@ pub mod delete_fic;
 pub mod delete_inbox_message;
 pub mod delete_shelf;
 pub mod get_fic;
+pub mod import_fics;
 pub mod list_fics;
 pub mod list_inbox;
 pub mod list_shelf_fics;
