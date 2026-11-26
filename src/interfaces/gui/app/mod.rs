@@ -54,7 +54,7 @@ use super::theme;
 use super::update_check::UpdateCheck;
 use super::view::View;
 use super::views::details_panel::DetailsState;
-use super::views::modals::add_fic_dialog::{self, AddFicState};
+use super::views::modals::add_fic_dialog::{self, AddFicState, AddRequest};
 use super::views::modals::shelf_modals::{self, AutoShelfState, CreateState, RenameState};
 use super::views::modals::{bulk_modals, column_picker, inbox_modal, quit_modal, restore_modal};
 use super::views::settings_view;

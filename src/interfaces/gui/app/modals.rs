@@ -16,7 +16,7 @@ enum ModalAction {
     DeleteShelf(u64),
     DeleteFics(Vec<u64>),
     RemoveFicsFromShelf { ids: Vec<u64>, shelf_id: u64 },
-    AddFic(String),
+    AddFic(AddRequest),
     RestoreBackup(PathBuf),
     ClearInbox,
     Quit,
@@ -81,9 +81,10 @@ impl FicflowApp {
                     },
                 )
             }
-            ActiveModal::AddFic(state) => {
-                on_submit(add_fic_dialog::draw(ctx, state), ModalAction::AddFic)
-            }
+            ActiveModal::AddFic(state) => on_submit(
+                add_fic_dialog::draw(ctx, state, self.ao3_account.username()),
+                ModalAction::AddFic,
+            ),
             ActiveModal::ConfirmQuit => on_submit(
                 quit_modal::draw_confirm(ctx, self.task_executor.running_count()),
                 |()| ModalAction::Quit,
@@ -123,7 +124,10 @@ impl FicflowApp {
                 let (succeeded, failed) = self.bulk_remove_from_shelf(&ids, shelf_id);
                 self.toast_bulk_result("Removed from shelf", succeeded, failed);
             }
-            ModalAction::AddFic(input) => self.task_executor.enqueue_add(input),
+            ModalAction::AddFic(AddRequest::Single(input)) => self.task_executor.enqueue_add(input),
+            ModalAction::AddFic(AddRequest::Import(source)) => {
+                self.task_executor.enqueue_import(source)
+            }
             ModalAction::RestoreBackup(backup) => self.restore_library_backup(backup),
             ModalAction::ClearInbox => {
                 if let Err(err) = self.clear_inbox() {
