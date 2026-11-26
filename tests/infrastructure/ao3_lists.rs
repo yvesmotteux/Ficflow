@@ -137,4 +137,47 @@ mod tests {
 
         assert!(matches!(err, FicflowError::LoginRequired));
     }
+
+    #[test]
+    fn reads_a_series_and_all_its_parts() {
+        let server = MockServer::start();
+        serve_pages(&server, "/series/6653231", &["series_p1", "series_p2"]);
+
+        let series = fetcher(&server).fetch_series(6653231).unwrap();
+
+        assert_eq!(series.title, "Arslan-tober 2026: Tiny Tales");
+        assert_eq!(series.authors, vec!["KayleySayer"]);
+        assert_eq!(
+            series.date_begun.unwrap().to_string(),
+            "2026-10-01 00:00:00 UTC"
+        );
+        assert_eq!(
+            series.date_updated.unwrap().to_string(),
+            "2026-10-31 00:00:00 UTC"
+        );
+        assert!(
+            series
+                .description
+                .unwrap()
+                .starts_with("A collection of Arslan Senki")
+        );
+        assert!(
+            series
+                .notes
+                .unwrap()
+                .contains("\n\nThe original Tumblr prompt list")
+        );
+        assert_eq!(
+            (series.words, series.works_count, series.bookmarks),
+            (33428, 31, 2)
+        );
+        assert!(!series.complete);
+        let parts: Vec<u32> = series.works.iter().map(|w| w.part).collect();
+        assert_eq!(parts, (1..=31).collect::<Vec<_>>());
+        assert_eq!(series.works[0].work_id, 93626551);
+        assert_eq!(series.works[0].title, "A Matter of Perspective");
+        assert_eq!(series.works[0].authors, vec!["KayleySayer"]);
+        assert_eq!(series.works[30].work_id, 96172631);
+        assert_eq!(series.works[30].title, "The Farther Shore");
+    }
 }

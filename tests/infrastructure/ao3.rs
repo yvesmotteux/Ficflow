@@ -4,6 +4,7 @@ use crate::common::{assertions, fixtures};
 mod tests {
     use super::*;
     use chrono::Utc;
+    use ficflow::domain::series::SeriesRef;
     use ficflow::{
         domain::fanfiction::{
             ArchiveWarnings, Categories, Fanfiction, FanfictionFetcher, Rating, ReadingStatus,
@@ -72,6 +73,7 @@ mod tests {
             personal_note: None,
             last_checked_date: Utc::now(),
             chapter_ids: Vec::new(),
+            series: Vec::new(),
         };
 
         // When
@@ -118,6 +120,14 @@ mod tests {
 
         assert_eq!(fic.id, fic_id);
         assert_eq!(fic.authors, vec!["Anonymous".to_string()]);
+        assert_eq!(
+            fic.series,
+            vec![SeriesRef {
+                id: 5747376,
+                title: "Enemies to Lovers".to_string(),
+                part: 3,
+            }]
+        );
     }
 
     #[test]

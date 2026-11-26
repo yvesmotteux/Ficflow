@@ -5,6 +5,7 @@ use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 
 use crate::domain::fanfiction::{ArchiveWarnings, Categories, Fanfiction, Rating, ReadingStatus};
+use crate::domain::series::{Series, SeriesRef, SeriesWork};
 use crate::error::FicflowError;
 
 macro_rules! selector {
@@ -22,6 +23,12 @@ static WORK_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 static LIST_TOTAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"([\d,]+)\s+(?:Works?|Bookmarks?)\b").expect("valid list total regex")
 });
+
+static SERIES_PATH_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^/series/(\d+)$").expect("valid series path regex"));
+
+static PART_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"Part\s+(\d+)").expect("valid part regex"));
 
 static DATE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\d{4}-\d{2}-\d{2})").expect("valid date regex"));
@@ -48,16 +55,127 @@ pub fn parse_work_list(html: &str) -> WorkListPage {
     });
     let series_total = first_text(&doc, selector!("#main dl.stats dd.works"))
         .and_then(|text| text.replace(',', "").parse().ok());
-    let next_path = doc
-        .select(selector!("#main ol.pagination li.next a[href]"))
-        .next()
-        .and_then(|link| link.value().attr("href"))
-        .map(str::to_string);
     WorkListPage {
         ids,
         total: heading_total.or(series_total),
-        next_path,
+        next_path: next_path(&doc),
     }
+}
+
+pub struct SeriesPage {
+    pub series: Series,
+    pub next_path: Option<String>,
+}
+
+pub fn parse_series_page(series_id: u64, html: &str) -> Result<SeriesPage, FicflowError> {
+    let doc = Html::parse_document(html);
+    let mut series = Series {
+        id: series_id,
+        title: first_text(&doc, selector!("#main > h2.heading")).ok_or_else(|| missing("title"))?,
+        authors: all_texts(&doc, selector!("#main dl.series.meta a[rel=\"author\"]")),
+        description: None,
+        notes: None,
+        date_begun: None,
+        date_updated: None,
+        words: count(&doc, selector!("#main dl.series.meta dl.stats dd.words")),
+        works_count: count(&doc, selector!("#main dl.series.meta dl.stats dd.works")),
+        complete: false,
+        bookmarks: count(
+            &doc,
+            selector!("#main dl.series.meta dl.stats dd.bookmarks"),
+        ),
+        last_checked_date: Utc::now(),
+        works: series_works(&doc, series_id),
+    };
+    let mut label = String::new();
+    for element in doc
+        .select(selector!("#main dl.series.meta > dt, #main dl.series.meta > dd, #main dl.series.meta dl.stats > dt, #main dl.series.meta dl.stats > dd"))
+    {
+        if element.value().name() == "dt" {
+            label = text_of(element);
+            continue;
+        }
+        match label.as_str() {
+            "Series Begun:" => series.date_begun = parse_date(&text_of(element)).ok(),
+            "Series Updated:" => series.date_updated = parse_date(&text_of(element)).ok(),
+            "Description:" => series.description = Some(paragraphs(element)),
+            "Notes:" => series.notes = Some(paragraphs(element)),
+            "Complete:" => series.complete = text_of(element) == "Yes",
+            _ => {}
+        }
+    }
+    Ok(SeriesPage {
+        series,
+        next_path: next_path(&doc),
+    })
+}
+
+fn series_works(doc: &Html, series_id: u64) -> Vec<SeriesWork> {
+    doc.select(selector!("#main ul.series.work.index > li.blurb"))
+        .filter_map(|blurb| {
+            let link = blurb
+                .select(selector!(".heading a[href]"))
+                .find(|link| WORK_PATH_REGEX.is_match(link.value().attr("href").unwrap_or("")))?;
+            let work_id = WORK_PATH_REGEX.captures(link.value().attr("href")?)?[1]
+                .parse()
+                .ok()?;
+            let part = blurb
+                .select(selector!("ul.series li"))
+                .find(|item| {
+                    item.select(selector!("a[href]"))
+                        .any(|a| series_id_of(a) == Some(series_id))
+                })
+                .and_then(|item| PART_REGEX.captures(&text_of(item))?[1].parse().ok())?;
+            Some(SeriesWork {
+                work_id,
+                part,
+                title: text_of(link),
+                authors: blurb
+                    .select(selector!(".heading a[rel=\"author\"]"))
+                    .map(text_of)
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+fn series_refs(doc: &Html) -> Vec<SeriesRef> {
+    doc.select(selector!("dd.series span.position"))
+        .filter_map(|position| {
+            let link = position.select(selector!("a[href]")).next()?;
+            Some(SeriesRef {
+                id: series_id_of(link)?,
+                title: text_of(link),
+                part: PART_REGEX.captures(&text_of(position))?[1].parse().ok()?,
+            })
+        })
+        .collect()
+}
+
+fn series_id_of(link: ElementRef) -> Option<u64> {
+    SERIES_PATH_REGEX.captures(link.value().attr("href")?)?[1]
+        .parse()
+        .ok()
+}
+
+fn paragraphs(element: ElementRef) -> String {
+    let paragraphs: Vec<String> = element
+        .select(selector!("p"))
+        .map(text_of)
+        .filter(|p| !p.is_empty())
+        .collect();
+    if paragraphs.is_empty() {
+        text_of(element)
+    } else {
+        paragraphs.join("\n\n")
+    }
+}
+
+fn next_path(doc: &Html) -> Option<String> {
+    doc.select(selector!("#main ol.pagination li.next a[href]"))
+        .next()
+        .and_then(|link| link.value().attr("href"))
+        .map(str::to_string)
 }
 
 pub fn parse_work(fic_id: u64, html: &str) -> Result<Fanfiction, FicflowError> {
@@ -114,6 +232,7 @@ pub fn parse_work(fic_id: u64, html: &str) -> Result<Fanfiction, FicflowError> {
         personal_note: None,
         last_checked_date: Utc::now(),
         chapter_ids: chapter_ids(&doc),
+        series: series_refs(&doc),
     })
 }
 

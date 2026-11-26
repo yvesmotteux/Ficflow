@@ -68,6 +68,7 @@ pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
         personal_note: row.get("personal_note")?,
         last_checked_date: timestamp(row, "last_checked_date")?,
         chapter_ids: Vec::new(),
+        series: Vec::new(),
     })
 }
 

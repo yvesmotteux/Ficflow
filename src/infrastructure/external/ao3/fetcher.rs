@@ -5,6 +5,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher, WorkList};
+use crate::domain::series::Series;
 use crate::error::FicflowError;
 use crate::infrastructure::external::ao3::ao3_client::{Ao3Client, DEFAULT_MIN_REQUEST_GAP};
 use crate::infrastructure::external::ao3::parser;
@@ -208,5 +209,25 @@ impl FanfictionFetcher for Ao3Fetcher {
             next = page.next_path;
         }
         Ok(list)
+    }
+
+    fn fetch_series(&self, series_id: u64) -> Result<Series, FicflowError> {
+        let mut series: Option<Series> = None;
+        let mut next = Some(format!("/series/{series_id}"));
+        while let Some(path) = next {
+            let page = self.with_retries(|base_url| {
+                let html = self.get(&path, base_url, FicflowError::LoginRequired)?;
+                parser::parse_series_page(series_id, &html)
+            })?;
+            next = page.next_path;
+            match series.as_mut() {
+                Some(series) => series.works.extend(page.series.works),
+                None => series = Some(page.series),
+            }
+        }
+        let mut series = series.ok_or(FicflowError::SeriesNotFound { series_id })?;
+        series.works.sort_by_key(|work| work.part);
+        series.works.dedup_by_key(|work| work.work_id);
+        Ok(series)
     }
 }
