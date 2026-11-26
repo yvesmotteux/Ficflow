@@ -62,6 +62,7 @@ impl FicflowApp {
                 &self.cache.shelf_members,
                 &self.search_query,
                 self.sort,
+                self.config.group_series,
             );
             self.selection.select_many(&ids);
             self.refresh_selection_shelf_ids();

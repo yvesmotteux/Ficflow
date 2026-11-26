@@ -304,6 +304,7 @@ impl FicflowApp {
                             fics: &self.cache.fics,
                             series: &self.cache.series,
                             collapsed: &self.config.collapsed_series,
+                            group_series: self.config.group_series,
                             generation: self.cache.generation,
                             sort: &mut self.sort,
                             search_query: &self.search_query,
@@ -332,6 +333,7 @@ impl FicflowApp {
                     self.update_check.start_once(ui.ctx());
                     let outcome = settings_view::draw(
                         ui,
+                        &mut self.settings_tab,
                         &mut self.config,
                         &self.current_db_path,
                         self.update_check.newer_release(),

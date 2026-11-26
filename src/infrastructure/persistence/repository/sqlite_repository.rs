@@ -1,6 +1,6 @@
 use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
 use crate::domain::inbox::{InboxMessage, InboxOps, MessageContent};
-use crate::domain::series::{Series, SeriesOps, SeriesWork};
+use crate::domain::series::{Series, SeriesOps, SeriesRef, SeriesWork};
 use crate::domain::shelf::{AutoShelfCriteria, MAX_SHELF_DEPTH, Shelf, ShelfKind, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{
@@ -145,7 +145,11 @@ impl FanfictionOps for SqliteRepository<'_> {
             .conn
             .prepare("SELECT * FROM fanfiction WHERE deleted_at IS NULL ORDER BY title")?;
         let rows = stmt.query_map([], row_to_fanfiction)?;
-        let fics = rows.collect::<Result<Vec<_>, _>>()?;
+        let mut fics = rows.collect::<Result<Vec<_>, _>>()?;
+        let mut refs = self.series_refs(None)?;
+        for fic in &mut fics {
+            fic.series = refs.remove(&fic.id).unwrap_or_default();
+        }
         Ok(fics)
     }
 
@@ -153,11 +157,17 @@ impl FanfictionOps for SqliteRepository<'_> {
         let mut stmt = self
             .conn
             .prepare("SELECT * FROM fanfiction WHERE id = ?1 AND deleted_at IS NULL")?;
-        stmt.query_row(params![fic_id], row_to_fanfiction)
+        let mut fic = stmt
+            .query_row(params![fic_id], row_to_fanfiction)
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => FicflowError::NotFound { fic_id },
                 other => FicflowError::Database(other),
-            })
+            })?;
+        fic.series = self
+            .series_refs(Some(fic_id))?
+            .remove(&fic_id)
+            .unwrap_or_default();
+        Ok(fic)
     }
 
     fn wipe_database(&self) -> Result<(), FicflowError> {
@@ -179,6 +189,34 @@ impl SqliteRepository<'_> {
             params![Utc::now().to_rfc3339()],
         )?;
         Ok(())
+    }
+
+    fn series_refs(
+        &self,
+        fic_id: Option<u64>,
+    ) -> Result<HashMap<u64, Vec<SeriesRef>>, FicflowError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT sw.work_id, s.id, s.title, sw.part FROM series_work sw \
+             JOIN series s ON s.id = sw.series_id \
+             WHERE s.deleted_at IS NULL AND (?1 IS NULL OR sw.work_id = ?1) \
+             ORDER BY s.title, s.id",
+        )?;
+        let rows = stmt.query_map(params![fic_id], |row| {
+            Ok((
+                row.get::<_, u64>(0)?,
+                SeriesRef {
+                    id: row.get(1)?,
+                    title: row.get(2)?,
+                    part: row.get(3)?,
+                },
+            ))
+        })?;
+        let mut refs: HashMap<u64, Vec<SeriesRef>> = HashMap::new();
+        for row in rows {
+            let (work_id, series) = row?;
+            refs.entry(work_id).or_default().push(series);
+        }
+        Ok(refs)
     }
 
     fn series_works(&self, series_id: Option<u64>) -> Result<Vec<(u64, SeriesWork)>, FicflowError> {

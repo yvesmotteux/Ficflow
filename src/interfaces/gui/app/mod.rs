@@ -89,6 +89,7 @@ pub struct FicflowApp {
     task_executor: TaskExecutor,
     quit_confirmed: bool,
     task_filter: TaskFilter,
+    settings_tab: settings_view::SettingsTab,
     /// Set by Ctrl+F; consumed by `draw_search_field` on next paint.
     focus_search_pending: bool,
     toasts: Toasts,
@@ -213,6 +214,7 @@ impl FicflowApp {
             task_executor,
             quit_confirmed: false,
             task_filter: TaskFilter::default(),
+            settings_tab: settings_view::SettingsTab::default(),
             focus_search_pending: false,
             toasts: Toasts::default(),
             update_check: UpdateCheck::new(config.latest_release_url),
@@ -306,6 +308,7 @@ impl FicflowApp {
             &self.cache.shelf_members,
             &self.search_query,
             self.sort,
+            self.config.group_series,
         )
     }
 
@@ -325,6 +328,7 @@ impl FicflowApp {
             query: &self.search_query,
             sort: self.sort,
             collapsed: &self.config.collapsed_series,
+            group_series: self.config.group_series,
             shelf_members: &self.cache.shelf_members,
         })
         .iter()
@@ -335,6 +339,11 @@ impl FicflowApp {
     pub fn select_row(&mut self, key: RowKey) {
         self.selection.select_row(key);
         self.refresh_selection_shelf_ids();
+    }
+
+    pub fn set_group_series(&mut self, enabled: bool) {
+        self.config.group_series = enabled;
+        self.save_config();
     }
 
     pub fn collapsed_series(&self) -> &[u64] {

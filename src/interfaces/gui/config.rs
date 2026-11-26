@@ -18,6 +18,7 @@ pub enum PersistedView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ColumnKey {
     Title,
+    Series,
     Author,
     Fandom,
     Pairing,
@@ -37,8 +38,9 @@ pub enum ColumnKey {
 }
 
 impl ColumnKey {
-    pub const ALL: [ColumnKey; 17] = [
+    pub const ALL: [ColumnKey; 18] = [
         ColumnKey::Title,
+        ColumnKey::Series,
         ColumnKey::Author,
         ColumnKey::Fandom,
         ColumnKey::Pairing,
@@ -60,6 +62,7 @@ impl ColumnKey {
     pub fn label(self) -> &'static str {
         match self {
             ColumnKey::Title => "Title",
+            ColumnKey::Series => "Series",
             ColumnKey::Author => "Author",
             ColumnKey::Fandom => "Fandom",
             ColumnKey::Pairing => "Pairing",
@@ -158,6 +161,8 @@ pub struct AppConfig {
     pub desktop_notifications: bool,
     #[serde(default)]
     pub collapsed_series: Vec<u64>,
+    #[serde(default = "default_group_series")]
+    pub group_series: bool,
     #[serde(flatten)]
     pub shared: Config,
 }
@@ -169,6 +174,10 @@ fn default_background_checks() -> bool {
 }
 
 fn default_desktop_notifications() -> bool {
+    true
+}
+
+fn default_group_series() -> bool {
     true
 }
 
@@ -215,6 +224,7 @@ impl Default for AppConfig {
             window_fullscreen: false,
             last_view: None,
             collapsed_series: Vec::new(),
+            group_series: true,
             text_zoom: 1.0,
             theme: ThemeChoice::System,
             background_checks: true,
