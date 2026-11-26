@@ -257,6 +257,7 @@ impl FicflowApp {
                             selection: &mut self.selection,
                             view: &self.current_view,
                             shelf_members: &self.cache.shelf_members,
+                            keyboard_nav: matches!(self.active_modal, ActiveModal::None),
                         },
                     );
                 }

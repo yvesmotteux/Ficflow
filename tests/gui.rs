@@ -67,3 +67,6 @@ mod inbox;
 
 #[path = "gui/background_refresh.rs"]
 mod background_refresh;
+
+#[path = "gui/keyboard_navigation.rs"]
+mod keyboard_navigation;
