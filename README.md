@@ -85,6 +85,7 @@ cargo build --release
 - [ ] add the ability to follow a user (new fics from followed users land in the inbox)
 - [ ] Add a "search" system based on tags, with an option to filter out fics already catalogued. New fics land in the inbox. Actually would be more like "subscription" window with the ability to subscribe to users, collections, series, or any kind of AO3 search (tags+pairings+fandoms+warnings+complete+crossovers+.....). Series already in the library should be refreshed regularly too: new parts land in the inbox, and the series info (title, description, word count, complete…) stays up to date
 - [ ] Setting to make it start in the background on computer start-up, and stay on background when closing (opt-in, different settings or same? SHould add a proper, cleaner "quit" option if so)
+- [ ] column management per tab (include per shelf or not?)
 - [ ] Create a mobile phone app
 
 ## Contributing
