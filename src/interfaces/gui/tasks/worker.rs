@@ -1,30 +1,53 @@
+use std::collections::{HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
+use std::time::Duration;
 
 use chrono::Utc;
 
 use crate::application::add_fic::add_fanfiction;
 use crate::application::background_refresh::{BackgroundRefresher, FailureReport, RefreshSchedule};
 use crate::application::check_updates::check_fic_updates;
+use crate::application::import_fics::{ImportFrom, ImportPlan, plan_import};
 use crate::application::list_fics::list_fics;
 use crate::domain::fanfiction::Fanfiction;
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
+use crate::infrastructure::external::ao3::ao3_client::DEFAULT_MIN_REQUEST_GAP;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
 use crate::infrastructure::external::ao3::session::SessionStore;
 use crate::infrastructure::persistence::database::connection::open_configured_db;
+use crate::interfaces::utils::formatter::format_thousands;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
-use super::{TaskKind, TaskStatus, WorkerCommand, WorkerShared, lock};
+use super::{
+    IMPORT_LIMIT, ImportNotice, ImportSource, TaskKind, TaskStatus, WorkerCommand, WorkerShared,
+    lock,
+};
 
 pub struct FetcherSetup {
     pub urls: Vec<String>,
     pub max_cycles: u32,
     pub session_store: Arc<dyn SessionStore>,
     pub session_site: String,
+    pub min_gap: Duration,
+}
+
+struct QueuedAdd {
+    task_id: u64,
+    fic_id: u64,
+    import: u64,
+}
+
+struct ImportProgress {
+    label: String,
+    total: usize,
+    already: usize,
+    added: usize,
+    failed: usize,
 }
 
 pub fn run(
@@ -43,7 +66,12 @@ pub fn run(
             return;
         }
     };
-    let fetcher = match Ao3Fetcher::new(setup.urls, setup.max_cycles) {
+    let fetcher = match Ao3Fetcher::with_min_gap(
+        setup.urls,
+        setup.max_cycles,
+        setup.min_gap,
+        Duration::from_secs(2),
+    ) {
         Ok(f) => f.with_session(setup.session_store, setup.session_site),
         Err(err) => {
             log::error!("task worker couldn't build Ao3Fetcher: {}", err);
@@ -59,12 +87,18 @@ pub fn run(
     if background.is_on(&shared) {
         background.start_sweep(&shared, &repo, false);
     }
+    let mut queued: VecDeque<QueuedAdd> = VecDeque::new();
+    let mut imports: HashMap<u64, ImportProgress> = HashMap::new();
 
     loop {
         let cmd = match rx.try_recv() {
             Ok(cmd) => cmd,
             Err(TryRecvError::Disconnected) => break,
             Err(TryRecvError::Empty) => {
+                if let Some(add) = queued.pop_front() {
+                    run_queued_add(&fetcher, &repo, &shared, &mut imports, add);
+                    continue;
+                }
                 if background.run_next(&fetcher, &repo, &shared) {
                     continue;
                 }
@@ -88,6 +122,58 @@ pub fn run(
                     lock(&shared.recent_completions).push(title);
                 }
             }
+            WorkerCommand::Import {
+                task_id,
+                source,
+                confirmed,
+            } => {
+                let limit = (!confirmed).then_some(IMPORT_LIMIT);
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    let from = match &source {
+                        ImportSource::Ids(ids) => ImportFrom::Ids(ids),
+                        ImportSource::List(list) => ImportFrom::List(&list.path),
+                    };
+                    plan_import(&fetcher, &repo, from, limit)
+                }))
+                .unwrap_or_else(|payload| Err(panic_to_error(payload)));
+                let label = source.label();
+                match outcome {
+                    Ok(ImportPlan::TooMany { count }) => {
+                        ask_confirmation(&shared, task_id, &label, count)
+                    }
+                    Ok(ImportPlan::Add { new_ids, already }) => {
+                        if task_is_running(&shared, task_id) {
+                            let progress = ImportProgress {
+                                label,
+                                total: new_ids.len(),
+                                already,
+                                added: 0,
+                                failed: 0,
+                            };
+                            for fic_id in new_ids {
+                                let child = shared.push_task(
+                                    TaskKind::Add {
+                                        input: fic_id.to_string(),
+                                        import: Some(task_id),
+                                    },
+                                    fic_id.to_string(),
+                                    TaskStatus::Running,
+                                );
+                                queued.push_back(QueuedAdd {
+                                    task_id: child,
+                                    fic_id,
+                                    import: task_id,
+                                });
+                            }
+                            publish_progress(&shared, task_id, &progress);
+                            imports.insert(task_id, progress);
+                        }
+                    }
+                    Err(err) => {
+                        record(&shared, task_id, Err(err));
+                    }
+                }
+            }
             WorkerCommand::RefreshFic { task_id, fic_id } => {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
                     check_fic_updates(&fetcher, &repo, &repo, fic_id)
@@ -108,6 +194,107 @@ pub fn run(
             }
             WorkerCommand::ResumeBackground => background.refresher.resume(),
         }
+    }
+}
+
+fn task_is_running(shared: &WorkerShared, task_id: u64) -> bool {
+    lock(&shared.tasks)
+        .iter()
+        .any(|t| t.id == task_id && matches!(t.status, TaskStatus::Running))
+}
+
+fn run_queued_add(
+    fetcher: &Ao3Fetcher,
+    repo: &SqliteRepository<'_>,
+    shared: &WorkerShared,
+    imports: &mut HashMap<u64, ImportProgress>,
+    add: QueuedAdd,
+) {
+    if !task_is_running(shared, add.task_id) {
+        return;
+    }
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        add_fanfiction(fetcher, repo, add.fic_id)
+    }))
+    .unwrap_or_else(|payload| Err(panic_to_error(payload)));
+    let added = record(shared, add.task_id, outcome).is_some();
+    if added {
+        shared.library_changed.store(true, Ordering::Relaxed);
+    }
+    let Some(progress) = imports.get_mut(&add.import) else {
+        return;
+    };
+    if added {
+        progress.added += 1;
+    } else {
+        progress.failed += 1;
+    }
+    publish_progress(shared, add.import, progress);
+    if progress.added + progress.failed == progress.total {
+        imports.remove(&add.import);
+    }
+}
+
+fn publish_progress(shared: &WorkerShared, import_id: u64, progress: &ImportProgress) {
+    let finished = progress.added + progress.failed == progress.total;
+    let mut parts = Vec::new();
+    if finished {
+        parts.push(match progress.added {
+            1 => "1 fic added".to_string(),
+            n => format!("{n} fics added"),
+        });
+    } else {
+        parts.push(format!("{} of {} added", progress.added, progress.total));
+    }
+    if progress.already > 0 {
+        parts.push(format!("{} already in library", progress.already));
+    }
+    if progress.failed > 0 {
+        parts.push(format!("{} failed", progress.failed));
+    }
+    let summary = format!("{}: {}", progress.label, parts.join(", "));
+    let mut tasks = lock(&shared.tasks);
+    let Some(task) = tasks
+        .iter_mut()
+        .find(|t| t.id == import_id && matches!(t.status, TaskStatus::Running))
+    else {
+        return;
+    };
+    task.display = summary.clone();
+    if finished {
+        task.status = TaskStatus::Done;
+        drop(tasks);
+        lock(&shared.import_notices).push(ImportNotice::Finished(summary));
+    }
+}
+
+fn ask_confirmation(shared: &WorkerShared, task_id: u64, label: &str, count: Option<usize>) {
+    let message = match count {
+        Some(count) => format!(
+            "{label} has {} fics. Adding them all would take about {}.",
+            format_thousands(count as u32),
+            estimate(count)
+        ),
+        None => format!("{label} has more than {IMPORT_LIMIT} fics."),
+    };
+    let mut tasks = lock(&shared.tasks);
+    let Some(task) = tasks
+        .iter_mut()
+        .find(|t| t.id == task_id && matches!(t.status, TaskStatus::Running))
+    else {
+        return;
+    };
+    task.status = TaskStatus::NeedsConfirmation(message.clone());
+    drop(tasks);
+    lock(&shared.import_notices).push(ImportNotice::NeedsConfirmation(message));
+}
+
+fn estimate(count: usize) -> String {
+    let minutes = (count as u64 * DEFAULT_MIN_REQUEST_GAP.as_secs()).div_ceil(60);
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
     }
 }
 

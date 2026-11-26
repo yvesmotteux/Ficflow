@@ -7,6 +7,13 @@ use crate::error::FicflowError;
 
 pub trait FanfictionFetcher {
     fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError>;
+    fn fetch_work_ids(&self, list_path: &str, limit: usize) -> Result<WorkList, FicflowError>;
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkList {
+    pub ids: Vec<u64>,
+    pub total: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

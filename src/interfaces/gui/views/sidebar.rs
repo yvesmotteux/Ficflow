@@ -25,6 +25,7 @@ pub struct SidebarState<'a> {
     pub unread_messages: usize,
     pub running_tasks: usize,
     pub failed_tasks: usize,
+    pub waiting_tasks: usize,
 }
 
 /// At most one variant fires per frame — the three are mutually-exclusive
@@ -60,6 +61,7 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
         unread_messages,
         running_tasks,
         failed_tasks,
+        waiting_tasks,
     } = state;
     let mut outcome = Outcome::None;
 
@@ -83,6 +85,8 @@ pub fn draw(ui: &mut Ui, state: SidebarState<'_>) -> Outcome {
                 None,
                 Some(if failed_tasks > 0 {
                     Badge::Alert(failed_tasks)
+                } else if waiting_tasks > 0 {
+                    Badge::Pulse(running_tasks)
                 } else {
                     Badge::Count(running_tasks)
                 }),

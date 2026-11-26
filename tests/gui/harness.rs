@@ -200,6 +200,7 @@ impl GuiHarness {
             latest_release_url,
             background_refresh,
             notifier: notifier.clone(),
+            request_gap: Duration::ZERO,
         };
         let app = FicflowApp::with_config(&ctx, config)
             .expect("FicflowApp::with_config failed in test harness");
@@ -229,6 +230,7 @@ impl GuiHarness {
             latest_release_url: "http://127.0.0.1:1".into(),
             background_refresh: self.background_refresh,
             notifier: self.notifier.clone(),
+            request_gap: Duration::ZERO,
         };
         self.app = FicflowApp::with_config(&self.ctx, config)
             .expect("FicflowApp::with_config failed on restart");

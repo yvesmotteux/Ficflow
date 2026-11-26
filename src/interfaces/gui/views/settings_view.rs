@@ -25,6 +25,7 @@ pub struct SettingsOutcome {
     pub config_changed: bool,
     pub request: Option<LibraryRequest>,
     pub check_now: bool,
+    pub import_subscriptions: Option<String>,
 }
 
 pub fn draw(
@@ -38,6 +39,7 @@ pub fn draw(
     let mut changed = false;
     let mut request = None;
     let mut check_now = false;
+    let mut import_subscriptions = None;
 
     ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -108,7 +110,7 @@ pub fn draw(
 
             ui.add_space(12.0);
             ui.label(RichText::new("AO3 account").strong());
-            draw_account(ui, account);
+            import_subscriptions = draw_account(ui, account);
 
             ui.add_space(12.0);
             ui.label(RichText::new("Updates").strong());
@@ -186,10 +188,12 @@ pub fn draw(
         config_changed: changed,
         request,
         check_now,
+        import_subscriptions,
     }
 }
 
-fn draw_account(ui: &mut Ui, account: &mut Ao3Account) {
+fn draw_account(ui: &mut Ui, account: &mut Ao3Account) -> Option<String> {
+    let mut import_subscriptions = None;
     if account.logging_in() {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -197,11 +201,18 @@ fn draw_account(ui: &mut Ui, account: &mut Ao3Account) {
         });
     } else if let Some(username) = account.username().map(str::to_string) {
         ui.horizontal(|ui| {
-            info_row(ui, "Logged in as", username);
+            info_row(ui, "Logged in as", username.clone());
             if ui.button("Log out").clicked() {
                 account.log_out();
             }
         });
+        if ui
+            .button("Import my subscriptions")
+            .on_hover_text("Adds every work you're subscribed to on AO3")
+            .clicked()
+        {
+            import_subscriptions = Some(username);
+        }
     } else {
         let mut submit = false;
         egui::Grid::new("ao3_login").num_columns(2).show(ui, |ui| {
@@ -232,6 +243,7 @@ fn draw_account(ui: &mut Ui, account: &mut Ao3Account) {
     if let Some(error) = account.error() {
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
+    import_subscriptions
 }
 
 fn apply_zoom(config: &mut AppConfig, changed: &mut bool, ctx: &egui::Context, zoom: f32) {

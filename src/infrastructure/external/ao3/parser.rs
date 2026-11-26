@@ -15,8 +15,50 @@ macro_rules! selector {
     }};
 }
 
+static WORK_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:/collections/[^/]+)?/works/(\d+)$").expect("valid work path regex")
+});
+
+static LIST_TOTAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([\d,]+)\s+(?:Works?|Bookmarks?)\b").expect("valid list total regex")
+});
+
 static DATE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\d{4}-\d{2}-\d{2})").expect("valid date regex"));
+
+pub struct WorkListPage {
+    pub ids: Vec<u64>,
+    pub total: Option<usize>,
+    pub next_path: Option<String>,
+}
+
+pub fn parse_work_list(html: &str) -> WorkListPage {
+    let doc = Html::parse_document(html);
+    let ids = doc
+        .select(selector!(
+            "#main .blurb .heading a[href], #main dl.subscription dt a[href]"
+        ))
+        .filter_map(|link| WORK_PATH_REGEX.captures(link.value().attr("href")?))
+        .filter_map(|caps| caps[1].parse().ok())
+        .collect();
+    let heading_total = first_text(&doc, selector!("#main h2.heading")).and_then(|heading| {
+        LIST_TOTAL_REGEX
+            .captures(&heading)
+            .and_then(|caps| caps[1].replace(',', "").parse().ok())
+    });
+    let series_total = first_text(&doc, selector!("#main dl.stats dd.works"))
+        .and_then(|text| text.replace(',', "").parse().ok());
+    let next_path = doc
+        .select(selector!("#main ol.pagination li.next a[href]"))
+        .next()
+        .and_then(|link| link.value().attr("href"))
+        .map(str::to_string);
+    WorkListPage {
+        ids,
+        total: heading_total.or(series_total),
+        next_path,
+    }
+}
 
 pub fn parse_work(fic_id: u64, html: &str) -> Result<Fanfiction, FicflowError> {
     let doc = Html::parse_document(html);

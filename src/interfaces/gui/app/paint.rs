@@ -105,6 +105,7 @@ impl FicflowApp {
                         unread_messages: self.cache.unread_inbox_count(),
                         running_tasks: self.task_executor.running_count(),
                         failed_tasks: self.task_executor.failed_count(),
+                        waiting_tasks: self.task_executor.waiting_count(),
                     },
                 );
             });
@@ -292,6 +293,12 @@ impl FicflowApp {
                     if outcome.check_now {
                         self.task_executor.check_all_now();
                     }
+                    if let Some(user) = outcome.import_subscriptions {
+                        self.task_executor
+                            .enqueue_import(ImportSource::List(subscriptions_list(&user)));
+                        self.toasts
+                            .info("Importing your subscriptions, follow along in Tasks");
+                    }
                     // The native picker is opened later from `ui()`, which holds
                     // the window handle needed to parent the dialog above us.
                     if outcome.request.is_some() {
@@ -346,6 +353,15 @@ impl FicflowApp {
             self.cache.reload_fics(&self.connection);
             self.refresh_shelf_members();
             self.refresh_selection_shelf_ids();
+        }
+        for notice in self.task_executor.take_import_notices() {
+            match notice {
+                ImportNotice::Finished(summary) => self.toasts.success(summary),
+                ImportNotice::NeedsConfirmation(message) => self
+                    .toasts
+                    .warning(format!("{message} Open Tasks to add them anyway."))
+                    .duration(std::time::Duration::from_secs(15)),
+            };
         }
         let new_messages = self.task_executor.take_new_messages();
         if !new_messages.is_empty() {
@@ -434,8 +450,8 @@ impl FicflowApp {
                 {
                     self.show_column_picker = !self.show_column_picker;
                 }
-                let add_label = if compact { "+" } else { "+ Add Fic" };
-                if ui.button(add_label).on_hover_text("Add Fic").clicked() {
+                let add_label = if compact { "+" } else { "+ Add Fic(s)" };
+                if ui.button(add_label).on_hover_text("Add Fic(s)").clicked() {
                     self.active_modal = ActiveModal::AddFic(AddFicState::default());
                 }
             });

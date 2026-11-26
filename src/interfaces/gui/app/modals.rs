@@ -16,7 +16,7 @@ enum ModalAction {
     DeleteShelf(u64),
     DeleteFics(Vec<u64>),
     RemoveFicsFromShelf { ids: Vec<u64>, shelf_id: u64 },
-    AddFic(String),
+    AddFic(AddRequest),
     RestoreBackup(PathBuf),
     ClearInbox,
     Quit,
@@ -123,7 +123,10 @@ impl FicflowApp {
                 let (succeeded, failed) = self.bulk_remove_from_shelf(&ids, shelf_id);
                 self.toast_bulk_result("Removed from shelf", succeeded, failed);
             }
-            ModalAction::AddFic(input) => self.task_executor.enqueue_add(input),
+            ModalAction::AddFic(AddRequest::Single(input)) => self.task_executor.enqueue_add(input),
+            ModalAction::AddFic(AddRequest::Import(source)) => {
+                self.task_executor.enqueue_import(source)
+            }
             ModalAction::RestoreBackup(backup) => self.restore_library_backup(backup),
             ModalAction::ClearInbox => {
                 if let Err(err) = self.clear_inbox() {
