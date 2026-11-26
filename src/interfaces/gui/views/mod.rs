@@ -1,5 +1,6 @@
 pub mod details_panel;
 pub mod inbox_view;
+pub mod library_rows;
 pub mod library_view;
 pub mod modals;
 pub mod selection_bar;

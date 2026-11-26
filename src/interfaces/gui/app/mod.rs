@@ -47,7 +47,7 @@ use super::ao3_account::Ao3Account;
 use super::chrome::FrameChrome;
 use super::desktop_notifications::{DesktopNotifier, SystemNotifier, new_chapters_notification};
 use super::library_cache::LibraryCache;
-use super::selection::Selection;
+use super::selection::{RowKey, Selection};
 use super::selection_controller::SelectionController;
 use super::tasks::{FetcherSetup, ImportNotice, ImportSource, TaskExecutor};
 use super::theme;
@@ -61,7 +61,7 @@ use super::views::settings_view;
 use super::views::tasks_view;
 use super::views::{
     LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TableOutcome, TaskFilter,
-    TasksViewState, details_panel, inbox_view, library_view, selection_bar, sidebar,
+    TasksViewState, details_panel, inbox_view, library_rows, library_view, selection_bar, sidebar,
 };
 use crate::interfaces::utils::url_parser::subscriptions_list;
 
@@ -301,11 +301,44 @@ impl FicflowApp {
     pub fn visible_ids(&self) -> Vec<u64> {
         library_view::visible_ids(
             &self.cache.fics,
+            &self.cache.series,
             &self.current_view,
             &self.cache.shelf_members,
             &self.search_query,
             self.sort,
         )
+    }
+
+    pub fn set_series_collapsed(&mut self, series_id: u64, collapsed: bool) {
+        self.config.collapsed_series.retain(|id| *id != series_id);
+        if collapsed {
+            self.config.collapsed_series.push(series_id);
+        }
+        self.save_config();
+    }
+
+    pub fn library_rows(&self) -> Vec<RowKey> {
+        library_rows::build_rows(&library_rows::RowInputs {
+            fics: &self.cache.fics,
+            series: &self.cache.series,
+            view: &self.current_view,
+            query: &self.search_query,
+            sort: self.sort,
+            collapsed: &self.config.collapsed_series,
+            shelf_members: &self.cache.shelf_members,
+        })
+        .iter()
+        .map(|row| row.key(&self.cache.fics, &self.cache.series))
+        .collect()
+    }
+
+    pub fn select_row(&mut self, key: RowKey) {
+        self.selection.select_row(key);
+        self.refresh_selection_shelf_ids();
+    }
+
+    pub fn collapsed_series(&self) -> &[u64] {
+        &self.config.collapsed_series
     }
 
     pub fn details_panel_visible(&self) -> bool {

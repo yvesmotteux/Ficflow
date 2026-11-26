@@ -34,6 +34,7 @@ pub mod get_fic;
 pub mod import_fics;
 pub mod list_fics;
 pub mod list_inbox;
+pub mod list_series;
 pub mod list_shelf_fics;
 pub mod list_shelves;
 pub mod list_shelves_for_fic;

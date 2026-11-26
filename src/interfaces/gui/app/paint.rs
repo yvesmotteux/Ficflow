@@ -1,4 +1,5 @@
 use super::*;
+use crate::interfaces::gui::views::library_rows::series_fic_ids;
 
 fn compute_library_counts(fics: &[Fanfiction]) -> LibraryCounts {
     let mut counts = LibraryCounts {
@@ -251,6 +252,8 @@ impl FicflowApp {
                         ui,
                         LibraryViewState {
                             fics: &self.cache.fics,
+                            series: &self.cache.series,
+                            collapsed: &self.config.collapsed_series,
                             generation: self.cache.generation,
                             sort: &mut self.sort,
                             search_query: &self.search_query,
@@ -325,9 +328,15 @@ impl FicflowApp {
             self.refresh_selection_shelf_ids();
         }
         // Selected fic got deleted this frame: drop the orphan selection.
-        if let Selection::Single(id) = *self.selection.current()
-            && self.cache.fic(id).is_none()
-        {
+        let orphaned = match *self.selection.current() {
+            Selection::Single(id) => self.cache.fic(id).is_none(),
+            Selection::Series(id) | Selection::Missing { series_id: id, .. } => self
+                .cache
+                .series(id)
+                .is_none_or(|series| series_fic_ids(series, &self.cache.fics).is_empty()),
+            _ => false,
+        };
+        if orphaned {
             self.clear_selection();
         }
         if table_outcome.sort_changed {
@@ -341,6 +350,9 @@ impl FicflowApp {
         if let Some(col) = table_outcome.column_removed {
             self.config.visible_columns.retain(|c| *c != col);
             self.save_config();
+        }
+        if let Some((series_id, collapsed)) = table_outcome.collapse {
+            self.set_series_collapsed(series_id, collapsed);
         }
     }
     pub(super) fn drain_worker_events(&mut self, ctx: &egui::Context) {

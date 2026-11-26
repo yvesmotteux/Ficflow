@@ -73,3 +73,6 @@ mod keyboard_navigation;
 
 #[path = "gui/import.rs"]
 mod import;
+
+#[path = "gui/series.rs"]
+mod series;

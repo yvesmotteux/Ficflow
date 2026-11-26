@@ -55,6 +55,7 @@ impl FicflowApp {
         if ctrl_a && self.current_view.shows_library() {
             let ids = library_view::visible_ids(
                 &self.cache.fics,
+                &self.cache.series,
                 &self.current_view,
                 &self.cache.shelf_members,
                 &self.search_query,

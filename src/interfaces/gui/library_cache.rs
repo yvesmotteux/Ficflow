@@ -8,11 +8,12 @@ use rusqlite::Connection;
 
 use crate::application::{
     count_fics_per_shelf::count_fics_per_shelf, list_fics::list_fics, list_inbox::list_inbox,
-    list_shelf_fics::list_shelf_fics, list_shelves::list_shelves,
+    list_series::list_series, list_shelf_fics::list_shelf_fics, list_shelves::list_shelves,
     list_shelves_for_fic::list_shelves_for_fic,
 };
 use crate::domain::fanfiction::Fanfiction;
 use crate::domain::inbox::InboxMessage;
+use crate::domain::series::Series;
 use crate::domain::shelf::{Shelf, ShelfKind};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
@@ -23,6 +24,7 @@ use super::view::View;
 
 pub struct LibraryCache {
     pub fics: Vec<Fanfiction>,
+    pub series: Vec<Series>,
     pub shelves: Vec<Shelf>,
     /// Fic ids in the active `View::Shelf(_)`; empty outside shelf views.
     pub shelf_members: HashSet<u64>,
@@ -51,6 +53,7 @@ impl LibraryCache {
         overlay_auto_shelf_counts(&mut shelf_counts, &auto_shelf_members);
         Self {
             fics,
+            series: load_series_inner(connection),
             shelves,
             shelf_members: HashSet::new(),
             selection_shelf_ids: HashSet::new(),
@@ -64,6 +67,10 @@ impl LibraryCache {
 
     pub fn fic(&self, id: u64) -> Option<&Fanfiction> {
         self.fics.iter().find(|f| f.id == id)
+    }
+
+    pub fn series(&self, id: u64) -> Option<&Series> {
+        self.series.iter().find(|s| s.id == id)
     }
 
     pub fn shelf(&self, id: u64) -> Option<&Shelf> {
@@ -91,6 +98,7 @@ impl LibraryCache {
 
     pub fn reload_fics(&mut self, connection: &Connection) {
         self.fics = load_fics_inner(connection);
+        self.series = load_series_inner(connection);
         self.refresh_auto_shelf_members();
     }
 
@@ -255,6 +263,14 @@ fn load_fics_inner(connection: &Connection) -> Vec<Fanfiction> {
             Vec::new()
         }
     }
+}
+
+fn load_series_inner(connection: &Connection) -> Vec<Series> {
+    let repo = SqliteRepository::new(connection);
+    list_series(&repo).unwrap_or_else(|err| {
+        log::error!("Failed to load series: {}", err);
+        Vec::new()
+    })
 }
 
 fn load_inbox_inner(connection: &Connection) -> Vec<InboxMessage> {
