@@ -111,7 +111,7 @@ pub fn draw(ui: &mut Ui, state: LibraryViewState<'_>) -> TableOutcome {
     let visible: Vec<&Fanfiction> = memo.rows.iter().map(|&i| &fics[i]).collect();
     if visible.is_empty() {
         let empty_message = if fics.is_empty() {
-            "No fanfictions yet. Click \u{201C}+ Add Fic\u{201D} in the header to add one."
+            "No fanfictions yet. Click \u{201C}+ Add Fic(s)\u{201D} in the header to add one."
         } else if !search_query.trim().is_empty() {
             "No fanfictions match your search."
         } else {

@@ -107,6 +107,13 @@ pub fn log_in(base_url: &str, username: &str, password: &str) -> Result<Ao3Sessi
             ("commit", "Log in"),
         ])
         .send()?;
+    let account_name = response
+        .url()
+        .path()
+        .strip_prefix("/users/")
+        .and_then(|rest| rest.split('/').next())
+        .filter(|name| !name.is_empty() && *name != "login")
+        .map(str::to_string);
     let page = read_page(response)?;
     if !page.contains(LOGOUT_LINK) {
         return Err(FicflowError::LoginRejected);
@@ -117,7 +124,7 @@ pub fn log_in(base_url: &str, username: &str, password: &str) -> Result<Ao3Sessi
         .and_then(|value| value.to_str().ok().map(str::to_string))
         .ok_or(FicflowError::LoginRejected)?;
     Ok(Ao3Session {
-        username: username.to_string(),
+        username: account_name.unwrap_or_else(|| username.to_string()),
         cookie,
     })
 }

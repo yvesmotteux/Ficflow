@@ -105,6 +105,7 @@ impl FicflowApp {
                         unread_messages: self.cache.unread_inbox_count(),
                         running_tasks: self.task_executor.running_count(),
                         failed_tasks: self.task_executor.failed_count(),
+                        waiting_tasks: self.task_executor.waiting_count(),
                     },
                 );
             });
@@ -292,6 +293,12 @@ impl FicflowApp {
                     if outcome.check_now {
                         self.task_executor.check_all_now();
                     }
+                    if let Some(user) = outcome.import_subscriptions {
+                        self.task_executor
+                            .enqueue_import(ImportSource::List(subscriptions_list(&user)));
+                        self.toasts
+                            .info("Importing your subscriptions, follow along in Tasks");
+                    }
                     // The native picker is opened later from `ui()`, which holds
                     // the window handle needed to parent the dialog above us.
                     if outcome.request.is_some() {
@@ -442,8 +449,8 @@ impl FicflowApp {
                 {
                     self.show_column_picker = !self.show_column_picker;
                 }
-                let add_label = if compact { "+" } else { "+ Add Fic" };
-                if ui.button(add_label).on_hover_text("Add Fic").clicked() {
+                let add_label = if compact { "+" } else { "+ Add Fic(s)" };
+                if ui.button(add_label).on_hover_text("Add Fic(s)").clicked() {
                     self.active_modal = ActiveModal::AddFic(AddFicState::default());
                 }
             });

@@ -81,10 +81,9 @@ impl FicflowApp {
                     },
                 )
             }
-            ActiveModal::AddFic(state) => on_submit(
-                add_fic_dialog::draw(ctx, state, self.ao3_account.username()),
-                ModalAction::AddFic,
-            ),
+            ActiveModal::AddFic(state) => {
+                on_submit(add_fic_dialog::draw(ctx, state), ModalAction::AddFic)
+            }
             ActiveModal::ConfirmQuit => on_submit(
                 quit_modal::draw_confirm(ctx, self.task_executor.running_count()),
                 |()| ModalAction::Quit,

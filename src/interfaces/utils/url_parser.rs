@@ -51,7 +51,7 @@ pub enum ImportInput {
     Single(u64),
     Ids(Vec<u64>),
     List(Ao3List),
-    Profile { user: String },
+    Profile { user: String, pseud: Option<String> },
     Invalid,
 }
 
@@ -83,14 +83,15 @@ pub fn parse_import_input(input: &str) -> ImportInput {
     }
 }
 
-pub fn profile_list(user: &str, bookmarks: bool) -> Ao3List {
+pub fn profile_list(user: &str, pseud: Option<&str>, bookmarks: bool) -> Ao3List {
+    let (base, name) = match pseud {
+        Some(pseud) => (format!("/users/{user}/pseuds/{pseud}"), decode(pseud)),
+        None => (format!("/users/{user}"), user.to_string()),
+    };
     if bookmarks {
-        list(
-            format!("/users/{user}/bookmarks"),
-            format!("Bookmarks of {user}"),
-        )
+        list(format!("{base}/bookmarks"), format!("Bookmarks of {name}"))
     } else {
-        list(format!("/users/{user}/works"), format!("Works by {user}"))
+        list(format!("{base}/works"), format!("Works by {name}"))
     }
 }
 
@@ -137,13 +138,20 @@ fn parse_list_url(url: &str) -> ImportInput {
         ["users", user] | ["users", user, "profile"] => {
             return ImportInput::Profile {
                 user: user.to_string(),
+                pseud: None,
+            };
+        }
+        ["users", user, "pseuds", pseud] => {
+            return ImportInput::Profile {
+                user: user.to_string(),
+                pseud: Some(pseud.to_string()),
             };
         }
         ["users", user, "works"] => list(
             with_query(format!("/users/{user}/works")),
             format!("Works by {user}"),
         ),
-        ["users", user, "pseuds", pseud] | ["users", user, "pseuds", pseud, "works"] => list(
+        ["users", user, "pseuds", pseud, "works"] => list(
             with_query(format!("/users/{user}/pseuds/{pseud}/works")),
             format!("Works by {}", decode(pseud)),
         ),

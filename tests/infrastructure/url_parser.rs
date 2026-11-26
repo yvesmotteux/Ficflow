@@ -123,23 +123,38 @@ mod import_input {
     }
 
     #[test]
-    fn bare_profile_links_need_a_choice() {
-        let expected = ImportInput::Profile {
+    fn profile_and_pen_name_pages_need_a_choice() {
+        let profile = ImportInput::Profile {
             user: "writer".to_string(),
+            pseud: None,
         };
         assert_eq!(
             parse_import_input("https://archiveofourown.org/users/writer"),
-            expected
+            profile
         );
         assert_eq!(
             parse_import_input("https://archiveofourown.org/users/writer/profile"),
-            expected
+            profile
         );
         assert_eq!(
-            profile_list("writer", true),
+            parse_import_input("https://archiveofourown.org/users/KayleySayer/pseuds/KayleySayer"),
+            ImportInput::Profile {
+                user: "KayleySayer".to_string(),
+                pseud: Some("KayleySayer".to_string()),
+            }
+        );
+        assert_eq!(
+            profile_list("writer", None, true),
             Ao3List {
                 path: "/users/writer/bookmarks".to_string(),
                 label: "Bookmarks of writer".to_string(),
+            }
+        );
+        assert_eq!(
+            profile_list("writer", Some("Pen%20Name"), false),
+            Ao3List {
+                path: "/users/writer/pseuds/Pen%20Name/works".to_string(),
+                label: "Works by Pen Name".to_string(),
             }
         );
     }

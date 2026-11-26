@@ -63,6 +63,7 @@ use super::views::{
     LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TableOutcome, TaskFilter,
     TasksViewState, details_panel, inbox_view, library_view, selection_bar, sidebar,
 };
+use crate::interfaces::utils::url_parser::subscriptions_list;
 
 pub struct FicflowApp {
     connection: Connection,

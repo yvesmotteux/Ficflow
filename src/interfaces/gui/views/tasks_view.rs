@@ -25,10 +25,9 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
     let (mut running, mut done, mut failed) = (0, 0, 0);
     for task in &tasks {
         match task.status {
-            TaskStatus::Running => running += 1,
+            TaskStatus::Running | TaskStatus::NeedsConfirmation(_) => running += 1,
             TaskStatus::Done | TaskStatus::Cancelled => done += 1,
             TaskStatus::Failed(_) => failed += 1,
-            TaskStatus::NeedsConfirmation(_) => {}
         }
     }
 
@@ -91,6 +90,9 @@ pub fn draw(ui: &mut Ui, state: TasksViewState<'_>) {
                                 ui.label(RichText::new("Cancelled").weak());
                             }
                             TaskStatus::NeedsConfirmation(_) => {
+                                if ui.button("Cancel").clicked() {
+                                    executor.cancel_import(task.id);
+                                }
                                 if ui.button("Add anyway").clicked() {
                                     executor.confirm_import(task.id);
                                 }
@@ -155,7 +157,10 @@ fn filter_tab(
 fn matches_filter(task: &TaskState, filter: TaskFilter) -> bool {
     match filter {
         TaskFilter::All => true,
-        TaskFilter::Running => matches!(task.status, TaskStatus::Running),
+        TaskFilter::Running => matches!(
+            task.status,
+            TaskStatus::Running | TaskStatus::NeedsConfirmation(_)
+        ),
         TaskFilter::Completed => matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled),
         TaskFilter::Failed => matches!(task.status, TaskStatus::Failed(_)),
     }

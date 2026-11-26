@@ -235,7 +235,11 @@ impl TaskExecutor {
         for task in tasks.iter_mut() {
             let in_import = task.id == task_id
                 || matches!(task.kind, TaskKind::Add { import: Some(parent), .. } if parent == task_id);
-            if in_import && matches!(task.status, TaskStatus::Running) {
+            let pending = matches!(
+                task.status,
+                TaskStatus::Running | TaskStatus::NeedsConfirmation(_)
+            );
+            if in_import && pending {
                 task.status = TaskStatus::Cancelled;
             }
         }
@@ -294,7 +298,12 @@ impl TaskExecutor {
     }
 
     pub fn clear_completed(&self) {
-        lock(&self.shared.tasks).retain(|t| matches!(t.status, TaskStatus::Running));
+        lock(&self.shared.tasks).retain(|t| {
+            matches!(
+                t.status,
+                TaskStatus::Running | TaskStatus::NeedsConfirmation(_)
+            )
+        });
     }
 
     /// Re-runs a failed task using its original input, dropping the failed
@@ -365,7 +374,19 @@ impl TaskExecutor {
     pub fn running_count(&self) -> usize {
         lock(&self.shared.tasks)
             .iter()
-            .filter(|t| matches!(t.status, TaskStatus::Running))
+            .filter(|t| {
+                matches!(
+                    t.status,
+                    TaskStatus::Running | TaskStatus::NeedsConfirmation(_)
+                )
+            })
+            .count()
+    }
+
+    pub fn waiting_count(&self) -> usize {
+        lock(&self.shared.tasks)
+            .iter()
+            .filter(|t| matches!(t.status, TaskStatus::NeedsConfirmation(_)))
             .count()
     }
 }
