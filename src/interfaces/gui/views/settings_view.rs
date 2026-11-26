@@ -163,14 +163,13 @@ fn draw_general(
     });
 
     ui.add_space(12.0);
-    ui.label(RichText::new("Library").strong());
+    ui.label(RichText::new("Paths").strong());
     info_row(ui, "Library file", current_db_path.display().to_string());
-    info_row(ui, "Settings file", config_path_display());
     ui.horizontal(|ui| {
-        if ui.button("Change location…").clicked() {
+        if ui.button("Change library location").clicked() {
             outcome.request = Some(LibraryRequest::ChangeLocation);
         }
-        if ui.button("Restore from backup…").clicked() {
+        if ui.button("Restore library from backup").clicked() {
             outcome.request = Some(LibraryRequest::Restore);
         }
     });
@@ -183,6 +182,8 @@ fn draw_general(
         .weak()
         .italics(),
     );
+    ui.add_space(6.0);
+    info_row(ui, "Settings file", config_path_display());
 }
 
 fn draw_display(ui: &mut Ui, config: &mut AppConfig) -> bool {
