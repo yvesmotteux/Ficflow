@@ -1,5 +1,6 @@
 use super::fanfiction::FanfictionOps;
 use super::inbox::InboxOps;
+use super::series::SeriesOps;
 use super::shelf::ShelfOps;
 
 // Aggregate trait so the composition root (factory, interface, executor) can
@@ -7,6 +8,6 @@ use super::shelf::ShelfOps;
 // the same object twice as two separate trait objects. Application functions
 // still take the specific trait they need; trait upcasting coerces
 // `&dyn Repository` to `&dyn FanfictionOps` / `&dyn ShelfOps` at call sites.
-pub trait Repository: FanfictionOps + ShelfOps + InboxOps {}
+pub trait Repository: FanfictionOps + ShelfOps + InboxOps + SeriesOps {}
 
-impl<T: FanfictionOps + ShelfOps + InboxOps> Repository for T {}
+impl<T: FanfictionOps + ShelfOps + InboxOps + SeriesOps> Repository for T {}

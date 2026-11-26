@@ -86,6 +86,34 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), FicflowError> {
             );
         "#,
         ),
+        M::up(
+            r#"
+            CREATE TABLE series (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL,
+                description TEXT,
+                notes TEXT,
+                date_begun TEXT,
+                date_updated TEXT,
+                words INTEGER NOT NULL,
+                works_count INTEGER NOT NULL,
+                complete BOOLEAN NOT NULL,
+                bookmarks INTEGER NOT NULL,
+                last_checked_date TEXT NOT NULL,
+                deleted_at TEXT
+            );
+            CREATE TABLE series_work (
+                series_id INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+                work_id INTEGER NOT NULL,
+                part INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL,
+                PRIMARY KEY (series_id, work_id)
+            );
+            CREATE INDEX idx_series_work_work ON series_work(work_id);
+        "#,
+        ),
     ]);
 
     migrations.to_latest(conn)?;

@@ -1,9 +1,10 @@
 use crate::domain::fanfiction::{Fanfiction, FanfictionOps};
 use crate::domain::inbox::{InboxMessage, InboxOps, MessageContent};
+use crate::domain::series::{Series, SeriesOps, SeriesWork};
 use crate::domain::shelf::{AutoShelfCriteria, MAX_SHELF_DEPTH, Shelf, ShelfKind, ShelfOps};
 use crate::error::FicflowError;
 use crate::infrastructure::persistence::repository::mapping::{
-    row_to_fanfiction, row_to_inbox_message, row_to_shelf,
+    row_to_fanfiction, row_to_inbox_message, row_to_series, row_to_series_work, row_to_shelf,
 };
 use std::collections::HashMap;
 
@@ -136,7 +137,7 @@ impl FanfictionOps for SqliteRepository<'_> {
             "UPDATE fanfiction SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
             params![fic_id, now],
         )?;
-        Ok(())
+        self.soft_delete_orphan_series()
     }
 
     fn list_fanfictions(&self) -> Result<Vec<Fanfiction>, FicflowError> {
@@ -165,11 +166,29 @@ impl FanfictionOps for SqliteRepository<'_> {
             "UPDATE fanfiction SET deleted_at = ?1 WHERE deleted_at IS NULL",
             params![now],
         )?;
-        Ok(())
+        self.soft_delete_orphan_series()
     }
 }
 
 impl SqliteRepository<'_> {
+    fn soft_delete_orphan_series(&self) -> Result<(), FicflowError> {
+        self.conn.execute(
+            "UPDATE series SET deleted_at = ?1 WHERE deleted_at IS NULL AND NOT EXISTS ( \
+                 SELECT 1 FROM series_work sw JOIN fanfiction f ON f.id = sw.work_id \
+                 WHERE sw.series_id = series.id AND f.deleted_at IS NULL)",
+            params![Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    fn series_works(&self, series_id: Option<u64>) -> Result<Vec<(u64, SeriesWork)>, FicflowError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT * FROM series_work WHERE ?1 IS NULL OR series_id = ?1 ORDER BY series_id, part",
+        )?;
+        let rows = stmt.query_map(params![series_id], row_to_series_work)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     fn ensure_fanfiction_exists(&self, fic_id: u64) -> Result<(), FicflowError> {
         let count: u64 = self.conn.query_row(
             "SELECT COUNT(*) FROM fanfiction WHERE id = ?1 AND deleted_at IS NULL",
@@ -557,5 +576,115 @@ impl InboxOps for SqliteRepository<'_> {
             params![Utc::now().to_rfc3339()],
         )?;
         Ok(())
+    }
+}
+
+impl SeriesOps for SqliteRepository<'_> {
+    fn save_series(&self, series: &Series) -> Result<(), FicflowError> {
+        self.conn.execute(
+            "INSERT INTO series (id, title, authors, description, notes, date_begun, date_updated, \
+                 words, works_count, complete, bookmarks, last_checked_date, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL) \
+             ON CONFLICT(id) DO UPDATE SET title = excluded.title, authors = excluded.authors, \
+                 description = excluded.description, notes = excluded.notes, \
+                 date_begun = excluded.date_begun, date_updated = excluded.date_updated, \
+                 words = excluded.words, works_count = excluded.works_count, \
+                 complete = excluded.complete, bookmarks = excluded.bookmarks, \
+                 last_checked_date = excluded.last_checked_date, deleted_at = NULL",
+            params![
+                series.id,
+                series.title,
+                serde_json::to_string(&series.authors)?,
+                series.description,
+                series.notes,
+                series.date_begun.map(|d| d.to_rfc3339()),
+                series.date_updated.map(|d| d.to_rfc3339()),
+                series.words,
+                series.works_count,
+                series.complete,
+                series.bookmarks,
+                series.last_checked_date.to_rfc3339(),
+            ],
+        )?;
+        self.conn.execute(
+            "DELETE FROM series_work WHERE series_id = ?1 \
+             AND work_id NOT IN (SELECT id FROM fanfiction WHERE deleted_at IS NULL)",
+            params![series.id],
+        )?;
+        for work in &series.works {
+            self.conn.execute(
+                "INSERT INTO series_work (series_id, work_id, part, title, authors) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
+                 ON CONFLICT(series_id, work_id) DO UPDATE SET part = excluded.part, \
+                     title = excluded.title, authors = excluded.authors",
+                params![
+                    series.id,
+                    work.work_id,
+                    work.part,
+                    work.title,
+                    serde_json::to_string(&work.authors)?,
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn link_fic_to_series(&self, fic: &Fanfiction) -> Result<(), FicflowError> {
+        let ids: Vec<String> = fic.series.iter().map(|s| s.id.to_string()).collect();
+        self.conn.execute(
+            &format!(
+                "DELETE FROM series_work WHERE work_id = ?1 AND series_id NOT IN ({})",
+                ids.join(",")
+            ),
+            params![fic.id],
+        )?;
+        let authors = serde_json::to_string(&fic.authors)?;
+        for series in &fic.series {
+            self.conn.execute(
+                "INSERT INTO series_work (series_id, work_id, part, title, authors) \
+                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM series WHERE id = ?1) \
+                 ON CONFLICT(series_id, work_id) DO UPDATE SET part = excluded.part, \
+                     title = excluded.title, authors = excluded.authors",
+                params![series.id, fic.id, series.part, fic.title, authors],
+            )?;
+        }
+        self.soft_delete_orphan_series()
+    }
+
+    fn get_series(&self, series_id: u64) -> Result<Series, FicflowError> {
+        let mut series = self
+            .conn
+            .query_row(
+                "SELECT * FROM series WHERE id = ?1 AND deleted_at IS NULL",
+                params![series_id],
+                row_to_series,
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => FicflowError::SeriesNotFound { series_id },
+                other => FicflowError::Database(other),
+            })?;
+        series.works = self
+            .series_works(Some(series_id))?
+            .into_iter()
+            .map(|(_, work)| work)
+            .collect();
+        Ok(series)
+    }
+
+    fn list_series(&self) -> Result<Vec<Series>, FicflowError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM series WHERE deleted_at IS NULL ORDER BY title")?;
+        let mut series = stmt
+            .query_map([], row_to_series)?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut works: HashMap<u64, Vec<SeriesWork>> = HashMap::new();
+        for (series_id, work) in self.series_works(None)? {
+            works.entry(series_id).or_default().push(work);
+        }
+        for s in &mut series {
+            s.works = works.remove(&s.id).unwrap_or_default();
+        }
+        Ok(series)
     }
 }

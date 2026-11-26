@@ -13,6 +13,8 @@ mod db;
 mod inbox;
 #[path = "infrastructure/library_location.rs"]
 mod library_location;
+#[path = "infrastructure/series.rs"]
+mod series;
 #[path = "infrastructure/shelf.rs"]
 mod shelf;
 #[path = "infrastructure/url_parser.rs"]
