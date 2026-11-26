@@ -81,8 +81,8 @@ jobs:
             local `cargo run` stays in step with the latest release.
           delete-branch: true
 
-      - name: Enable auto-merge on the bump PR
+      - name: Merge the bump PR
         if: steps.cpr.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr merge --auto --squash ${{ steps.cpr.outputs.pull-request-number }}
+        run: gh pr merge --squash ${{ steps.cpr.outputs.pull-request-number }}
