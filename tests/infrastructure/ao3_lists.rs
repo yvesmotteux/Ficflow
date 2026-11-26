@@ -3,7 +3,7 @@ mod tests {
     use std::fs;
     use std::time::Duration;
 
-    use ficflow::domain::fanfiction::{FanfictionFetcher, WorkList};
+    use ficflow::domain::fanfiction::FanfictionFetcher;
     use ficflow::error::FicflowError;
     use ficflow::infrastructure::external::ao3::Ao3Fetcher;
     use httpmock::prelude::*;
@@ -22,73 +22,93 @@ mod tests {
         .unwrap()
     }
 
-    fn serve(server: &MockServer, path: &str, name: &str) {
-        let body = fixture(name);
+    fn serve_pages(server: &MockServer, path: &str, pages: &[&str]) {
+        for (i, name) in pages.iter().enumerate().skip(1) {
+            let body = fixture(name);
+            let page = (i + 1).to_string();
+            server.mock(|when, then| {
+                when.method(GET).path(path).query_param("page", page);
+                then.status(200).body(body);
+            });
+        }
+        let first = fixture(pages[0]);
         server.mock(|when, then| {
-            when.method(GET).path(path);
-            then.status(200).body(body);
+            when.method(GET).path(path).query_param_missing("page");
+            then.status(200).body(first);
         });
     }
 
     #[test]
     fn follows_next_page_links_until_the_last_page() {
         let server = MockServer::start();
-        let page2 = fixture("collection_page2");
-        server.mock(|when, then| {
-            when.method(GET)
-                .path("/collections/test/works")
-                .query_param("page", "2");
-            then.status(200).body(page2);
-        });
-        let page1 = fixture("collection_page1");
-        server.mock(|when, then| {
-            when.method(GET)
-                .path("/collections/test/works")
-                .query_param_missing("page");
-            then.status(200).body(page1);
-        });
+        serve_pages(
+            &server,
+            "/users/KayleySayer/works",
+            &["user_works_p1", "user_works_p2", "user_works_p3"],
+        );
 
         let list = fetcher(&server)
-            .fetch_work_ids("/collections/test/works", 100)
+            .fetch_work_ids("/users/KayleySayer/works", 100)
             .unwrap();
 
-        assert_eq!(
-            list,
-            WorkList {
-                ids: vec![101, 102, 103],
-                total: Some(3),
-            }
-        );
+        assert_eq!(list.total, Some(42));
+        assert_eq!(list.ids.len(), 42);
+        assert_eq!(list.ids.first(), Some(&96703796));
+        assert_eq!(list.ids.last(), Some(&48226681));
+    }
+
+    #[test]
+    fn series_are_read_page_by_page_with_their_total() {
+        let server = MockServer::start();
+        serve_pages(&server, "/series/6653231", &["series_p1", "series_p2"]);
+
+        let list = fetcher(&server)
+            .fetch_work_ids("/series/6653231", 100)
+            .unwrap();
+
+        assert_eq!(list.total, Some(31));
+        assert_eq!(list.ids.len(), 31);
+        assert_eq!(list.ids.first(), Some(&93626551));
+        assert_eq!(list.ids.last(), Some(&96172631));
     }
 
     #[test]
     fn bookmarks_keep_only_works() {
         let server = MockServer::start();
-        serve(&server, "/users/reader/bookmarks", "bookmarks");
+        serve_pages(&server, "/users/KayleySayer/bookmarks", &["user_bookmarks"]);
 
         let list = fetcher(&server)
-            .fetch_work_ids("/users/reader/bookmarks", 100)
+            .fetch_work_ids("/users/KayleySayer/bookmarks", 18)
             .unwrap();
 
-        assert_eq!(list.ids, vec![201, 202]);
-        assert_eq!(list.total, Some(4));
+        assert_eq!(list.total, Some(27));
+        assert_eq!(list.ids.len(), 18);
+        assert_eq!(list.ids.first(), Some(&69081951));
+        assert!(!list.ids.contains(&1914706));
     }
 
     #[test]
-    fn series_total_comes_from_the_series_stats() {
+    fn collection_works_link_through_the_collection() {
         let server = MockServer::start();
-        serve(&server, "/series/999", "series");
+        serve_pages(
+            &server,
+            "/collections/HP_Yule_Bliss_Parent_Collection/works",
+            &["collection_big"],
+        );
 
-        let list = fetcher(&server).fetch_work_ids("/series/999", 100).unwrap();
+        let list = fetcher(&server)
+            .fetch_work_ids("/collections/HP_Yule_Bliss_Parent_Collection/works", 100)
+            .unwrap();
 
-        assert_eq!(list.ids, vec![501, 502]);
-        assert_eq!(list.total, Some(2));
+        assert_eq!(list.total, Some(112));
+        assert_eq!(list.ids.len(), 20);
+        assert_eq!(list.ids.first(), Some(&75589916));
     }
 
     #[test]
     fn subscriptions_keep_only_works() {
         let server = MockServer::start();
-        serve(&server, "/users/reader/subscriptions", "subscriptions");
+        serve_pages(&server, "/users/reader/subscriptions", &["subscriptions"]);
 
         let list = fetcher(&server)
             .fetch_work_ids("/users/reader/subscriptions?type=works", 100)
@@ -96,19 +116,6 @@ mod tests {
 
         assert_eq!(list.ids, vec![601]);
         assert_eq!(list.total, None);
-    }
-
-    #[test]
-    fn stops_after_the_first_page_when_the_total_is_over_the_limit() {
-        let server = MockServer::start();
-        serve(&server, "/collections/big/works", "big_page1");
-
-        let list = fetcher(&server)
-            .fetch_work_ids("/collections/big/works", 100)
-            .unwrap();
-
-        assert_eq!(list.ids, vec![801, 802, 803]);
-        assert_eq!(list.total, Some(1234));
     }
 
     #[test]

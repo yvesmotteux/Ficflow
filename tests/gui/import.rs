@@ -27,6 +27,41 @@ mod tests {
         }
     }
 
+    fn given_any_work(server: &MockServer) {
+        server.mock(|when, then| {
+            when.method(GET).path_matches(r"^/works/\d+$");
+            then.status(200).body(fixture("ao3_fic_example1"));
+        });
+    }
+
+    fn serve_pages(server: &MockServer, path: &str, pages: &[&str]) {
+        for (i, name) in pages.iter().enumerate().skip(1) {
+            let body = fixture(&format!("lists/{name}"));
+            let page = (i + 1).to_string();
+            server.mock(|when, then| {
+                when.method(GET).path(path).query_param("page", page);
+                then.status(200).body(body);
+            });
+        }
+        let first = fixture(&format!("lists/{}", pages[0]));
+        server.mock(|when, then| {
+            when.method(GET).path(path).query_param_missing("page");
+            then.status(200).body(first);
+        });
+    }
+
+    fn wait_for_import_status(h: &mut GuiHarness, done: impl Fn(&TaskStatus) -> bool) {
+        for _ in 0..400 {
+            h.step();
+            if done(&import_task(h).status) {
+                h.step();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        panic!("import never reached the expected status");
+    }
+
     fn given_harness(server: &MockServer, existing: &[u64]) -> GuiHarness {
         let (conn, db_path, td) = fixtures::given_test_database();
         for id in existing {
@@ -78,76 +113,83 @@ mod tests {
     }
 
     #[test]
-    fn importing_a_collection_reads_every_page() {
+    fn importing_an_authors_works_reads_every_page() {
         let server = MockServer::start();
-        given_works(&server, &[101, 102, 103], Duration::ZERO);
-        let page2 = fixture("lists/collection_page2");
-        server.mock(|when, then| {
-            when.method(GET)
-                .path("/collections/test/works")
-                .query_param("page", "2");
-            then.status(200).body(page2);
-        });
-        let page1 = fixture("lists/collection_page1");
-        server.mock(|when, then| {
-            when.method(GET)
-                .path("/collections/test/works")
-                .query_param_missing("page");
-            then.status(200).body(page1);
-        });
-        let mut h = given_harness(&server, &[102]);
+        given_any_work(&server);
+        serve_pages(
+            &server,
+            "/users/KayleySayer/works",
+            &["user_works_p1", "user_works_p2", "user_works_p3"],
+        );
+        let mut h = given_harness(&server, &[48226681]);
 
         h.app
-            .submit_import(list("/collections/test/works", "Collection test"));
-        assert!(h.wait_for_tasks(400));
+            .submit_import(list("/users/KayleySayer/works", "Works by KayleySayer"));
+        assert!(h.wait_for_tasks(2000));
 
-        assert_eq!(fic_ids(&h), vec![101, 102, 103]);
+        assert_eq!(h.app.fics().len(), 42);
         assert_eq!(
             import_task(&h).display,
-            "Collection test: 2 fics added, 1 already in library"
+            "Works by KayleySayer: 41 fics added, 1 already in library"
         );
     }
 
     #[test]
     fn big_lists_wait_for_confirmation_before_adding_anything() {
         let server = MockServer::start();
-        given_works(&server, &[801, 802, 803, 804], Duration::ZERO);
+        given_any_work(&server);
+        let path = "/collections/HP_Yule_Bliss_Parent_Collection/works";
         server.mock(|when, then| {
-            when.method(GET)
-                .path("/collections/big/works")
-                .query_param("page", "2");
-            then.status(200).body(
-                r#"<div id="main"><ol class="work index group"><li class="work blurb"><h4 class="heading"><a href="/works/804">Last</a></h4></li></ol></div>"#,
-            );
+            when.method(GET).path(path).query_param("page", "2");
+            then.status(200).body(r#"<div id="main"></div>"#);
         });
-        let page1 = fixture("lists/big_page1");
-        server.mock(|when, then| {
-            when.method(GET)
-                .path("/collections/big/works")
-                .query_param_missing("page");
-            then.status(200).body(page1);
-        });
+        serve_pages(&server, path, &["collection_big"]);
         let mut h = given_harness(&server, &[]);
 
-        h.app
-            .submit_import(list("/collections/big/works", "Collection big"));
-        assert!(h.wait_for_tasks(400));
+        h.app.submit_import(list(path, "Collection HP"));
+        wait_for_import_status(&mut h, |status| {
+            matches!(status, TaskStatus::NeedsConfirmation(_))
+        });
 
         let waiting = import_task(&h);
         match &waiting.status {
             TaskStatus::NeedsConfirmation(message) => assert_eq!(
                 message,
-                "Collection big has 1,234 fics. Adding them all would take about 1 h 23 min."
+                "Collection HP has 112 fics. Adding them all would take about 8 min."
             ),
             other => panic!("expected a confirmation request, got {other:?}"),
         }
         assert!(h.app.fics().is_empty());
+        assert!(h.app.has_running_tasks());
 
         h.app.confirm_import(waiting.id);
+        assert!(h.wait_for_tasks(2000));
+
+        assert_eq!(h.app.fics().len(), 20);
+        assert!(matches!(import_task(&h).status, TaskStatus::Done));
+    }
+
+    #[test]
+    fn a_list_page_without_works_fails() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/collections/empty/works");
+            then.status(200)
+                .body(r#"<div id="main"><h2 class="heading">0 Works</h2></div>"#);
+        });
+        let mut h = given_harness(&server, &[]);
+
+        h.app
+            .submit_import(list("/collections/empty/works", "Collection empty"));
         assert!(h.wait_for_tasks(400));
 
-        assert_eq!(fic_ids(&h), vec![801, 802, 803, 804]);
-        assert!(matches!(import_task(&h).status, TaskStatus::Done));
+        match import_task(&h).status {
+            TaskStatus::Failed(message) => {
+                assert_eq!(message, "found no works on that AO3 page")
+            }
+            other => panic!("expected a failure, got {other:?}"),
+        }
+        assert_eq!(h.app.failed_task_count(), 1);
     }
 
     #[test]
