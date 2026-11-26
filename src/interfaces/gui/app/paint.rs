@@ -359,7 +359,8 @@ impl FicflowApp {
                 ImportNotice::Finished(summary) => self.toasts.success(summary),
                 ImportNotice::NeedsConfirmation(message) => self
                     .toasts
-                    .warning(format!("{message} Open Tasks to add them anyway.")),
+                    .warning(format!("{message} Open Tasks to add them anyway."))
+                    .duration(std::time::Duration::from_secs(15)),
             };
         }
         let new_messages = self.task_executor.take_new_messages();
