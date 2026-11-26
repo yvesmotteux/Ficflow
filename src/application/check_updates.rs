@@ -1,5 +1,7 @@
+use super::sync_series::sync_fic_series;
 use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher, FanfictionOps};
 use crate::domain::inbox::{InboxMessage, InboxOps, MessageContent};
+use crate::domain::series::SeriesOps;
 use crate::error::FicflowError;
 use chrono::Utc;
 
@@ -7,6 +9,7 @@ pub fn check_fic_updates(
     fetcher: &dyn FanfictionFetcher,
     fanfiction_ops: &dyn FanfictionOps,
     inbox_ops: &dyn InboxOps,
+    series_ops: &dyn SeriesOps,
     fic_id: u64,
 ) -> Result<(Fanfiction, Option<InboxMessage>), FicflowError> {
     let current = fanfiction_ops.get_fanfiction_by_id(fic_id)?;
@@ -23,6 +26,7 @@ pub fn check_fic_updates(
         ..fetched
     };
     fanfiction_ops.save_fanfiction(&updated)?;
+    sync_fic_series(fetcher, series_ops, &updated)?;
 
     let message = if updated.chapters_published > current.chapters_published {
         Some(

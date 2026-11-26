@@ -196,9 +196,14 @@ mod tests {
             .expect("Failed to save outdated fic");
 
         // When
-        let (updated_fic, message) =
-            check_fic_updates(&updated_fetcher, &fanfiction_ops, &fanfiction_ops, fic_id)
-                .expect("Failed to check for updates");
+        let (updated_fic, message) = check_fic_updates(
+            &updated_fetcher,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            fic_id,
+        )
+        .expect("Failed to check for updates");
 
         // Then
         let message = message.expect("Should post a new chapters message");
@@ -267,9 +272,14 @@ mod tests {
         assert_eq!(stored_fic.read_count, 3, "Read count should be preserved");
 
         // Verify no changes reported when checking again
-        let (_, message) =
-            check_fic_updates(&updated_fetcher, &fanfiction_ops, &fanfiction_ops, fic_id)
-                .expect("Failed to check for updates second time");
+        let (_, message) = check_fic_updates(
+            &updated_fetcher,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            &fanfiction_ops,
+            fic_id,
+        )
+        .expect("Failed to check for updates second time");
 
         assert!(
             message.is_none(),

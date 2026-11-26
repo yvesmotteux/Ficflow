@@ -42,6 +42,7 @@ pub mod move_shelf;
 pub mod pin_shelf;
 pub mod remove_from_shelf;
 pub mod rename_shelf;
+pub mod sync_series;
 pub mod unpin_shelf;
 pub mod update_chapters;
 pub mod update_note;

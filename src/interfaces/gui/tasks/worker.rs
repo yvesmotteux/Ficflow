@@ -13,6 +13,7 @@ use crate::application::background_refresh::{BackgroundRefresher, FailureReport,
 use crate::application::check_updates::check_fic_updates;
 use crate::application::import_fics::{ImportFrom, ImportPlan, plan_import};
 use crate::application::list_fics::list_fics;
+use crate::application::sync_series::sync_series;
 use crate::domain::fanfiction::Fanfiction;
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
@@ -176,7 +177,7 @@ pub fn run(
             }
             WorkerCommand::RefreshFic { task_id, fic_id } => {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
-                    check_fic_updates(&fetcher, &repo, &repo, fic_id)
+                    check_fic_updates(&fetcher, &repo, &repo, &repo, fic_id)
                 }))
                 .unwrap_or_else(|payload| Err(panic_to_error(payload)))
                 .map(|(fic, message)| {
@@ -186,6 +187,15 @@ pub fn run(
                 if record(&shared, task_id, outcome).is_some() {
                     background.refresher.forgive(fic_id);
                     lock(&shared.recent_refreshes).push(fic_id);
+                }
+            }
+            WorkerCommand::RefreshSeries { task_id, series_id } => {
+                let outcome =
+                    catch_unwind(AssertUnwindSafe(|| sync_series(&fetcher, &repo, series_id)))
+                        .unwrap_or_else(|payload| Err(panic_to_error(payload)))
+                        .map(|series| series.title);
+                if record(&shared, task_id, outcome).is_some() {
+                    shared.library_changed.store(true, Ordering::Relaxed);
                 }
             }
             WorkerCommand::CheckAllNow => {
@@ -214,7 +224,7 @@ fn run_queued_add(
         return;
     }
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        add_fanfiction(fetcher, repo, add.fic_id)
+        add_fanfiction(fetcher, repo, repo, add.fic_id)
     }))
     .unwrap_or_else(|payload| Err(panic_to_error(payload)));
     let added = record(shared, add.task_id, outcome).is_some();
@@ -342,7 +352,7 @@ impl Background {
             return false;
         };
         let outcome = catch_unwind(AssertUnwindSafe(|| {
-            check_fic_updates(fetcher, repo, repo, fic_id)
+            check_fic_updates(fetcher, repo, repo, repo, fic_id)
         }))
         .unwrap_or_else(|payload| Err(panic_to_error(payload)));
         match outcome {
@@ -449,5 +459,5 @@ fn process_add(
     input: &str,
 ) -> Result<String, FicflowError> {
     let fic_id = extract_ao3_id(input).map_err(FicflowError::InvalidInput)?;
-    add_fanfiction(fetcher, repo, fic_id)
+    add_fanfiction(fetcher, repo, repo, fic_id)
 }

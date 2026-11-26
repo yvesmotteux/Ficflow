@@ -39,7 +39,7 @@ impl<'a> CliCommandExecutor<'a> {
                 println!("Adding fanfiction with ID: {}", fic_id);
                 run(
                     "adding fanfiction",
-                    add_fanfiction(self.fetcher, repo, fic_id),
+                    add_fanfiction(self.fetcher, repo, repo, fic_id),
                     |title| println!("Successfully added: {}", title),
                 )
             }
