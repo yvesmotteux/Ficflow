@@ -89,6 +89,7 @@ pub struct FicflowApp {
     task_executor: TaskExecutor,
     quit_confirmed: bool,
     task_filter: TaskFilter,
+    settings_tab: settings_view::SettingsTab,
     /// Set by Ctrl+F; consumed by `draw_search_field` on next paint.
     focus_search_pending: bool,
     toasts: Toasts,
@@ -213,6 +214,7 @@ impl FicflowApp {
             task_executor,
             quit_confirmed: false,
             task_filter: TaskFilter::default(),
+            settings_tab: settings_view::SettingsTab::default(),
             focus_search_pending: false,
             toasts: Toasts::default(),
             update_check: UpdateCheck::new(config.latest_release_url),

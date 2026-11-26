@@ -332,6 +332,7 @@ impl FicflowApp {
                     self.update_check.start_once(ui.ctx());
                     let outcome = settings_view::draw(
                         ui,
+                        &mut self.settings_tab,
                         &mut self.config,
                         &self.current_db_path,
                         self.update_check.newer_release(),
