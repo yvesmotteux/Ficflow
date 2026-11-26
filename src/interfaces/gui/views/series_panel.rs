@@ -110,6 +110,30 @@ pub fn draw_missing(ui: &mut Ui, series: &Series, work: &SeriesWork) -> Option<u
     add
 }
 
+pub fn draw_hidden(ui: &mut Ui, series: &Series, part: u32, logged_in: bool) -> SeriesOutcome {
+    let mut outcome = SeriesOutcome::None;
+    header(ui, &format!("Part {part}"), &[], &series_url(series.id));
+    ui.add_space(6.0);
+    ao3_row(ui, "Series", |ui| {
+        ui.label(format!("Part {part} of {}", series.title));
+    });
+    let reason = if logged_in {
+        "AO3 doesn't list this part, even for your account. Its author may have made it \
+        private or deleted it."
+    } else {
+        "AO3 doesn't list this part. It may only be visible to logged-in AO3 users, or its \
+        author may have made it private or deleted it. Log in to AO3 in Settings, then refresh \
+        the series to see it."
+    };
+    ao3_row(ui, "", |ui| {
+        ui.add(egui::Label::new(RichText::new(reason).weak()).wrap());
+        if ui.button("Refresh the series").clicked() {
+            outcome = SeriesOutcome::Refresh;
+        }
+    });
+    outcome
+}
+
 fn header(ui: &mut Ui, title: &str, authors: &[String], url: &str) {
     ui.add_space(8.0);
     ui.label(RichText::new(title).heading().strong());

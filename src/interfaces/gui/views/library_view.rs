@@ -360,7 +360,7 @@ fn build_table(
                             }
                             _ => Vec::new(),
                         },
-                        RowKey::Missing { .. } => Vec::new(),
+                        RowKey::Missing { .. } | RowKey::Hidden { .. } => Vec::new(),
                     };
                     if !drag_ids.is_empty() {
                         resp.dnd_set_drag_payload(drag_ids);
@@ -607,7 +607,9 @@ const NESTED_INDENT: f32 = 22.0;
 fn row_indent(row: LibraryRow) -> f32 {
     match row {
         LibraryRow::Series { .. } => ARROW_WIDTH,
-        LibraryRow::Fic { part: Some(_), .. } | LibraryRow::Missing { .. } => NESTED_INDENT,
+        LibraryRow::Fic { part: Some(_), .. }
+        | LibraryRow::Missing { .. }
+        | LibraryRow::Hidden { .. } => NESTED_INDENT,
         LibraryRow::Fic { part: None, .. } => 0.0,
     }
 }
@@ -652,6 +654,10 @@ fn row_text(cells: &Cells, row: LibraryRow, column: ColumnKey) -> String {
                 _ => String::new(),
             }
         }
+        LibraryRow::Hidden { part, total, .. } => match column {
+            ColumnKey::Title => format!("{part}/{total} \u{00B7} Hidden part"),
+            _ => String::new(),
+        },
     }
 }
 
@@ -691,7 +697,7 @@ fn render_cell(
     let mut text = RichText::new(row_text(cells, row, column));
     match row {
         LibraryRow::Series { .. } => text = text.strong(),
-        LibraryRow::Missing { .. } => text = text.italics().weak(),
+        LibraryRow::Missing { .. } | LibraryRow::Hidden { .. } => text = text.italics().weak(),
         LibraryRow::Fic { .. } => {}
     }
     // `selectable(false)`: a default `Label` swallows row-click events

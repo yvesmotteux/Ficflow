@@ -166,9 +166,12 @@ impl FicflowApp {
     pub(super) fn paint_details_panel(&mut self, host: &mut egui::Ui) {
         let id = match *self.selection.current() {
             Selection::Single(id) => id,
-            Selection::Series(id) => return self.paint_series_panel(host, id, None),
+            Selection::Series(id) => return self.paint_series_panel(host, id, SeriesFocus::Series),
             Selection::Missing { series_id, work_id } => {
-                return self.paint_series_panel(host, series_id, Some(work_id));
+                return self.paint_series_panel(host, series_id, SeriesFocus::Missing(work_id));
+            }
+            Selection::Hidden { series_id, part } => {
+                return self.paint_series_panel(host, series_id, SeriesFocus::Hidden(part));
             }
             _ => return,
         };
@@ -201,7 +204,7 @@ impl FicflowApp {
         self.dispatch_details_outcome(id, outcome);
     }
 
-    fn paint_series_panel(&mut self, host: &mut egui::Ui, series_id: u64, work_id: Option<u64>) {
+    fn paint_series_panel(&mut self, host: &mut egui::Ui, series_id: u64, focus: SeriesFocus) {
         if !self.current_view.shows_library() {
             return;
         }
@@ -215,17 +218,24 @@ impl FicflowApp {
             .map(|w| w.work_id)
             .filter(|id| !local.contains(id))
             .collect();
-        let work = work_id.and_then(|id| series.works.iter().find(|w| w.work_id == id));
+        let logged_in = self.ao3_account.username().is_some();
         let mut outcome = SeriesOutcome::None;
         egui::Panel::right("ficflow-details-v2")
             .default_size(320.0)
             .size_range(280.0..=900.0)
             .resizable(true)
             .show(host, |ui| {
-                outcome = match work {
-                    Some(work) => series_panel::draw_missing(ui, &series, work)
+                outcome = match focus {
+                    SeriesFocus::Series => series_panel::draw_series(ui, &series, &missing),
+                    SeriesFocus::Missing(work_id) => series
+                        .works
+                        .iter()
+                        .find(|w| w.work_id == work_id)
+                        .and_then(|work| series_panel::draw_missing(ui, &series, work))
                         .map_or(SeriesOutcome::None, |id| SeriesOutcome::Add(vec![id])),
-                    None => series_panel::draw_series(ui, &series, &missing),
+                    SeriesFocus::Hidden(part) => {
+                        series_panel::draw_hidden(ui, &series, part, logged_in)
+                    }
                 };
             });
         match outcome {
@@ -375,10 +385,15 @@ impl FicflowApp {
         }
         let orphaned = match *self.selection.current() {
             Selection::Single(id) => self.cache.fic(id).is_none(),
-            Selection::Series(id) | Selection::Missing { series_id: id, .. } => self
-                .cache
-                .series(id)
-                .is_none_or(|series| series_fic_ids(series, &self.cache.fics).is_empty()),
+            Selection::Series(id)
+            | Selection::Missing { series_id: id, .. }
+            | Selection::Hidden { series_id: id, .. } => {
+                self.cache.series(id).is_none_or(|series| {
+                    series_fic_ids(series, &self.cache.fics).is_empty()
+                        || matches!(*self.selection.current(), Selection::Hidden { part, .. }
+                            if series.works.iter().any(|w| w.part == part))
+                })
+            }
             _ => false,
         };
         if orphaned {
@@ -617,4 +632,11 @@ impl FicflowApp {
                 });
             });
     }
+}
+
+#[derive(Clone, Copy)]
+enum SeriesFocus {
+    Series,
+    Missing(u64),
+    Hidden(u32),
 }

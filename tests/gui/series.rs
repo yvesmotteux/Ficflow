@@ -264,4 +264,37 @@ mod tests {
             "Arslan-tober 2026: Tiny Tales"
         );
     }
+
+    #[test]
+    fn parts_ao3_does_not_list_show_as_hidden() {
+        let (conn, db_path, td) = fixtures::given_test_database();
+        for id in [1, 2] {
+            let fic = fixtures::given_sample_fanfiction(id, &format!("Fic {id}"));
+            fixtures::when_fanfiction_added_to_db(&conn, &fic).unwrap();
+        }
+        let mut gappy = series(30, &[(1, 1), (2, 3)]);
+        gappy.works_count = 4;
+        SqliteRepository::new(&conn).save_series(&gappy).unwrap();
+        let mut h = GuiHarness::with_db(vec!["http://127.0.0.1:1".into()], conn, db_path, td);
+        h.step();
+
+        let hidden = |part| RowKey::Hidden {
+            series_id: 30,
+            part,
+        };
+        assert_eq!(
+            h.app.library_rows(),
+            vec![Group(30), Fic(1), hidden(2), Fic(2), hidden(4)]
+        );
+        h.app.select_row(hidden(2));
+        h.step();
+        assert!(h.app.details_panel_visible());
+        assert_eq!(
+            h.app.selection(),
+            &Selection::Hidden {
+                series_id: 30,
+                part: 2
+            }
+        );
+    }
 }

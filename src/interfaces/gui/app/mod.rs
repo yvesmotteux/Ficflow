@@ -374,7 +374,10 @@ impl FicflowApp {
     pub fn details_panel_visible(&self) -> bool {
         matches!(
             self.selection.current(),
-            Selection::Single(_) | Selection::Series(_) | Selection::Missing { .. }
+            Selection::Single(_)
+                | Selection::Series(_)
+                | Selection::Missing { .. }
+                | Selection::Hidden { .. }
         ) && self.current_view.shows_library()
     }
 

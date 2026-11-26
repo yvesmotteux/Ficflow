@@ -25,6 +25,11 @@ pub enum LibraryRow {
         work: usize,
         total: u32,
     },
+    Hidden {
+        series: usize,
+        part: u32,
+        total: u32,
+    },
 }
 
 impl LibraryRow {
@@ -37,6 +42,12 @@ impl LibraryRow {
             } => RowKey::Missing {
                 series_id: series[s].id,
                 work_id: series[s].works[work].work_id,
+            },
+            LibraryRow::Hidden {
+                series: s, part, ..
+            } => RowKey::Hidden {
+                series_id: series[s].id,
+                part,
             },
         }
     }
@@ -57,6 +68,7 @@ struct Group {
     rank: usize,
     members: Vec<(u32, usize)>,
     missing: Vec<(u32, usize)>,
+    hidden: Vec<u32>,
     local: usize,
     total: u32,
 }
@@ -122,6 +134,14 @@ pub fn build_rows(input: &RowInputs) -> Vec<LibraryRow> {
             Vec::new()
         };
         let max_part = series.works.iter().map(|w| w.part).max().unwrap_or(0);
+        let total = series.works_count.max(max_part);
+        let hidden = if show_missing {
+            (1..=total)
+                .filter(|part| series.works.iter().all(|w| w.part != *part))
+                .collect()
+        } else {
+            Vec::new()
+        };
         groups.push(Group {
             series: s,
             rank: members
@@ -131,8 +151,9 @@ pub fn build_rows(input: &RowInputs) -> Vec<LibraryRow> {
                 .unwrap_or(usize::MAX),
             members,
             missing,
+            hidden,
             local: local.len(),
-            total: series.works_count.max(max_part),
+            total,
         });
     }
 
@@ -186,6 +207,16 @@ pub fn build_rows(input: &RowInputs) -> Vec<LibraryRow> {
                             LibraryRow::Missing {
                                 series: group.series,
                                 work,
+                                total: group.total,
+                            },
+                        )
+                    }))
+                    .chain(group.hidden.iter().map(|&part| {
+                        (
+                            part,
+                            LibraryRow::Hidden {
+                                series: group.series,
+                                part,
                                 total: group.total,
                             },
                         )

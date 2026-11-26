@@ -129,7 +129,7 @@ impl SelectionController {
 
         let row_selected = matches!(
             self.selection,
-            Selection::Series(_) | Selection::Missing { .. }
+            Selection::Series(_) | Selection::Missing { .. } | Selection::Hidden { .. }
         );
         if !view.shows_library() {
             self.clear();
