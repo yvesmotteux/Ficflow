@@ -43,6 +43,7 @@ use crate::infrastructure::external::github::{LATEST_RELEASE_URL, Release};
 use crate::infrastructure::persistence::database::connection::{
     move_library_into, open_configured_db, restore_backup,
 };
+use crate::infrastructure::persistence::epub_folder::EpubFolder;
 
 use super::ao3_account::Ao3Account;
 use super::chrome::FrameChrome;
@@ -72,6 +73,7 @@ pub struct FicflowApp {
     /// source when the user relocates the library and the target that a
     /// restored backup is copied over.
     current_db_path: PathBuf,
+    epubs: EpubFolder,
     cache: LibraryCache,
     chrome: FrameChrome,
     config: AppConfig,
@@ -201,6 +203,7 @@ impl FicflowApp {
         );
         let mut app = Self {
             connection,
+            epubs: EpubFolder::for_library(&db_path),
             current_db_path: db_path,
             cache,
             chrome,
@@ -954,9 +957,10 @@ impl FicflowApp {
 
     fn handle_bulk_delete(&mut self, ids: &[u64]) {
         let total = ids.len();
+        let epubs = self.epubs.clone();
         let deleted: Vec<u64> = self.mutate(|repo| {
             ids.iter()
-                .filter(|id| delete_fic::delete_fic(repo, **id).is_ok())
+                .filter(|id| delete_fic::delete_fic(repo, &epubs, **id).is_ok())
                 .copied()
                 .collect()
         });

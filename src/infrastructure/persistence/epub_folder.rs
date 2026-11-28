@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::domain::fanfiction::EpubStore;
 use crate::error::FicflowError;
 
+#[derive(Clone)]
 pub struct EpubFolder {
     dir: PathBuf,
 }

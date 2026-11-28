@@ -7,6 +7,7 @@ use ficflow::error::FicflowError;
 use ficflow::infrastructure::config::Config;
 use ficflow::infrastructure::external::ao3::fetcher::{ao3_urls_from_env, session_site_from_env};
 use ficflow::infrastructure::external::ao3::session::KeychainSessionStore;
+use ficflow::infrastructure::persistence::epub_folder::EpubFolder;
 use ficflow::infrastructure::{Ao3Fetcher, SqliteRepository, open_configured_db};
 use ficflow::interfaces::cli::{self, command::CliCommand};
 
@@ -39,7 +40,8 @@ fn run_cli(command: CliCommand) -> Result<ExitCode, FicflowError> {
     let db_path = Config::load().resolved_db_path()?;
     let conn = open_configured_db(&db_path)?;
     let repository = SqliteRepository::new(&conn);
-    Ok(cli::run_cli(command, &fetcher, &repository))
+    let epubs = EpubFolder::for_library(&db_path);
+    Ok(cli::run_cli(command, &fetcher, &repository, &epubs))
 }
 
 /// True when the binary was invoked with no positional arguments — the user
