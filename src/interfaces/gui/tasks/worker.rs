@@ -132,7 +132,9 @@ pub fn run(
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
                     let from = match &source {
                         ImportSource::Ids(ids) => ImportFrom::Ids(ids),
-                        ImportSource::List(list) => ImportFrom::List(&list.path),
+                        ImportSource::List(list) | ImportSource::Sync(list) => {
+                            ImportFrom::List(&list.path)
+                        }
                     };
                     plan_import(&fetcher, &repo, from, limit)
                 }))
@@ -141,6 +143,14 @@ pub fn run(
                 match outcome {
                     Ok(ImportPlan::TooMany { count }) => {
                         ask_confirmation(&shared, task_id, &label, count)
+                    }
+                    Ok(ImportPlan::Add { new_ids, .. })
+                        if new_ids.is_empty() && matches!(source, ImportSource::Sync(_)) =>
+                    {
+                        lock(&shared.tasks).retain(|t| t.id != task_id);
+                    }
+                    Err(FicflowError::EmptyList) if matches!(source, ImportSource::Sync(_)) => {
+                        lock(&shared.tasks).retain(|t| t.id != task_id);
                     }
                     Ok(ImportPlan::Add { new_ids, already }) => {
                         if task_is_running(&shared, task_id) {

@@ -102,6 +102,13 @@ pub fn subscriptions_list(user: &str) -> Ao3List {
     )
 }
 
+pub fn marked_for_later_list(user: &str) -> Ao3List {
+    list(
+        format!("/users/{user}/readings?show=to-read"),
+        "Marked for Later".to_string(),
+    )
+}
+
 fn list(path: String, label: String) -> Ao3List {
     Ao3List { path, label }
 }

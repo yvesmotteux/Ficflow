@@ -35,13 +35,14 @@ pub enum TaskKind {
 pub enum ImportSource {
     Ids(Vec<u64>),
     List(Ao3List),
+    Sync(Ao3List),
 }
 
 impl ImportSource {
     pub fn label(&self) -> String {
         match self {
             ImportSource::Ids(ids) => format!("{} fic IDs", ids.len()),
-            ImportSource::List(list) => list.label.clone(),
+            ImportSource::List(list) | ImportSource::Sync(list) => list.label.clone(),
         }
     }
 }
@@ -224,6 +225,10 @@ impl TaskExecutor {
         });
     }
 
+    pub fn enqueue_sync(&self, list: Ao3List) {
+        self.send_import(ImportSource::Sync(list), true);
+    }
+
     pub fn confirm_import(&self, task_id: u64) {
         let Some(task) = self.remove_task(task_id, |status| {
             matches!(status, TaskStatus::NeedsConfirmation(_))
@@ -329,6 +334,9 @@ impl TaskExecutor {
         };
         match failed.kind {
             TaskKind::Add { input, .. } => self.enqueue_add(input),
+            TaskKind::Import {
+                source: ImportSource::Sync(list),
+            } => self.enqueue_sync(list),
             TaskKind::Import { source } => self.enqueue_import(source),
             TaskKind::Refresh { fic_id } => self.enqueue_refresh(fic_id, failed.display),
             TaskKind::RefreshSeries { series_id } => {
