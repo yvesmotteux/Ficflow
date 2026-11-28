@@ -12,10 +12,16 @@ pub enum RemoveOrDelete {
 
 /// Lists the first few titles by way of "are you sure", summarises the
 /// rest as "+ N more".
-pub fn draw_delete_confirm(ctx: &Context, ids: &[u64], fics: &[Fanfiction]) -> ModalOutcome<()> {
+pub fn draw_delete_confirm(
+    ctx: &Context,
+    ids: &[u64],
+    fics: &[Fanfiction],
+    with_epubs: bool,
+) -> ModalOutcome<()> {
     show_modal(ctx, "Delete fanfictions", |ui| {
         ui.label(format!("Delete {} fanfiction(s)?", ids.len()));
         title_preview(ui, ids, fics);
+        epub_note(ui, with_epubs);
         ui.add_space(6.0);
         action_row(ui, "Delete", true, None, || ())
     })
@@ -26,6 +32,7 @@ pub fn draw_remove_or_delete(
     ids: &[u64],
     shelf_name: &str,
     fics: &[Fanfiction],
+    with_epubs: bool,
 ) -> ModalOutcome<RemoveOrDelete> {
     show_modal(ctx, "Remove or delete", |ui| {
         ui.label(format!("{} fanfiction(s) selected", ids.len()));
@@ -38,6 +45,7 @@ pub fn draw_remove_or_delete(
             .italics()
             .weak(),
         );
+        epub_note(ui, with_epubs);
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             if ui
@@ -55,6 +63,16 @@ pub fn draw_remove_or_delete(
         })
         .inner
     })
+}
+
+fn epub_note(ui: &mut Ui, with_epubs: bool) {
+    if with_epubs {
+        ui.label(
+            egui::RichText::new("Their saved EPUBs are deleted too.")
+                .italics()
+                .weak(),
+        );
+    }
 }
 
 fn title_preview(ui: &mut Ui, ids: &[u64], fics: &[Fanfiction]) {

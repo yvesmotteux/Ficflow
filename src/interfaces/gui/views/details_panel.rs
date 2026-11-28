@@ -25,6 +25,7 @@ pub struct DetailsState<'a> {
     pub fic: &'a Fanfiction,
     pub all_shelves: &'a [Shelf],
     pub selection_shelf_ids: &'a HashSet<u64>,
+    pub has_epub: bool,
 }
 
 /// At most one outcome per frame — the panel's controls are
@@ -42,6 +43,7 @@ pub enum Outcome {
     RemoveFromShelf(u64),
     RequestDelete,
     RequestRefresh,
+    OpenEpub,
     CreateAutoShelfFromTag(ClauseFieldKind, String),
 }
 
@@ -58,6 +60,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         fic,
         all_shelves,
         selection_shelf_ids,
+        has_epub,
     } = state;
 
     let mut outcome = Outcome::None;
@@ -104,7 +107,7 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
         .show_separator_line(true)
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 8)))
         .show(ui, |ui| {
-            outcome.replace_with(draw_header(ui, fic));
+            outcome.replace_with(draw_header(ui, fic, has_epub));
         });
 
     // Central scrollable: AO3 Metadata.
@@ -125,9 +128,19 @@ pub fn draw(ui: &mut Ui, state: DetailsState<'_>) -> Outcome {
 // Header — title, author with AO3-author link, full fic URL
 // ---------------------------------------------------------------------------
 
-fn draw_header(ui: &mut Ui, fic: &Fanfiction) -> Outcome {
+fn draw_header(ui: &mut Ui, fic: &Fanfiction, has_epub: bool) -> Outcome {
     let mut outcome = Outcome::None;
-    ui.label(RichText::new(&fic.title).heading().strong());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(&fic.title).heading().strong());
+        if has_epub
+            && ui
+                .button("\u{1F4D6}")
+                .on_hover_text("Open the saved EPUB")
+                .clicked()
+        {
+            outcome = Outcome::OpenEpub;
+        }
+    });
     ui.add_space(2.0);
 
     // Authors with a small "open on AO3" arrow next to each.

@@ -64,14 +64,25 @@ impl FicflowApp {
                 )
             }
             ActiveModal::DeleteFics(ids) => on_submit(
-                bulk_modals::draw_delete_confirm(ctx, ids, &self.cache.fics),
+                bulk_modals::draw_delete_confirm(
+                    ctx,
+                    ids,
+                    &self.cache.fics,
+                    ids.iter().any(|id| self.epubs.has(*id)),
+                ),
                 |()| ModalAction::DeleteFics(ids.clone()),
             ),
             ActiveModal::RemoveOrDeleteFics { ids, shelf_id } => {
                 let shelf_id = *shelf_id;
                 let shelf_name = self.cache.shelf(shelf_id).map_or("shelf", |s| &s.name);
                 on_submit(
-                    bulk_modals::draw_remove_or_delete(ctx, ids, shelf_name, &self.cache.fics),
+                    bulk_modals::draw_remove_or_delete(
+                        ctx,
+                        ids,
+                        shelf_name,
+                        &self.cache.fics,
+                        ids.iter().any(|id| self.epubs.has(*id)),
+                    ),
                     |choice| match choice {
                         RemoveOrDelete::RemoveFromShelf => ModalAction::RemoveFicsFromShelf {
                             ids: ids.clone(),

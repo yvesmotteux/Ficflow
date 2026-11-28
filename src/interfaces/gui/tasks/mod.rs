@@ -318,6 +318,10 @@ impl TaskExecutor {
             .store(enabled, Ordering::Relaxed);
     }
 
+    pub fn set_epub_backups(&self, enabled: bool) {
+        self.shared.epub_backups.store(enabled, Ordering::Relaxed);
+    }
+
     fn enqueue_epub_backup(&self, fic_id: u64, display: String) {
         let task_id = self.push_task(TaskKind::EpubBackup { fic_id }, display);
         let _ = self

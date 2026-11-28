@@ -502,6 +502,23 @@ impl FicflowApp {
         self.save_config();
     }
 
+    pub fn set_epub_backups(&mut self, enabled: bool) {
+        self.config.backup_epubs = enabled;
+        self.task_executor.set_epub_backups(enabled);
+        self.save_config();
+    }
+
+    pub fn epub_path(&self, fic_id: u64) -> Option<PathBuf> {
+        self.epubs.has(fic_id).then(|| self.epubs.path(fic_id))
+    }
+
+    fn open_path(&mut self, path: &std::path::Path) {
+        if let Err(err) = open::that_detached(path) {
+            self.toasts
+                .error(format!("Couldn't open {}: {err}", path.display()));
+        }
+    }
+
     pub fn set_marked_for_later_sync(&mut self, enabled: bool) {
         self.config.sync_marked_for_later = enabled;
         if enabled {
@@ -876,6 +893,7 @@ impl FicflowApp {
             ),
             Outcome::RequestDelete => return self.delete_selected(),
             Outcome::RequestRefresh => return self.refresh_selected(),
+            Outcome::OpenEpub => return self.open_path(&self.epubs.path(fic_id)),
             Outcome::CreateAutoShelfFromTag(field, value) => {
                 self.active_modal = ActiveModal::AutoShelf(AutoShelfState::prefilled(field, value));
                 return;
