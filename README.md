@@ -79,6 +79,7 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
+- [x] opt-in option to back up the epub files of all fanfictions added to the database (done, but still needs testing once AO3 re-enables EPUB downloads; they are temporarily replaced by HTML)
 - [ ] detect when a fanfic was removed from AO3 and tag it specially / send a message to the inbox. If epub dl optin, explicitly offer access to the fic
 - [ ] add the ability to follow a user (new fics from followed users land in the inbox)
 - [ ] Add a "search" system based on tags, with an option to filter out fics already catalogued. New fics land in the inbox. Actually would be more like "subscription" window with the ability to subscribe to users, collections, series, or any kind of AO3 search (tags+pairings+fandoms+warnings+complete+crossovers+.....). Series already in the library should be refreshed regularly too: new parts land in the inbox, and the series info (title, description, word count, complete…) stays up to date
