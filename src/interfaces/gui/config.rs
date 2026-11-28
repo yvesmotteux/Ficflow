@@ -1,5 +1,6 @@
 use std::io;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::fanfiction::ReadingStatus;
@@ -163,6 +164,10 @@ pub struct AppConfig {
     pub collapsed_series: Vec<u64>,
     #[serde(default = "default_group_series")]
     pub group_series: bool,
+    #[serde(default)]
+    pub sync_marked_for_later: bool,
+    #[serde(default)]
+    pub marked_for_later_synced_at: Option<DateTime<Utc>>,
     #[serde(flatten)]
     pub shared: Config,
 }
@@ -225,6 +230,8 @@ impl Default for AppConfig {
             last_view: None,
             collapsed_series: Vec::new(),
             group_series: true,
+            sync_marked_for_later: false,
+            marked_for_later_synced_at: None,
             text_zoom: 1.0,
             theme: ThemeChoice::System,
             background_checks: true,

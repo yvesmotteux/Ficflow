@@ -229,6 +229,18 @@ impl TaskExecutor {
         self.send_import(ImportSource::Sync(list), true);
     }
 
+    pub fn is_syncing(&self) -> bool {
+        lock(&self.shared.tasks).iter().any(|t| {
+            matches!(t.status, TaskStatus::Running)
+                && matches!(
+                    t.kind,
+                    TaskKind::Import {
+                        source: ImportSource::Sync(_)
+                    }
+                )
+        })
+    }
+
     pub fn confirm_import(&self, task_id: u64) {
         let Some(task) = self.remove_task(task_id, |status| {
             matches!(status, TaskStatus::NeedsConfirmation(_))
