@@ -197,6 +197,7 @@ impl FicflowApp {
             db_path.clone(),
             config.background_refresh,
             app_config.background_checks,
+            app_config.backup_epubs,
         );
         let mut app = Self {
             connection,

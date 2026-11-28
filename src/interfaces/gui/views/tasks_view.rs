@@ -173,5 +173,6 @@ fn format_kind(kind: &TaskKind) -> &'static str {
         TaskKind::Refresh { .. } => "Refresh",
         TaskKind::RefreshSeries { .. } => "Refresh series",
         TaskKind::BackgroundCheck => "Update check",
+        TaskKind::EpubBackup { .. } => "EPUB backup",
     }
 }

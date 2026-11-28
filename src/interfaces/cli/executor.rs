@@ -40,7 +40,7 @@ impl<'a> CliCommandExecutor<'a> {
                 run(
                     "adding fanfiction",
                     add_fanfiction(self.fetcher, repo, repo, fic_id),
-                    |title| println!("Successfully added: {}", title),
+                    |fic| println!("Successfully added: {}", fic.title),
                 )
             }
             CliCommand::Delete { fic_id } => {

@@ -8,3 +8,8 @@ pub trait FanfictionOps {
     fn get_fanfiction_by_id(&self, fic_id: u64) -> Result<Fanfiction, FicflowError>;
     fn wipe_database(&self) -> Result<(), FicflowError>;
 }
+
+pub trait EpubStore {
+    fn save_epub(&self, fic_id: u64, epub: &[u8]) -> Result<(), FicflowError>;
+    fn remove_epub(&self, fic_id: u64) -> Result<(), FicflowError>;
+}
