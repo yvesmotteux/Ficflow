@@ -22,6 +22,7 @@
 pub mod add_fic;
 pub mod add_to_shelf;
 pub mod background_refresh;
+pub mod backup_epub;
 pub mod check_updates;
 pub mod clear_inbox;
 pub mod count_fics_in_shelf;

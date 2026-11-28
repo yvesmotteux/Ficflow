@@ -276,6 +276,7 @@ pub mod fixtures {
             last_checked_date: Utc::now(),
             chapter_ids: Vec::new(),
             series: Vec::new(),
+            epub_path: None,
         }
     }
 

@@ -233,6 +233,11 @@ pub fn parse_work(fic_id: u64, html: &str) -> Result<Fanfiction, FicflowError> {
         last_checked_date: Utc::now(),
         chapter_ids: chapter_ids(&doc),
         series: series_refs(&doc),
+        epub_path: doc
+            .select(selector!("li.download a[href*=\".epub\"]"))
+            .next()
+            .and_then(|link| link.value().attr("href"))
+            .map(str::to_string),
     })
 }
 

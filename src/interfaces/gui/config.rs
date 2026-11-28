@@ -167,6 +167,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub sync_marked_for_later: bool,
     #[serde(default)]
+    pub backup_epubs: bool,
+    #[serde(default)]
     pub marked_for_later_synced_at: Option<DateTime<Utc>>,
     #[serde(flatten)]
     pub shared: Config,
@@ -231,6 +233,7 @@ impl Default for AppConfig {
             collapsed_series: Vec::new(),
             group_series: true,
             sync_marked_for_later: false,
+            backup_epubs: false,
             marked_for_later_synced_at: None,
             text_zoom: 1.0,
             theme: ThemeChoice::System,

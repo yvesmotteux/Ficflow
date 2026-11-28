@@ -70,6 +70,7 @@ pub fn row_to_fanfiction(row: &Row) -> Result<Fanfiction, rusqlite::Error> {
         last_checked_date: timestamp(row, "last_checked_date")?,
         chapter_ids: Vec::new(),
         series: Vec::new(),
+        epub_path: None,
     })
 }
 

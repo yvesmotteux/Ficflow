@@ -1,4 +1,5 @@
 pub mod database;
+pub mod epub_folder;
 pub mod repository;
 
 pub use database::connection::{

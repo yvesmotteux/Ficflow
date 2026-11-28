@@ -29,6 +29,7 @@ pub enum TaskKind {
     Refresh { fic_id: u64 },
     RefreshSeries { series_id: u64 },
     BackgroundCheck,
+    EpubBackup { fic_id: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,6 +93,10 @@ pub(super) enum WorkerCommand {
         task_id: u64,
         series_id: u64,
     },
+    BackupEpub {
+        task_id: u64,
+        fic_id: u64,
+    },
     CheckAllNow,
     ResumeBackground,
 }
@@ -121,6 +126,7 @@ pub(super) struct WorkerShared {
     pub new_messages: Mutex<Vec<InboxMessage>>,
     pub library_changed: AtomicBool,
     pub background_enabled: AtomicBool,
+    pub epub_backups: AtomicBool,
     pub background: Mutex<BackgroundStatus>,
     pub finished_manual_checks: Mutex<Vec<usize>>,
     pub import_notices: Mutex<Vec<ImportNotice>>,
@@ -128,7 +134,7 @@ pub(super) struct WorkerShared {
 }
 
 impl WorkerShared {
-    fn new(background_enabled: bool) -> Self {
+    fn new(background_enabled: bool, epub_backups: bool) -> Self {
         Self {
             tasks: Mutex::new(Vec::new()),
             recent_completions: Mutex::new(Vec::new()),
@@ -136,6 +142,7 @@ impl WorkerShared {
             new_messages: Mutex::new(Vec::new()),
             library_changed: AtomicBool::new(false),
             background_enabled: AtomicBool::new(background_enabled),
+            epub_backups: AtomicBool::new(epub_backups),
             background: Mutex::new(BackgroundStatus::default()),
             finished_manual_checks: Mutex::new(Vec::new()),
             import_notices: Mutex::new(Vec::new()),
@@ -173,8 +180,9 @@ impl TaskExecutor {
         db_path: PathBuf,
         schedule: Option<RefreshSchedule>,
         background_enabled: bool,
+        epub_backups: bool,
     ) -> Self {
-        let shared = Arc::new(WorkerShared::new(background_enabled));
+        let shared = Arc::new(WorkerShared::new(background_enabled, epub_backups));
         let (tx, rx) = mpsc::channel();
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
@@ -310,6 +318,17 @@ impl TaskExecutor {
             .store(enabled, Ordering::Relaxed);
     }
 
+    pub fn set_epub_backups(&self, enabled: bool) {
+        self.shared.epub_backups.store(enabled, Ordering::Relaxed);
+    }
+
+    fn enqueue_epub_backup(&self, fic_id: u64, display: String) {
+        let task_id = self.push_task(TaskKind::EpubBackup { fic_id }, display);
+        let _ = self
+            .sender
+            .send(WorkerCommand::BackupEpub { task_id, fic_id });
+    }
+
     pub fn background_status(&self) -> BackgroundStatus {
         lock(&self.shared.background).clone()
     }
@@ -357,6 +376,7 @@ impl TaskExecutor {
             TaskKind::BackgroundCheck => {
                 let _ = self.sender.send(WorkerCommand::ResumeBackground);
             }
+            TaskKind::EpubBackup { fic_id } => self.enqueue_epub_backup(fic_id, failed.display),
         }
     }
 

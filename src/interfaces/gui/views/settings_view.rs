@@ -27,6 +27,13 @@ pub struct SettingsOutcome {
     pub check_now: bool,
     pub import_subscriptions: Option<String>,
     pub marked_for_later_toggled: Option<bool>,
+    pub open_epub_folder: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct SettingsPaths<'a> {
+    pub library: &'a Path,
+    pub epubs: &'a Path,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -40,7 +47,7 @@ pub fn draw(
     ui: &mut Ui,
     tab: &mut SettingsTab,
     config: &mut AppConfig,
-    current_db_path: &Path,
+    paths: SettingsPaths<'_>,
     newer_release: Option<&Release>,
     account: &mut Ao3Account,
     background: &BackgroundStatus,
@@ -51,6 +58,7 @@ pub fn draw(
         check_now: false,
         import_subscriptions: None,
         marked_for_later_toggled: None,
+        open_epub_folder: false,
     };
     ui.horizontal(|ui| {
         for (target, label) in [
@@ -72,7 +80,7 @@ pub fn draw(
                     ui,
                     &mut outcome,
                     config,
-                    current_db_path,
+                    paths,
                     newer_release,
                     account,
                     background,
@@ -87,7 +95,7 @@ fn draw_general(
     ui: &mut Ui,
     outcome: &mut SettingsOutcome,
     config: &mut AppConfig,
-    current_db_path: &Path,
+    paths: SettingsPaths<'_>,
     newer_release: Option<&Release>,
     account: &mut Ao3Account,
     background: &BackgroundStatus,
@@ -165,8 +173,22 @@ fn draw_general(
     });
 
     ui.add_space(12.0);
+    ui.label(RichText::new("Backups").strong());
+    outcome.config_changed |= ui
+        .checkbox(&mut config.backup_epubs, "Save an EPUB copy of each fic")
+        .changed();
+    ui.label(
+        RichText::new(
+            "Downloaded from AO3 each time a fic is added or refreshed, replacing the previous \
+            copy. Turning this off keeps the copies already saved.",
+        )
+        .weak()
+        .italics(),
+    );
+
+    ui.add_space(12.0);
     ui.label(RichText::new("Paths").strong());
-    info_row(ui, "Library file", current_db_path.display().to_string());
+    info_row(ui, "Library file", paths.library.display().to_string());
     ui.horizontal(|ui| {
         if ui.button("Change library location").clicked() {
             outcome.request = Some(LibraryRequest::ChangeLocation);
@@ -184,6 +206,11 @@ fn draw_general(
         .weak()
         .italics(),
     );
+    ui.add_space(6.0);
+    info_row(ui, "EPUB folder", paths.epubs.display().to_string());
+    if ui.button("Open EPUB folder").clicked() {
+        outcome.open_epub_folder = true;
+    }
     ui.add_space(6.0);
     info_row(ui, "Settings file", config_path_display());
 }

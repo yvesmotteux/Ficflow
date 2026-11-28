@@ -35,6 +35,7 @@ toml = "1"
 resvg = "0.47"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 notify-rust = "4.19"
+open = "5"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 raw-window-handle = "0.6"

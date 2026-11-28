@@ -10,17 +10,19 @@ use chrono::Utc;
 
 use crate::application::add_fic::add_fanfiction;
 use crate::application::background_refresh::{BackgroundRefresher, FailureReport, RefreshSchedule};
+use crate::application::backup_epub::backup_epub;
 use crate::application::check_updates::check_fic_updates;
 use crate::application::import_fics::{ImportFrom, ImportPlan, plan_import};
 use crate::application::list_fics::list_fics;
 use crate::application::sync_series::sync_series;
-use crate::domain::fanfiction::Fanfiction;
+use crate::domain::fanfiction::{Fanfiction, FanfictionFetcher};
 use crate::error::FicflowError;
 use crate::infrastructure::SqliteRepository;
 use crate::infrastructure::external::ao3::ao3_client::DEFAULT_MIN_REQUEST_GAP;
 use crate::infrastructure::external::ao3::fetcher::Ao3Fetcher;
 use crate::infrastructure::external::ao3::session::SessionStore;
 use crate::infrastructure::persistence::database::connection::open_configured_db;
+use crate::infrastructure::persistence::epub_folder::EpubFolder;
 use crate::interfaces::utils::formatter::format_thousands;
 use crate::interfaces::utils::url_parser::extract_ao3_id;
 
@@ -80,6 +82,7 @@ pub fn run(
         }
     };
     let repo = SqliteRepository::new(&conn);
+    let epubs = EpubFolder::for_library(&db_path);
     let mut background = Background {
         refresher: BackgroundRefresher::new(schedule.unwrap_or_default(), Utc::now()),
         automatic: schedule.is_some(),
@@ -97,10 +100,10 @@ pub fn run(
             Err(TryRecvError::Disconnected) => break,
             Err(TryRecvError::Empty) => {
                 if let Some(add) = queued.pop_front() {
-                    run_queued_add(&fetcher, &repo, &shared, &mut imports, add);
+                    run_queued_add(&fetcher, &repo, &epubs, &shared, &mut imports, add);
                     continue;
                 }
-                if background.run_next(&fetcher, &repo, &shared) {
+                if background.run_next(&fetcher, &repo, &epubs, &shared) {
                     continue;
                 }
                 match rx.recv_timeout(background.refresher.schedule().idle_poll) {
@@ -119,8 +122,12 @@ pub fn run(
                 let outcome =
                     catch_unwind(AssertUnwindSafe(|| process_add(&fetcher, &repo, &input)))
                         .unwrap_or_else(|payload| Err(panic_to_error(payload)));
-                if let Some(title) = record(&shared, task_id, outcome) {
+                let added = outcome.as_ref().ok().cloned();
+                if let Some(title) = record(&shared, task_id, outcome.map(|fic| fic.title)) {
                     lock(&shared.recent_completions).push(title);
+                }
+                if let Some(fic) = added {
+                    backup_if_enabled(&fetcher, &epubs, &shared, &fic);
                 }
             }
             WorkerCommand::Import {
@@ -192,6 +199,7 @@ pub fn run(
                 .unwrap_or_else(|payload| Err(panic_to_error(payload)))
                 .map(|(fic, message)| {
                     lock(&shared.new_messages).extend(message);
+                    backup_if_enabled(&fetcher, &epubs, &shared, &fic);
                     fic.title
                 });
                 if record(&shared, task_id, outcome).is_some() {
@@ -207,6 +215,16 @@ pub fn run(
                 if record(&shared, task_id, outcome).is_some() {
                     shared.library_changed.store(true, Ordering::Relaxed);
                 }
+            }
+            WorkerCommand::BackupEpub { task_id, fic_id } => {
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    let fic = fetcher.fetch_fanfiction(fic_id)?;
+                    backup_epub(&fetcher, &epubs, &fic)?;
+                    Ok(fic.title)
+                }))
+                .unwrap_or_else(|payload| Err(panic_to_error(payload)))
+                .map_err(|err| FicflowError::Other(format!("EPUB backup failed: {err}")));
+                record(&shared, task_id, outcome);
             }
             WorkerCommand::CheckAllNow => {
                 background.refresher.resume();
@@ -226,6 +244,7 @@ fn task_is_running(shared: &WorkerShared, task_id: u64) -> bool {
 fn run_queued_add(
     fetcher: &Ao3Fetcher,
     repo: &SqliteRepository<'_>,
+    epubs: &EpubFolder,
     shared: &WorkerShared,
     imports: &mut HashMap<u64, ImportProgress>,
     add: QueuedAdd,
@@ -237,9 +256,13 @@ fn run_queued_add(
         add_fanfiction(fetcher, repo, repo, add.fic_id)
     }))
     .unwrap_or_else(|payload| Err(panic_to_error(payload)));
-    let added = record(shared, add.task_id, outcome).is_some();
+    let fic = outcome.as_ref().ok().cloned();
+    let added = record(shared, add.task_id, outcome.map(|fic| fic.title)).is_some();
     if added {
         shared.library_changed.store(true, Ordering::Relaxed);
+    }
+    if let Some(fic) = fic {
+        backup_if_enabled(fetcher, epubs, shared, &fic);
     }
     let Some(progress) = imports.get_mut(&add.import) else {
         return;
@@ -345,6 +368,7 @@ impl Background {
         &mut self,
         fetcher: &Ao3Fetcher,
         repo: &SqliteRepository<'_>,
+        epubs: &EpubFolder,
         shared: &WorkerShared,
     ) -> bool {
         if self.sweep.is_none() && !self.is_on(shared) {
@@ -366,8 +390,9 @@ impl Background {
         }))
         .unwrap_or_else(|payload| Err(panic_to_error(payload)));
         match outcome {
-            Ok((_, message)) => {
+            Ok((fic, message)) => {
                 self.refresher.record_success(fic_id);
+                backup_if_enabled(fetcher, epubs, shared, &fic);
                 if let Some(message) = message {
                     if let Some(sweep) = &mut self.sweep {
                         sweep.found += 1;
@@ -463,11 +488,35 @@ fn panic_to_error(payload: Box<dyn std::any::Any + Send>) -> FicflowError {
     FicflowError::Other(msg)
 }
 
+fn backup_if_enabled(
+    fetcher: &Ao3Fetcher,
+    epubs: &EpubFolder,
+    shared: &WorkerShared,
+    fic: &Fanfiction,
+) {
+    if !shared.epub_backups.load(Ordering::Relaxed) {
+        return;
+    }
+    let outcome = catch_unwind(AssertUnwindSafe(|| backup_epub(fetcher, epubs, fic)))
+        .unwrap_or_else(|payload| Err(panic_to_error(payload)));
+    lock(&shared.tasks).retain(|t| {
+        !(t.kind == TaskKind::EpubBackup { fic_id: fic.id }
+            && matches!(t.status, TaskStatus::Failed(_)))
+    });
+    if let Err(err) = outcome {
+        shared.push_task(
+            TaskKind::EpubBackup { fic_id: fic.id },
+            fic.title.clone(),
+            TaskStatus::Failed(format!("EPUB backup failed: {err}")),
+        );
+    }
+}
+
 fn process_add(
     fetcher: &Ao3Fetcher,
     repo: &SqliteRepository<'_>,
     input: &str,
-) -> Result<String, FicflowError> {
+) -> Result<Fanfiction, FicflowError> {
     let fic_id = extract_ao3_id(input).map_err(FicflowError::InvalidInput)?;
     add_fanfiction(fetcher, repo, repo, fic_id)
 }

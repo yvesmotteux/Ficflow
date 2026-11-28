@@ -198,6 +198,7 @@ impl FicflowApp {
                         fic: &fic,
                         all_shelves: &assignable_shelves,
                         selection_shelf_ids: &self.cache.selection_shelf_ids,
+                        has_epub: self.epubs.has(fic.id),
                     },
                 );
             });
@@ -336,7 +337,10 @@ impl FicflowApp {
                         ui,
                         &mut self.settings_tab,
                         &mut self.config,
-                        &self.current_db_path,
+                        settings_view::SettingsPaths {
+                            library: &self.current_db_path,
+                            epubs: self.epubs.dir(),
+                        },
                         self.update_check.newer_release(),
                         &mut self.ao3_account,
                         &self.task_executor.background_status(),
@@ -344,10 +348,21 @@ impl FicflowApp {
                     if outcome.config_changed {
                         self.task_executor
                             .set_background_enabled(self.config.background_checks);
+                        self.task_executor
+                            .set_epub_backups(self.config.backup_epubs);
                         self.save_config();
                     }
                     if let Some(enabled) = outcome.marked_for_later_toggled {
                         self.set_marked_for_later_sync(enabled);
+                    }
+                    if outcome.open_epub_folder {
+                        let dir = self.epubs.dir().to_path_buf();
+                        if let Err(err) = std::fs::create_dir_all(&dir) {
+                            self.toasts
+                                .error(format!("Couldn't create the EPUB folder: {err}"));
+                        } else {
+                            self.open_path(&dir);
+                        }
                     }
                     if outcome.check_now {
                         self.task_executor.check_all_now();

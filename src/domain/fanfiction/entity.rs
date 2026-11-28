@@ -10,6 +10,7 @@ pub trait FanfictionFetcher {
     fn fetch_fanfiction(&self, fic_id: u64) -> Result<Fanfiction, FicflowError>;
     fn fetch_work_ids(&self, list_path: &str, limit: usize) -> Result<WorkList, FicflowError>;
     fn fetch_series(&self, series_id: u64) -> Result<Series, FicflowError>;
+    fn download_epub(&self, path: &str) -> Result<Vec<u8>, FicflowError>;
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -51,4 +52,6 @@ pub struct Fanfiction {
     pub chapter_ids: Vec<u64>,
     #[serde(skip)]
     pub series: Vec<SeriesRef>,
+    #[serde(skip)]
+    pub epub_path: Option<String>,
 }

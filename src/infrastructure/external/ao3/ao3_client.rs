@@ -72,6 +72,17 @@ pub fn read_page(response: Response) -> Result<String, FicflowError> {
     }
 }
 
+fn read_bytes(response: Response) -> Result<Vec<u8>, FicflowError> {
+    if response
+        .headers()
+        .get("cf-mitigated")
+        .is_some_and(|value| value == "challenge")
+    {
+        return Err(FicflowError::CloudflareChallenge);
+    }
+    Ok(response.error_for_status()?.bytes()?.to_vec())
+}
+
 pub struct Ao3Client {
     client: Client,
     min_gap: Duration,
@@ -117,6 +128,28 @@ impl Ao3Client {
         base_url: &str,
         cookie: Option<&str>,
     ) -> Result<Option<String>, FicflowError> {
+        self.send(path, base_url, cookie)?
+            .map(read_page)
+            .transpose()
+    }
+
+    pub fn fetch_bytes(
+        &self,
+        path: &str,
+        base_url: &str,
+        cookie: Option<&str>,
+    ) -> Result<Option<Vec<u8>>, FicflowError> {
+        self.send(path, base_url, cookie)?
+            .map(read_bytes)
+            .transpose()
+    }
+
+    fn send(
+        &self,
+        path: &str,
+        base_url: &str,
+        cookie: Option<&str>,
+    ) -> Result<Option<Response>, FicflowError> {
         self.throttle();
         let url = format!("{}{}", base_url, path);
         let mut request = self.client.get(&url);
@@ -127,6 +160,6 @@ impl Ao3Client {
         if response.url().path().starts_with("/users/login") {
             return Ok(None);
         }
-        read_page(response).map(Some)
+        Ok(Some(response))
     }
 }

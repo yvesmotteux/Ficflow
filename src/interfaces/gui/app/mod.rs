@@ -43,6 +43,7 @@ use crate::infrastructure::external::github::{LATEST_RELEASE_URL, Release};
 use crate::infrastructure::persistence::database::connection::{
     move_library_into, open_configured_db, restore_backup,
 };
+use crate::infrastructure::persistence::epub_folder::EpubFolder;
 
 use super::ao3_account::Ao3Account;
 use super::chrome::FrameChrome;
@@ -72,6 +73,7 @@ pub struct FicflowApp {
     /// source when the user relocates the library and the target that a
     /// restored backup is copied over.
     current_db_path: PathBuf,
+    epubs: EpubFolder,
     cache: LibraryCache,
     chrome: FrameChrome,
     config: AppConfig,
@@ -197,9 +199,11 @@ impl FicflowApp {
             db_path.clone(),
             config.background_refresh,
             app_config.background_checks,
+            app_config.backup_epubs,
         );
         let mut app = Self {
             connection,
+            epubs: EpubFolder::for_library(&db_path),
             current_db_path: db_path,
             cache,
             chrome,
@@ -498,6 +502,23 @@ impl FicflowApp {
         self.save_config();
     }
 
+    pub fn set_epub_backups(&mut self, enabled: bool) {
+        self.config.backup_epubs = enabled;
+        self.task_executor.set_epub_backups(enabled);
+        self.save_config();
+    }
+
+    pub fn epub_path(&self, fic_id: u64) -> Option<PathBuf> {
+        self.epubs.has(fic_id).then(|| self.epubs.path(fic_id))
+    }
+
+    fn open_path(&mut self, path: &std::path::Path) {
+        if let Err(err) = open::that_detached(path) {
+            self.toasts
+                .error(format!("Couldn't open {}: {err}", path.display()));
+        }
+    }
+
     pub fn set_marked_for_later_sync(&mut self, enabled: bool) {
         self.config.sync_marked_for_later = enabled;
         if enabled {
@@ -532,6 +553,10 @@ impl FicflowApp {
 
     pub fn submit_import(&self, source: ImportSource) {
         self.task_executor.enqueue_import(source);
+    }
+
+    pub fn retry_task(&self, task_id: u64) {
+        self.task_executor.retry(task_id);
     }
 
     pub fn confirm_import(&self, task_id: u64) {
@@ -872,6 +897,7 @@ impl FicflowApp {
             ),
             Outcome::RequestDelete => return self.delete_selected(),
             Outcome::RequestRefresh => return self.refresh_selected(),
+            Outcome::OpenEpub => return self.open_path(&self.epubs.path(fic_id)),
             Outcome::CreateAutoShelfFromTag(field, value) => {
                 self.active_modal = ActiveModal::AutoShelf(AutoShelfState::prefilled(field, value));
                 return;
@@ -953,9 +979,10 @@ impl FicflowApp {
 
     fn handle_bulk_delete(&mut self, ids: &[u64]) {
         let total = ids.len();
+        let epubs = self.epubs.clone();
         let deleted: Vec<u64> = self.mutate(|repo| {
             ids.iter()
-                .filter(|id| delete_fic::delete_fic(repo, **id).is_ok())
+                .filter(|id| delete_fic::delete_fic(repo, &epubs, **id).is_ok())
                 .copied()
                 .collect()
         });

@@ -15,20 +15,29 @@ use crate::{
         update_rating::update_user_rating, update_read_count::update_read_count,
         update_status::update_reading_status, wipe_db::wipe_database,
     },
-    domain::{fanfiction::FanfictionFetcher, repository::Repository},
+    domain::{
+        fanfiction::{EpubStore, FanfictionFetcher},
+        repository::Repository,
+    },
     error::FicflowError,
 };
 
 pub struct CliCommandExecutor<'a> {
     fetcher: &'a dyn FanfictionFetcher,
     repository: &'a dyn Repository,
+    epubs: &'a dyn EpubStore,
 }
 
 impl<'a> CliCommandExecutor<'a> {
-    pub fn new(fetcher: &'a dyn FanfictionFetcher, repository: &'a dyn Repository) -> Self {
+    pub fn new(
+        fetcher: &'a dyn FanfictionFetcher,
+        repository: &'a dyn Repository,
+        epubs: &'a dyn EpubStore,
+    ) -> Self {
         Self {
             fetcher,
             repository,
+            epubs,
         }
     }
 
@@ -40,12 +49,16 @@ impl<'a> CliCommandExecutor<'a> {
                 run(
                     "adding fanfiction",
                     add_fanfiction(self.fetcher, repo, repo, fic_id),
-                    |title| println!("Successfully added: {}", title),
+                    |fic| println!("Successfully added: {}", fic.title),
                 )
             }
             CliCommand::Delete { fic_id } => {
                 println!("Deleting fanfiction with ID: {}", fic_id);
-                run("deleting fanfiction", delete_fic(repo, fic_id), |()| {})
+                run(
+                    "deleting fanfiction",
+                    delete_fic(repo, self.epubs, fic_id),
+                    |()| {},
+                )
             }
             CliCommand::Get { fic_id } => {
                 println!("Getting fanfiction with ID: {}", fic_id);
