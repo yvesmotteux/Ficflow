@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use chrono::{Duration as ChronoDuration, Utc};
 use egui_notify::Toasts;
 use rusqlite::Connection;
 
@@ -63,7 +64,7 @@ use super::views::{
     LibraryCounts, LibraryViewState, SelectionBarState, SidebarState, TableOutcome, TaskFilter,
     TasksViewState, details_panel, inbox_view, library_rows, library_view, selection_bar, sidebar,
 };
-use crate::interfaces::utils::url_parser::subscriptions_list;
+use crate::interfaces::utils::url_parser::{marked_for_later_list, subscriptions_list};
 
 pub struct FicflowApp {
     connection: Connection,
@@ -494,6 +495,34 @@ impl FicflowApp {
     pub fn set_background_checks(&mut self, enabled: bool) {
         self.config.background_checks = enabled;
         self.task_executor.set_background_enabled(enabled);
+        self.save_config();
+    }
+
+    pub fn set_marked_for_later_sync(&mut self, enabled: bool) {
+        self.config.sync_marked_for_later = enabled;
+        if enabled {
+            self.config.marked_for_later_synced_at = None;
+        }
+        self.save_config();
+    }
+
+    fn maybe_sync_marked_for_later(&mut self) {
+        if !self.config.sync_marked_for_later || self.task_executor.is_syncing() {
+            return;
+        }
+        let Some(user) = self.ao3_account.username() else {
+            return;
+        };
+        let now = Utc::now();
+        let due = self
+            .config
+            .marked_for_later_synced_at
+            .is_none_or(|last| now - last >= ChronoDuration::days(1));
+        if !due {
+            return;
+        }
+        self.task_executor.enqueue_sync(marked_for_later_list(user));
+        self.config.marked_for_later_synced_at = Some(now);
         self.save_config();
     }
 

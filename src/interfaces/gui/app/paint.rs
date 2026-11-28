@@ -29,6 +29,7 @@ impl FicflowApp {
         self.handle_close_request(&ctx);
         self.handle_shortcuts(&ctx);
         self.ao3_account.poll();
+        self.maybe_sync_marked_for_later();
         self.open_inbox_if_requested(&ctx);
         let on_settings = matches!(self.current_view, View::Settings);
         if on_settings && !self.was_on_settings {
@@ -344,6 +345,9 @@ impl FicflowApp {
                         self.task_executor
                             .set_background_enabled(self.config.background_checks);
                         self.save_config();
+                    }
+                    if let Some(enabled) = outcome.marked_for_later_toggled {
+                        self.set_marked_for_later_sync(enabled);
                     }
                     if outcome.check_now {
                         self.task_executor.check_all_now();

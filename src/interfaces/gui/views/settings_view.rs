@@ -26,6 +26,7 @@ pub struct SettingsOutcome {
     pub request: Option<LibraryRequest>,
     pub check_now: bool,
     pub import_subscriptions: Option<String>,
+    pub marked_for_later_toggled: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -49,6 +50,7 @@ pub fn draw(
         request: None,
         check_now: false,
         import_subscriptions: None,
+        marked_for_later_toggled: None,
     };
     ui.horizontal(|ui| {
         for (target, label) in [
@@ -114,7 +116,7 @@ fn draw_general(
 
     ui.add_space(12.0);
     ui.label(RichText::new("AO3 account").strong());
-    outcome.import_subscriptions = draw_account(ui, account);
+    draw_account(ui, outcome, config, account);
 
     ui.add_space(12.0);
     ui.label(RichText::new("Updates").strong());
@@ -241,8 +243,12 @@ fn draw_display(ui: &mut Ui, config: &mut AppConfig) -> bool {
     changed
 }
 
-fn draw_account(ui: &mut Ui, account: &mut Ao3Account) -> Option<String> {
-    let mut import_subscriptions = None;
+fn draw_account(
+    ui: &mut Ui,
+    outcome: &mut SettingsOutcome,
+    config: &AppConfig,
+    account: &mut Ao3Account,
+) {
     if account.logging_in() {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -260,8 +266,23 @@ fn draw_account(ui: &mut Ui, account: &mut Ao3Account) -> Option<String> {
             .on_hover_text("Adds every work you're subscribed to on AO3")
             .clicked()
         {
-            import_subscriptions = Some(username);
+            outcome.import_subscriptions = Some(username);
         }
+        let mut sync = config.sync_marked_for_later;
+        if ui
+            .checkbox(&mut sync, "Add my Marked for Later fics to Ficflow")
+            .changed()
+        {
+            outcome.marked_for_later_toggled = Some(sync);
+        }
+        ui.label(
+            RichText::new(
+                "Checked once a day while Ficflow is open. To stop a fic from coming back, \
+                remove it from Marked for Later on AO3; deleting it here isn't enough.",
+            )
+            .weak()
+            .italics(),
+        );
     } else {
         let mut submit = false;
         egui::Grid::new("ao3_login").num_columns(2).show(ui, |ui| {
@@ -292,7 +313,6 @@ fn draw_account(ui: &mut Ui, account: &mut Ao3Account) -> Option<String> {
     if let Some(error) = account.error() {
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
-    import_subscriptions
 }
 
 fn apply_zoom(config: &mut AppConfig, changed: &mut bool, ctx: &egui::Context, zoom: f32) {
