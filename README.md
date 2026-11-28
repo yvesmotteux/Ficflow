@@ -79,7 +79,6 @@ cargo build --release
 
 ## Features (Planned, the order is approximate)
 
-- [ ] when logged in, regularly sync the AO3 "Marked for Later" list into Ficflow
 - [ ] opt-in option to back up the epub files of all fanfictions added to the database
 - [ ] detect when a fanfic was removed from AO3 and tag it specially / send a message to the inbox. If epub dl optin, explicitly offer access to the fic
 - [ ] add the ability to follow a user (new fics from followed users land in the inbox)
