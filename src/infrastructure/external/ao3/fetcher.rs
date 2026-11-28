@@ -100,14 +100,25 @@ impl Ao3Fetcher {
         base_url: &str,
         needs_login: FicflowError,
     ) -> Result<String, FicflowError> {
+        self.with_session_cookie(base_url, needs_login, |cookie| {
+            self.client.fetch_page(path, base_url, cookie)
+        })
+    }
+
+    fn with_session_cookie<T>(
+        &self,
+        base_url: &str,
+        needs_login: FicflowError,
+        fetch: impl FnOnce(Option<&str>) -> Result<Option<T>, FicflowError>,
+    ) -> Result<T, FicflowError> {
         let access = self
             .session
             .as_ref()
             .filter(|access| access.site == base_url);
         let session = access.and_then(|access| access.store.load());
         let cookie = session.as_ref().map(|session| session.cookie.as_str());
-        match self.client.fetch_page(path, base_url, cookie)? {
-            Some(html) => Ok(html),
+        match fetch(cookie)? {
+            Some(body) => Ok(body),
             None if session.is_some() => {
                 if let Some(access) = access {
                     access.store.clear()?;
@@ -229,5 +240,13 @@ impl FanfictionFetcher for Ao3Fetcher {
         series.works.sort_by_key(|work| work.part);
         series.works.dedup_by_key(|work| work.work_id);
         Ok(series)
+    }
+
+    fn download_epub(&self, path: &str) -> Result<Vec<u8>, FicflowError> {
+        self.with_retries(|base_url| {
+            self.with_session_cookie(base_url, FicflowError::LoginRequired, |cookie| {
+                self.client.fetch_bytes(path, base_url, cookie)
+            })
+        })
     }
 }
