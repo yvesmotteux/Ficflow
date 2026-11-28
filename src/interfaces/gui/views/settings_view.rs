@@ -270,16 +270,15 @@ fn draw_account(
         }
         let mut sync = config.sync_marked_for_later;
         if ui
-            .checkbox(&mut sync, "Add my Marked for Later fics to Plan to Read")
+            .checkbox(&mut sync, "Add my Marked for Later fics to Ficflow")
             .changed()
         {
             outcome.marked_for_later_toggled = Some(sync);
         }
         ui.label(
             RichText::new(
-                "Checked once a day while Ficflow is open. New fics are added as Plan to Read, \
-                and fics already in your library keep their status. To stop a fic from coming \
-                back, remove it from Marked for Later on AO3; deleting it here isn't enough.",
+                "Checked once a day while Ficflow is open. To stop a fic from coming back, \
+                remove it from Marked for Later on AO3; deleting it here isn't enough.",
             )
             .weak()
             .italics(),
