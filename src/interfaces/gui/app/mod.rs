@@ -555,6 +555,10 @@ impl FicflowApp {
         self.task_executor.enqueue_import(source);
     }
 
+    pub fn retry_task(&self, task_id: u64) {
+        self.task_executor.retry(task_id);
+    }
+
     pub fn confirm_import(&self, task_id: u64) {
         self.task_executor.confirm_import(task_id);
     }

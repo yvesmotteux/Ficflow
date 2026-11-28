@@ -79,3 +79,6 @@ mod series;
 
 #[path = "gui/marked_for_later.rs"]
 mod marked_for_later;
+
+#[path = "gui/epub_backup.rs"]
+mod epub_backup;
